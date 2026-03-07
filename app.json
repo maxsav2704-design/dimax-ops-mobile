@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "DIMAX Installer",
+    "slug": "dimax-installer",
+    "scheme": "dimax-installer",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-sqlite",
+      "expo-asset"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "apiBaseUrl": "http://localhost:8000"
+    }
+  }
+}
