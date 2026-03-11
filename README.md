@@ -57,6 +57,7 @@ This was added in backend in the same step so the mobile app can recover full of
 
 - `MOBILE_INSTALLER_IMPLEMENTATION_PLAN.md`
 - `MOBILE_INSTALLER_READINESS.md`
+- `MOBILE_LOCALIZATION_READINESS.md`
 
 ## Next mobile steps
 

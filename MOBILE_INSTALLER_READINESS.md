@@ -70,17 +70,26 @@ The mobile installer application is now a working read-only / offline-capable ex
 Validated locally with:
 
 - `npm.cmd run quality-gate`
-- `vitest`: `22 passed`
+- `vitest`: `24 passed`
 - `expo config --json`
 - `tsc --noEmit`
 - `.\workspace.cmd preflight-mobile-device`
 - `.\workspace.cmd smoke-mobile`
 
+## Localization baseline
+
+- mobile locale foundation is implemented
+- core installer routes are localized for:
+  - `en`
+  - `ru`
+  - `he`
+- readiness details are tracked in:
+  - `MOBILE_LOCALIZATION_READINESS.md`
+
 ## Remaining gaps before production mobile release
 
 - real in-app navigation smoke on Android emulator / physical device
 - screen-level tests for navigation and continuity
-- multilingual UI layer inside mobile screens
 - visual QA on small devices
 - push / notification strategy, if required
 - stronger auth/session refresh UX on mobile
