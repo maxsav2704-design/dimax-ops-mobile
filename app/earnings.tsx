@@ -22,6 +22,7 @@ export default function EarningsScreen() {
   const [loading, setLoading] = useState(true);
   const [focus, setFocus] = useState<EarningsPeriodFocus>("MONTH");
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [selectedInstallType, setSelectedInstallType] = useState<string>("ALL");
 
   const reload = async () => {
     setLoading(true);
@@ -42,6 +43,17 @@ export default function EarningsScreen() {
     () => buildEarningsFocusContext(snapshot, todayDate, focus, selectedDay),
     [focus, selectedDay, snapshot, todayDate]
   );
+  const filteredRows = useMemo(() => {
+    const rows = focusContext?.rows || [];
+    if (selectedInstallType === "ALL") {
+      return rows;
+    }
+    return rows.filter((item) => item.install_type_code === selectedInstallType);
+  }, [focusContext?.rows, selectedInstallType]);
+  const installTypeLanes = useMemo(
+    () => focusContext?.installTypeSummary || [],
+    [focusContext?.installTypeSummary]
+  );
 
   useEffect(() => {
     if (!snapshot?.days.length) {
@@ -52,6 +64,15 @@ export default function EarningsScreen() {
       setSelectedDay(snapshot.days[0].date);
     }
   }, [selectedDay, snapshot]);
+
+  useEffect(() => {
+    if (selectedInstallType === "ALL") {
+      return;
+    }
+    if (!installTypeLanes.some((item) => item.code === selectedInstallType)) {
+      setSelectedInstallType("ALL");
+    }
+  }, [installTypeLanes, selectedInstallType]);
 
   useEffect(() => {
     const incomingFocus = typeof params.focus === "string" ? params.focus.trim().toUpperCase() : "";
@@ -171,14 +192,49 @@ export default function EarningsScreen() {
           {snapshot ? (
             <>
               <Text style={sectionTitleSpacer}>By install type</Text>
-              {focusContext?.installTypeSummary.length ? (
-                focusContext.installTypeSummary.map((item) => (
-                  <View key={item.code} style={rowCardStyle}>
-                    <Text style={rowTitleStyle}>{item.label}</Text>
-                    <Text style={bodyStyle}>Amount: {item.amount.toFixed(2)} {focusContext.currency}</Text>
-                    <Text style={bodyStyle}>Qty: {item.quantity}</Text>
-                  </View>
-                ))
+              {installTypeLanes.length ? (
+                <>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={chipRowStyle}>
+                    <Pressable
+                      onPress={() => setSelectedInstallType("ALL")}
+                      style={[chipStyle, selectedInstallType === "ALL" && chipStyleActive]}
+                    >
+                      <Text style={{ color: selectedInstallType === "ALL" ? "#04111f" : "#d9e7f7", fontWeight: "600" }}>
+                        All types
+                      </Text>
+                    </Pressable>
+                    {installTypeLanes.map((item) => (
+                      <Pressable
+                        key={item.code}
+                        onPress={() => setSelectedInstallType(item.code)}
+                        style={[chipStyle, selectedInstallType === item.code && chipStyleActive]}
+                      >
+                        <Text
+                          style={{
+                            color: selectedInstallType === item.code ? "#04111f" : "#d9e7f7",
+                            fontWeight: "600",
+                          }}
+                        >
+                          {item.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                  {installTypeLanes.map((item) => (
+                    <Pressable
+                      key={item.code}
+                      style={[
+                        rowCardStyle,
+                        selectedInstallType === item.code && { borderColor: "#5aa8ff", backgroundColor: "#11283f" },
+                      ]}
+                      onPress={() => setSelectedInstallType(item.code)}
+                    >
+                      <Text style={rowTitleStyle}>{item.label}</Text>
+                      <Text style={bodyStyle}>Amount: {item.amount.toFixed(2)} {focusContext?.currency || ""}</Text>
+                      <Text style={bodyStyle}>Qty: {item.quantity}</Text>
+                    </Pressable>
+                  ))}
+                </>
               ) : (
                 <Text style={bodyStyle}>No install type breakdown for the current focus.</Text>
               )}
@@ -197,8 +253,8 @@ export default function EarningsScreen() {
               )}
 
               <Text style={sectionTitleSpacer}>Work rows in focus</Text>
-              {focusContext?.rows.length ? (
-                focusContext.rows.slice(0, 12).map((item) => {
+              {filteredRows.length ? (
+                filteredRows.slice(0, 12).map((item) => {
                   const projectId = item.project_id;
                   return (
                   <View key={item.id} style={rowCardStyle}>
@@ -207,7 +263,7 @@ export default function EarningsScreen() {
                     <Text style={bodyStyle}>Door: {item.door_label || "-"}</Text>
                     <Text style={bodyStyle}>Type: {item.install_type_label}</Text>
                     <Text style={bodyStyle}>Qty: {item.quantity}</Text>
-                    <Text style={bodyStyle}>Amount: {item.amount} {focusContext.currency}</Text>
+                    <Text style={bodyStyle}>Amount: {item.amount} {focusContext?.currency || ""}</Text>
                     {projectId ? (
                       <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
                         <Pressable
