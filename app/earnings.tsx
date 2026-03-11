@@ -54,6 +54,32 @@ export default function EarningsScreen() {
     () => focusContext?.installTypeSummary || [],
     [focusContext?.installTypeSummary]
   );
+  const projectLanes = useMemo(() => {
+    const lanes = new Map<
+      string,
+      {
+        key: string;
+        projectId: string | null;
+        projectName: string;
+        amount: number;
+        rows: number;
+      }
+    >();
+    for (const row of filteredRows) {
+      const key = row.project_id || `unlinked:${row.id}`;
+      const current = lanes.get(key) || {
+        key,
+        projectId: row.project_id,
+        projectName: row.project_name || "No project",
+        amount: 0,
+        rows: 0,
+      };
+      current.amount += Number.parseFloat(row.amount) || 0;
+      current.rows += 1;
+      lanes.set(key, current);
+    }
+    return Array.from(lanes.values()).sort((a, b) => b.amount - a.amount);
+  }, [filteredRows]);
 
   useEffect(() => {
     if (!snapshot?.days.length) {
@@ -250,6 +276,37 @@ export default function EarningsScreen() {
                 ))
               ) : (
                 <Text style={bodyStyle}>No daily breakdown rows yet.</Text>
+              )}
+
+              <Text style={sectionTitleSpacer}>Project lanes</Text>
+              {projectLanes.length ? (
+                projectLanes.map((lane) => {
+                  const projectId = lane.projectId;
+                  return (
+                  <View key={lane.key} style={rowCardStyle}>
+                    <Text style={rowTitleStyle}>{lane.projectName}</Text>
+                    <Text style={bodyStyle}>Amount: {lane.amount.toFixed(2)} {focusContext?.currency || ""}</Text>
+                    <Text style={bodyStyle}>Rows: {lane.rows}</Text>
+                    {projectId ? (
+                      <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+                        <Pressable
+                          onPress={() => router.push(buildProjectRoute(projectId))}
+                          style={[secondaryButton, { flex: 1 }]}
+                        >
+                          <Text style={secondaryButtonText}>Open project lane</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => router.push(buildIssueProjectRoute(projectId, { doorSearch: lane.projectName }))}
+                          style={[secondaryButton, { flex: 1 }]}
+                        >
+                          <Text style={secondaryButtonText}>Issue context</Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
+                  </View>
+                )})
+              ) : (
+                <Text style={bodyStyle}>No project lanes in the current focus.</Text>
               )}
 
               <Text style={sectionTitleSpacer}>Work rows in focus</Text>
