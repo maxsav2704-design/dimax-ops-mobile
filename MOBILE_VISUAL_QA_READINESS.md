@@ -18,6 +18,7 @@ Routes planned for visual QA:
 Validated locally with:
 
 - `.\workspace.cmd preflight-mobile-device`
+- `.\workspace.cmd preflight-mobile-native-build`
 - `.\workspace.cmd smoke-mobile`
 - `npm.cmd run typecheck`
 - `npm.cmd run test`
@@ -38,6 +39,7 @@ Observed state:
 
 - `adb devices` returned no active devices
 - the app is device-ready
+- the first native Android build also needs `JAVA_HOME` plus cached Gradle `8.10.2` or internet access to `services.gradle.org`
 - a full screen-by-screen visual pass still requires:
   - Android emulator launch, or
   - physical device connection
