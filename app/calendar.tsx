@@ -56,6 +56,33 @@ export default function CalendarScreen() {
       linkedProjectsCount,
     };
   }, [visibleItems]);
+  const projectLanes = useMemo(() => {
+    const lanes = new Map<
+      string,
+      {
+        key: string;
+        title: string;
+        projectId: string | null;
+        items: typeof visibleItems;
+      }
+    >();
+    for (const item of visibleItems) {
+      const key = item.project_id || `unlinked:${item.id}`;
+      const current = lanes.get(key) || {
+        key,
+        title: item.project_id ? `Project ${item.project_id}` : "No project",
+        projectId: item.project_id,
+        items: [],
+      };
+      current.items.push(item);
+      lanes.set(key, current);
+    }
+    return Array.from(lanes.values()).sort((a, b) => {
+      if (a.projectId && !b.projectId) return -1;
+      if (!a.projectId && b.projectId) return 1;
+      return a.title.localeCompare(b.title);
+    });
+  }, [visibleItems]);
 
   useEffect(() => {
     if (selectedDay !== "ALL" && !dayOptions.includes(selectedDay)) {
@@ -141,6 +168,43 @@ export default function CalendarScreen() {
               <Text style={summaryValueStyle}>{visibleSummary.linkedProjectsCount}</Text>
             </View>
           </View>
+        </View>
+
+        <View style={cardStyle}>
+          <Text style={sectionTitle}>Project lanes</Text>
+          {projectLanes.length ? (
+            <View style={{ gap: 10, marginTop: 14 }}>
+              {projectLanes.map((lane) => {
+                const serviceCount = lane.items.filter((item) => item.event_type.trim().toUpperCase() === "SERVICE").length;
+                return (
+                  <View key={lane.key} style={eventCardStyle}>
+                    <Text style={eventTitleStyle}>{lane.title}</Text>
+                    <Text style={bodyStyle}>Events: {lane.items.length}</Text>
+                    <Text style={bodyStyle}>Service items: {serviceCount}</Text>
+                    <Text style={bodyStyle}>Install items: {lane.items.length - serviceCount}</Text>
+                    {lane.projectId ? (
+                      <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+                        <Pressable
+                          onPress={() => router.push(`/project/${lane.projectId}`)}
+                          style={[secondaryButton, { flex: 1 }]}
+                        >
+                          <Text style={secondaryButtonText}>Open lane project</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => router.push(`/project/${lane.projectId}?issueStatus=OPEN`)}
+                          style={[secondaryButton, { flex: 1 }]}
+                        >
+                          <Text style={secondaryButtonText}>Open lane issues</Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </View>
+          ) : (
+            <Text style={bodyStyle}>No project lanes in the current day focus.</Text>
+          )}
         </View>
 
         <View style={cardStyle}>
