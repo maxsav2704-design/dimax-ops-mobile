@@ -75,6 +75,8 @@ Validated locally with:
 - `tsc --noEmit`
 - `.\workspace.cmd preflight-mobile-device`
 - `.\workspace.cmd smoke-mobile`
+- mobile visual/device readiness is tracked in:
+  - `MOBILE_VISUAL_QA_READINESS.md`
 
 ## Localization baseline
 
