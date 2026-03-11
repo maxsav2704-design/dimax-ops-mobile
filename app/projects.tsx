@@ -109,6 +109,20 @@ export default function ProjectsScreen() {
     }));
   }, [calendarState.snapshot]);
 
+  const todayExecutionItems = useMemo(() => {
+    const todayKey = new Date().toISOString().slice(0, 10);
+    return (calendarState.snapshot?.items || [])
+      .filter((item) => item.starts_at.slice(0, 10) === todayKey)
+      .slice(0, 4)
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        startsAt: item.starts_at,
+        projectId: item.project_id,
+        eventType: item.event_type,
+      }));
+  }, [calendarState.snapshot]);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
@@ -144,6 +158,65 @@ export default function ProjectsScreen() {
             <Text style={summaryValueStyle}>{earningsState.snapshot?.month_total || "--"}</Text>
             <Text style={summaryMetaStyle}>Problem projects: {problemProjects.length}</Text>
           </View>
+        </View>
+
+        <View style={cardStyle}>
+          <Text style={sectionTitle}>Today execution lane</Text>
+          <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
+            Tasks, money and next actions for the current day.
+          </Text>
+          <View style={{ gap: 10, marginTop: 14 }}>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Today tasks</Text>
+              <Text style={summaryValueInlineStyle}>{todayTasksCount}</Text>
+            </View>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Today earnings</Text>
+              <Text style={summaryValueInlineStyle}>{earningsState.snapshot?.today_total || "--"}</Text>
+            </View>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Priority events</Text>
+              <Text style={summaryValueInlineStyle}>{todayExecutionItems.length}</Text>
+            </View>
+          </View>
+          <View style={{ flexDirection: "row", gap: 12, marginTop: 14 }}>
+            <Pressable onPress={() => router.push("/calendar" as never)} style={[secondaryButton, { flex: 1 }]}>
+              <Text style={secondaryButtonText}>Today calendar</Text>
+            </Pressable>
+            <Pressable onPress={() => router.push("/earnings" as never)} style={[secondaryButton, { flex: 1 }]}>
+              <Text style={secondaryButtonText}>Today earnings</Text>
+            </Pressable>
+          </View>
+          {todayExecutionItems.length ? (
+            <View style={{ gap: 10, marginTop: 14 }}>
+              {todayExecutionItems.map((item) => (
+                <Pressable
+                  key={item.id}
+                  style={priorityCardStyle}
+                  onPress={() =>
+                    item.projectId
+                      ? router.push(buildPriorityRoute({
+                          projectId: item.projectId,
+                          eventType: item.eventType,
+                          title: item.title,
+                        }))
+                      : router.push("/calendar" as never)
+                  }
+                >
+                  <Text style={priorityTitleStyle}>{item.title}</Text>
+                  <Text style={priorityMetaStyle}>{item.startsAt}</Text>
+                  <Text style={priorityMetaStyle}>
+                    {item.projectId ? `Project: ${item.projectId}` : "No project"}
+                  </Text>
+                  <Text style={priorityMetaStyle}>Type: {item.eventType}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : (
+            <Text style={{ color: "#8fa7c2", marginTop: 12 }}>
+              No same-day execution events in the current calendar snapshot.
+            </Text>
+          )}
         </View>
 
         <View style={{ flexDirection: "row", gap: 12 }}>
@@ -342,4 +415,19 @@ const priorityTitleStyle = {
 const priorityMetaStyle = {
   color: "#8fa7c2",
   marginTop: 6,
+} as const;
+
+const summaryRowStyle = {
+  flexDirection: "row",
+  justifyContent: "space-between",
+  alignItems: "center",
+} as const;
+
+const summaryLabelStyle = {
+  color: "#8fa7c2",
+} as const;
+
+const summaryValueInlineStyle = {
+  color: "#f8fbff",
+  fontWeight: "700",
 } as const;
