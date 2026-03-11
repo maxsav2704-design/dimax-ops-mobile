@@ -134,6 +134,10 @@ export default function ProjectsScreen() {
       pendingSync: pendingCount,
     };
   }, [pendingCount, problemProjects.length, todayExecutionItems]);
+  const serviceLaneItems = useMemo(
+    () => todayExecutionItems.filter((item) => item.eventType.trim().toUpperCase() === "SERVICE"),
+    [todayExecutionItems]
+  );
 
   const earningsInstallTypeSummary = useMemo(
     () => (earningsState.snapshot?.install_types || []).slice(0, 3),
@@ -230,6 +234,59 @@ export default function ProjectsScreen() {
               <Text style={secondaryButtonText}>Review queue</Text>
             </Pressable>
           </View>
+        </View>
+
+        <View style={cardStyle}>
+          <Text style={sectionTitle}>Service lane</Text>
+          <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
+            Today service items that require issue-focused follow-up.
+          </Text>
+          {serviceLaneItems.length ? (
+            <View style={{ gap: 10, marginTop: 14 }}>
+              {serviceLaneItems.map((item) => (
+                <Pressable
+                  key={item.id}
+                  style={priorityCardStyle}
+                  onPress={() =>
+                    item.projectId
+                      ? router.push(
+                          buildIssueProjectRoute(item.projectId, {
+                            doorSearch: item.title,
+                          })
+                        )
+                      : router.push("/calendar" as never)
+                  }
+                >
+                  <Text style={priorityTitleStyle}>{item.title}</Text>
+                  <Text style={priorityMetaStyle}>{item.startsAt}</Text>
+                  <Text style={priorityMetaStyle}>{item.projectId ? `Project: ${item.projectId}` : "No project"}</Text>
+                  <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+                    <Pressable
+                      onPress={() =>
+                        item.projectId
+                          ? router.push(
+                              buildIssueProjectRoute(item.projectId, {
+                                doorSearch: item.title,
+                              })
+                            )
+                          : router.push("/calendar" as never)
+                      }
+                      style={[secondaryButton, { flex: 1 }]}
+                    >
+                      <Text style={secondaryButtonText}>Open issue context</Text>
+                    </Pressable>
+                    <Pressable onPress={() => router.push("/calendar" as never)} style={[secondaryButton, { flex: 1 }]}>
+                      <Text style={secondaryButtonText}>Open calendar</Text>
+                    </Pressable>
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          ) : (
+            <Text style={{ color: "#8fa7c2", marginTop: 12 }}>
+              No service items in today execution lane.
+            </Text>
+          )}
         </View>
 
         <View style={cardStyle}>
