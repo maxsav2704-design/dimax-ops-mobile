@@ -149,6 +149,11 @@ export default function ProjectDetailsScreen() {
     () => doors.filter((door) => issueDoorIds.has(door.id)).length,
     [doors, issueDoorIds]
   );
+  const priorityDoors = useMemo(() => {
+    const withIssues = doors.filter((door) => issueDoorIds.has(door.id));
+    const notInstalled = doors.filter((door) => door.status === "NOT_INSTALLED" && !issueDoorIds.has(door.id));
+    return [...withIssues, ...notInstalled].slice(0, 5);
+  }, [doors, issueDoorIds]);
 
   const groupedDoors = useMemo(() => {
     return filteredDoors.reduce<Record<string, InstallerDoor[]>>((acc, door) => {
@@ -472,6 +477,56 @@ export default function ProjectDetailsScreen() {
                   <Pressable onPress={() => focusIssueDoor(issue)} style={[secondaryButton, { marginTop: 10 }]}>
                     <Text style={secondaryButtonText}>Only this door</Text>
                   </Pressable>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
+        {priorityDoors.length ? (
+          <View style={cardStyle}>
+            <Text style={sectionTitle}>Priority doors</Text>
+            <Text style={metaStyle}>Top issue-linked and not-installed doors for the next action.</Text>
+            <View style={{ gap: 10, marginTop: 12 }}>
+              {priorityDoors.map((door) => (
+                <View key={door.id} style={doorCardStyle}>
+                  <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{door.unit_label}</Text>
+                  <Text style={metaStyle}>Status: {door.status}</Text>
+                  <Text style={metaStyle}>Order: {door.order_number || "-"}</Text>
+                  <Text style={metaStyle}>Location: {door.location_code || "-"}</Text>
+                  <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+                    <Pressable
+                      onPress={() => {
+                        setDoorSearch(door.unit_label);
+                        setDoorStatusFilter("ALL");
+                        setSelectedOrderNumber(door.order_number || "ALL");
+                        setSelectedLocationCode(door.location_code || "ALL");
+                      }}
+                      style={[secondaryButton, { flex: 1 }]}
+                    >
+                      <Text style={secondaryButtonText}>Only this door</Text>
+                    </Pressable>
+                    {issueDoorIds.has(door.id) ? (
+                      <Pressable
+                        onPress={() => {
+                          setIssueStatusFilter("OPEN");
+                          setDoorSearch(door.unit_label);
+                          setDoorStatusFilter("ALL");
+                        }}
+                        style={[secondaryButton, { flex: 1 }]}
+                      >
+                        <Text style={secondaryButtonText}>Issue focus</Text>
+                      </Pressable>
+                    ) : (
+                      <Pressable
+                        onPress={() => handleInstall(door.id)}
+                        style={[primaryButton, { flex: 1 }]}
+                        disabled={busy || door.is_locked}
+                      >
+                        <Text style={primaryButtonText}>Installed</Text>
+                      </Pressable>
+                    )}
+                  </View>
                 </View>
               ))}
             </View>
