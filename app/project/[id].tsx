@@ -193,6 +193,18 @@ export default function ProjectDetailsScreen() {
       issueDoors: problemDoorsCount,
     };
   }, [issues, problemDoorsCount]);
+  const completionSummary = useMemo(() => {
+    const installed = doors.filter((door) => door.status === "INSTALLED").length;
+    const notInstalled = doors.filter((door) => door.status === "NOT_INSTALLED").length;
+    const locked = doors.filter((door) => door.is_locked || door.status === "LOCKED").length;
+    return {
+      installed,
+      notInstalled,
+      locked,
+      issueDoors: problemDoorsCount,
+      total: doors.length,
+    };
+  }, [doors, problemDoorsCount]);
 
   const todayDate = new Date().toISOString().slice(0, 10);
   const projectEarnings = useMemo(
@@ -322,6 +334,54 @@ export default function ProjectDetailsScreen() {
             Ready now: {queueSummary?.ready_to_send || 0}
             {queueSummary?.next_retry_at ? ` | next retry ${queueSummary.next_retry_at}` : ""}
           </Text>
+        </View>
+
+        <View style={cardStyle}>
+          <Text style={sectionTitle}>Project completion lane</Text>
+          <Text style={metaStyle}>Execution status for the current project scope.</Text>
+          <View style={{ gap: 8, marginTop: 12 }}>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Installed</Text>
+              <Text style={summaryValueInlineStyle}>{completionSummary.installed}</Text>
+            </View>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Not installed</Text>
+              <Text style={summaryValueInlineStyle}>{completionSummary.notInstalled}</Text>
+            </View>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Issue doors</Text>
+              <Text style={summaryValueInlineStyle}>{completionSummary.issueDoors}</Text>
+            </View>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Locked</Text>
+              <Text style={summaryValueInlineStyle}>{completionSummary.locked}</Text>
+            </View>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Total doors</Text>
+              <Text style={summaryValueInlineStyle}>{completionSummary.total}</Text>
+            </View>
+          </View>
+          <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
+            <Pressable
+              onPress={() => {
+                setDoorStatusFilter("NOT_INSTALLED");
+                setIssueDoorFocus(false);
+              }}
+              style={[secondaryButton, { flex: 1 }]}
+            >
+              <Text style={secondaryButtonText}>Not installed lane</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setIssueStatusFilter("OPEN");
+                setIssueDoorFocus(true);
+                setDoorStatusFilter("ALL");
+              }}
+              style={[secondaryButton, { flex: 1 }]}
+            >
+              <Text style={secondaryButtonText}>Issue lane</Text>
+            </Pressable>
+          </View>
         </View>
 
         <View style={cardStyle}>
