@@ -15,6 +15,8 @@ export default function RootLayout() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ title: "DIMAX Installer" }} />
         <Stack.Screen name="projects" options={{ title: "My Projects" }} />
+        <Stack.Screen name="calendar" options={{ title: "My Calendar" }} />
+        <Stack.Screen name="earnings" options={{ title: "My Earnings" }} />
         <Stack.Screen name="sync-queue" options={{ title: "Sync Queue" }} />
         <Stack.Screen name="project/[id]" options={{ title: "Project" }} />
       </Stack>

@@ -90,6 +90,15 @@ export default function ProjectsScreen() {
         </View>
 
         <View style={{ flexDirection: "row", gap: 12 }}>
+          <Pressable onPress={() => router.push("/calendar" as never)} style={secondaryButton}>
+            <Text style={secondaryButtonText}>Calendar</Text>
+          </Pressable>
+          <Pressable onPress={() => router.push("/earnings" as never)} style={secondaryButton}>
+            <Text style={secondaryButtonText}>Earnings</Text>
+          </Pressable>
+        </View>
+
+        <View style={{ flexDirection: "row", gap: 12 }}>
           <Pressable onPress={() => router.push("/sync-queue" as never)} style={secondaryButton}>
             <Text style={secondaryButtonText}>Queue</Text>
           </Pressable>

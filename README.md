@@ -53,6 +53,10 @@ Cold snapshot must include `projects` with:
 
 This was added in backend in the same step so the mobile app can recover full offline project navigation after `reset_required=true`.
 
+## Implementation planning
+
+- `MOBILE_INSTALLER_IMPLEMENTATION_PLAN.md`
+
 ## Next mobile steps
 
 1. Install dependencies in `mobile/`
