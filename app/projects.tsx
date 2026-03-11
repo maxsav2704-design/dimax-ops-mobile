@@ -35,6 +35,7 @@ export default function ProjectsScreen() {
     source: "unavailable",
     message: null,
   });
+  const [workspaceEarningsFocus, setWorkspaceEarningsFocus] = useState<"TODAY" | "MONTH" | "DAY">("TODAY");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -128,10 +129,28 @@ export default function ProjectsScreen() {
     () => (earningsState.snapshot?.install_types || []).slice(0, 3),
     [earningsState.snapshot]
   );
+  const todayDate = new Date().toISOString().slice(0, 10);
   const todayEarningsContext = useMemo(
-    () => buildEarningsFocusContext(earningsState.snapshot, new Date().toISOString().slice(0, 10), "TODAY"),
-    [earningsState.snapshot]
+    () => buildEarningsFocusContext(earningsState.snapshot, todayDate, "TODAY"),
+    [earningsState.snapshot, todayDate]
   );
+  const dayFocusedEarningsContext = useMemo(
+    () => buildEarningsFocusContext(earningsState.snapshot, todayDate, "DAY", todayDate),
+    [earningsState.snapshot, todayDate]
+  );
+  const monthEarningsContext = useMemo(
+    () => buildEarningsFocusContext(earningsState.snapshot, todayDate, "MONTH"),
+    [earningsState.snapshot, todayDate]
+  );
+  const workspaceEarningsContext = useMemo(() => {
+    if (workspaceEarningsFocus === "MONTH") {
+      return monthEarningsContext;
+    }
+    if (workspaceEarningsFocus === "DAY") {
+      return dayFocusedEarningsContext;
+    }
+    return todayEarningsContext;
+  }, [dayFocusedEarningsContext, monthEarningsContext, todayEarningsContext, workspaceEarningsFocus]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
@@ -197,21 +216,43 @@ export default function ProjectsScreen() {
           <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
             Today money rows from the current read-only earnings snapshot.
           </Text>
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
+            <Pressable
+              onPress={() => setWorkspaceEarningsFocus("TODAY")}
+              style={[chipStyle, workspaceEarningsFocus === "TODAY" && chipStyleActive]}
+            >
+              <Text style={{ color: workspaceEarningsFocus === "TODAY" ? "#04111f" : "#d9e7f7" }}>Today total</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setWorkspaceEarningsFocus("DAY")}
+              style={[chipStyle, workspaceEarningsFocus === "DAY" && chipStyleActive]}
+            >
+              <Text style={{ color: workspaceEarningsFocus === "DAY" ? "#04111f" : "#d9e7f7" }}>Today rows</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setWorkspaceEarningsFocus("MONTH")}
+              style={[chipStyle, workspaceEarningsFocus === "MONTH" && chipStyleActive]}
+            >
+              <Text style={{ color: workspaceEarningsFocus === "MONTH" ? "#04111f" : "#d9e7f7" }}>Month</Text>
+            </Pressable>
+          </View>
           <View style={{ gap: 8, marginTop: 14 }}>
             <View style={summaryRowStyle}>
               <Text style={summaryLabelStyle}>Focused total</Text>
               <Text style={summaryValueInlineStyle}>
-                {todayEarningsContext ? `${todayEarningsContext.total} ${todayEarningsContext.currency}` : "--"}
+                {workspaceEarningsContext ? `${workspaceEarningsContext.total} ${workspaceEarningsContext.currency}` : "--"}
               </Text>
             </View>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Rows today</Text>
-              <Text style={summaryValueInlineStyle}>{todayEarningsContext?.rows.length ?? "--"}</Text>
+              <Text style={summaryLabelStyle}>
+                {workspaceEarningsFocus === "MONTH" ? "Rows this month" : "Rows in focus"}
+              </Text>
+              <Text style={summaryValueInlineStyle}>{workspaceEarningsContext?.rows.length ?? "--"}</Text>
             </View>
           </View>
-          {todayEarningsContext?.rows.length ? (
+          {workspaceEarningsContext?.rows.length ? (
             <View style={{ gap: 10, marginTop: 14 }}>
-              {todayEarningsContext.rows.slice(0, 3).map((row) => (
+              {workspaceEarningsContext.rows.slice(0, 3).map((row) => (
                 <Pressable
                   key={row.id}
                   style={priorityCardStyle}
@@ -234,7 +275,7 @@ export default function ProjectsScreen() {
             </View>
           ) : (
             <Text style={{ color: "#8fa7c2", marginTop: 12 }}>
-              No earnings rows for today in the current snapshot.
+              No earnings rows for the current workspace focus.
             </Text>
           )}
         </View>
@@ -494,6 +535,20 @@ const priorityTitleStyle = {
 const priorityMetaStyle = {
   color: "#8fa7c2",
   marginTop: 6,
+} as const;
+
+const chipStyle = {
+  paddingHorizontal: 12,
+  paddingVertical: 8,
+  borderRadius: 999,
+  borderWidth: 1,
+  borderColor: "#17314f",
+  backgroundColor: "#0c1d30",
+} as const;
+
+const chipStyleActive = {
+  backgroundColor: "#5aa8ff",
+  borderColor: "#5aa8ff",
 } as const;
 
 const summaryRowStyle = {
