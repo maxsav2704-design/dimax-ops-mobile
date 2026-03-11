@@ -3,7 +3,12 @@ import React, { ReactNode, createContext, useContext, useEffect, useMemo, useSta
 import * as SecureStore from "expo-secure-store";
 import { ActivityIndicator, AppState, View } from "react-native";
 import { LOCALE_STORAGE_KEY } from "@/lib/config";
-import { isRtlLocale, t as translate, type MobileLocale } from "@/lib/i18n";
+import {
+  isRtlLocale,
+  t as translate,
+  type MobileLocale,
+  type MobileTranslationKey,
+} from "@/lib/i18n";
 import { authMe, login as loginRequest, logout as logoutRequest, type AuthMe } from "@/lib/api";
 import { initDb } from "@/lib/db";
 import { getStoredSession } from "@/modules/auth/session";
@@ -22,37 +27,8 @@ type I18nContextValue = {
   locale: MobileLocale;
   isRTL: boolean;
   setLocale: (locale: MobileLocale) => Promise<void>;
-  t: (key: keyof ReturnType<typeof getEnglishKeys>) => string;
+  t: (key: MobileTranslationKey) => string;
 };
-
-function getEnglishKeys() {
-  return {
-    "title.login": "",
-    "title.projects": "",
-    "title.calendar": "",
-    "title.earnings": "",
-    "title.syncQueue": "",
-    "title.project": "",
-    "login.subtitle": "",
-    "login.companyId": "",
-    "login.email": "",
-    "login.password": "",
-    "login.signIn": "",
-    "login.signingIn": "",
-    "login.failed": "",
-    "workspace.title": "",
-    "workspace.lastSync": "",
-    "workspace.never": "",
-    "workspace.pendingOffline": "",
-    "workspace.queueHealth": "",
-    "workspace.readyNow": "",
-    "common.loading": "",
-    "common.logout": "",
-    "locale.en": "",
-    "locale.ru": "",
-    "locale.he": "",
-  };
-}
 
 const I18nContext = createContext<I18nContextValue | null>(null);
 const queryClient = new QueryClient();

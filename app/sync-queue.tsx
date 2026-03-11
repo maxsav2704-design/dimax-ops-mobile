@@ -10,8 +10,10 @@ import {
   runSync,
 } from "@/modules/sync/service";
 import type { PendingSyncEvent, SyncQueueSummary } from "@/modules/sync/types";
+import { useI18n } from "@/providers/AppProviders";
 
 export default function SyncQueueScreen() {
+  const { t, isRTL } = useI18n();
   const [items, setItems] = useState<PendingSyncEvent[]>([]);
   const [queueSummary, setQueueSummary] = useState<SyncQueueSummary | null>(null);
   const [projectNames, setProjectNames] = useState<Record<string, string>>({});
@@ -123,27 +125,25 @@ export default function SyncQueueScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
         <View style={cardStyle}>
-          <Text style={{ color: "#f8fbff", fontSize: 22, fontWeight: "700" }}>Sync Queue Resolution</Text>
+          <Text style={{ color: "#f8fbff", fontSize: 22, fontWeight: "700", textAlign: isRTL ? "right" : "left" }}>{t("sync.title")}</Text>
           <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
-            Pending {queueSummary?.pending || 0} / Failed {queueSummary?.failed || 0} / Blocked {queueSummary?.blocked || 0}
+            {t("sync.pending")} {queueSummary?.pending || 0} / {t("sync.failed")} {queueSummary?.failed || 0} / {t("sync.blocked")} {queueSummary?.blocked || 0}
           </Text>
           <Text style={{ color: "#8fa7c2", marginTop: 4 }}>
-            Ready now: {queueSummary?.ready_to_send || 0}
-            {queueSummary?.next_retry_at ? ` | next retry ${queueSummary.next_retry_at}` : ""}
+            {t("workspace.readyNow")}: {queueSummary?.ready_to_send || 0}
+            {queueSummary?.next_retry_at ? ` | ${t("sync.nextRetry")} ${queueSummary.next_retry_at}` : ""}
           </Text>
           {queueSummary?.blocked ? (
-            <Text style={{ color: "#ffb86b", marginTop: 10 }}>
-              Blocked items need manual action. Retry only if the root cause is fixed.
-            </Text>
+            <Text style={{ color: "#ffb86b", marginTop: 10 }}>{t("sync.subtitle")}</Text>
           ) : null}
         </View>
 
         <View style={{ flexDirection: "row", gap: 12 }}>
           <Pressable onPress={retryBlockedNow} style={[primaryButton, bulkBusy && { opacity: 0.6 }]} disabled={bulkBusy || !blockedItems.length}>
-            <Text style={primaryButtonText}>{bulkBusy ? "Working..." : "Retry blocked now"}</Text>
+            <Text style={primaryButtonText}>{bulkBusy ? t("common.working") : t("sync.retryBlockedNow")}</Text>
           </Pressable>
           <Pressable onPress={() => void reload()} style={secondaryButton}>
-            <Text style={secondaryButtonText}>Refresh queue</Text>
+            <Text style={secondaryButtonText}>{t("sync.refreshQueue")}</Text>
           </Pressable>
         </View>
 
@@ -151,7 +151,7 @@ export default function SyncQueueScreen() {
 
         {!items.length ? (
           <View style={cardStyle}>
-            <Text style={{ color: "#8fa7c2" }}>Sync queue is empty. Offline actions have either synced or none were created yet.</Text>
+            <Text style={{ color: "#8fa7c2" }}>{t("sync.empty")}</Text>
           </View>
         ) : null}
 
@@ -162,17 +162,17 @@ export default function SyncQueueScreen() {
           return (
             <View key={item.client_event_id} style={cardStyle}>
               <Text style={{ color: "#f8fbff", fontSize: 17, fontWeight: "700" }}>{buildEventSummary(item)}</Text>
-              <Text style={{ color: "#8fa7c2", marginTop: 6 }}>Project: {projectName}</Text>
+              <Text style={{ color: "#8fa7c2", marginTop: 6 }}>{t("common.project")}: {projectName}</Text>
               <Text style={{ color: getStatusTone(item.status), marginTop: 4, fontWeight: "700" }}>
                 {item.status}
               </Text>
-              <Text style={{ color: "#8fa7c2", marginTop: 4 }}>Queued: {item.created_at}</Text>
-              <Text style={{ color: "#8fa7c2", marginTop: 4 }}>Attempts: {item.attempts}</Text>
+              <Text style={{ color: "#8fa7c2", marginTop: 4 }}>{t("project.queued")}: {item.created_at}</Text>
+              <Text style={{ color: "#8fa7c2", marginTop: 4 }}>{t("project.attempts")}: {item.attempts}</Text>
               {item.last_attempt_at ? (
-                <Text style={{ color: "#8fa7c2", marginTop: 4 }}>Last attempt: {item.last_attempt_at}</Text>
+                <Text style={{ color: "#8fa7c2", marginTop: 4 }}>{t("project.lastAttempt")}: {item.last_attempt_at}</Text>
               ) : null}
               {item.next_retry_at ? (
-                <Text style={{ color: "#8fa7c2", marginTop: 4 }}>Next retry: {item.next_retry_at}</Text>
+                <Text style={{ color: "#8fa7c2", marginTop: 4 }}>{t("project.nextRetry")}: {item.next_retry_at}</Text>
               ) : null}
               {item.error ? <Text style={{ color: "#ff8b8b", marginTop: 8 }}>{item.error}</Text> : null}
 
@@ -182,14 +182,14 @@ export default function SyncQueueScreen() {
                   style={[primaryButton, { flex: 1 }, isBusy && { opacity: 0.6 }]}
                   disabled={isBusy}
                 >
-                  <Text style={primaryButtonText}>{isBusy ? "Working..." : "Retry now"}</Text>
+                  <Text style={primaryButtonText}>{isBusy ? t("common.working") : t("sync.retryNow")}</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => void dropItem(item.client_event_id)}
                   style={[dangerButton, { flex: 1 }, isBusy && { opacity: 0.6 }]}
                   disabled={isBusy}
                 >
-                  <Text style={dangerButtonText}>Drop event</Text>
+                  <Text style={dangerButtonText}>{t("sync.dropEvent")}</Text>
                 </Pressable>
               </View>
             </View>

@@ -8,8 +8,10 @@ import {
 import { buildIssueProjectRoute, buildProjectRoute } from "@/modules/projects/navigation";
 import { loadInstallerEarnings } from "@/modules/earnings/service";
 import type { InstallerEarningsViewModel } from "@/modules/earnings/types";
+import { useI18n } from "@/providers/AppProviders";
 
 export default function EarningsScreen() {
+  const { t, isRTL } = useI18n();
   const params = useLocalSearchParams<{
     focus?: string;
     day?: string;
@@ -141,30 +143,28 @@ export default function EarningsScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
         <View style={cardStyle}>
-          <Text style={titleStyle}>Installer Earnings</Text>
-          <Text style={bodyStyle}>
-            Read-only earnings visibility for the installer. Money logic stays on the backend.
-          </Text>
+          <Text style={[titleStyle, { textAlign: isRTL ? "right" : "left" }]}>{t("earnings.title")}</Text>
+          <Text style={[bodyStyle, { textAlign: isRTL ? "right" : "left" }]}>{t("earnings.subtitle")}</Text>
         </View>
 
         <View style={summaryGridStyle}>
           <View style={summaryCardStyle}>
-            <Text style={eyebrowStyle}>Today</Text>
+            <Text style={eyebrowStyle}>{t("common.today")}</Text>
             <Text style={valueStyle}>{snapshot?.today_total || "--"}</Text>
           </View>
           <View style={summaryCardStyle}>
-            <Text style={eyebrowStyle}>This month</Text>
+            <Text style={eyebrowStyle}>{t("earnings.thisMonth")}</Text>
             <Text style={valueStyle}>{snapshot?.month_total || "--"}</Text>
           </View>
         </View>
 
         <View style={cardStyle}>
-          <Text style={sectionTitle}>Period focus</Text>
+          <Text style={sectionTitle}>{t("earnings.periodFocus")}</Text>
           <View style={chipRowStyle}>
             {([
-              ["TODAY", "Today"],
-              ["MONTH", "This month"],
-              ["DAY", "Selected day"],
+              ["TODAY", t("common.today")],
+              ["MONTH", t("earnings.thisMonth")],
+              ["DAY", t("earnings.selectedDay")],
             ] as const).map(([value, label]) => (
               <Pressable
                 key={value}
@@ -177,7 +177,7 @@ export default function EarningsScreen() {
           </View>
           {snapshot?.days.length ? (
             <>
-              <Text style={sectionTitleSpacer}>Day drilldown</Text>
+              <Text style={sectionTitleSpacer}>{t("earnings.dayDrilldown")}</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={chipRowStyle}>
                 {snapshot.days.map((item) => (
                   <Pressable
@@ -198,18 +198,18 @@ export default function EarningsScreen() {
           ) : null}
           <View style={{ gap: 10, marginTop: 14 }}>
             <View style={summaryInlineRowStyle}>
-              <Text style={bodyStyle}>Focused total</Text>
+              <Text style={bodyStyle}>{t("earnings.focusedTotal")}</Text>
               <Text style={inlineValueStyle}>
                 {focusContext ? `${focusContext.total} ${focusContext.currency}` : "--"}
               </Text>
             </View>
             <View style={summaryInlineRowStyle}>
-              <Text style={bodyStyle}>Rows in focus</Text>
+              <Text style={bodyStyle}>{t("earnings.rowsInFocus")}</Text>
               <Text style={inlineValueStyle}>{focusContext?.rows.length ?? "--"}</Text>
             </View>
             {focus === "DAY" ? (
               <View style={summaryInlineRowStyle}>
-                <Text style={bodyStyle}>Focused day</Text>
+                <Text style={bodyStyle}>{t("calendar.focusedDay")}</Text>
                 <Text style={inlineValueStyle}>{focusContext?.selectedDay || "--"}</Text>
               </View>
             ) : null}
@@ -226,7 +226,7 @@ export default function EarningsScreen() {
               style={[secondaryButton, { flex: 1 }]}
             >
               <Text style={secondaryButtonText}>
-                {focusContext?.selectedDay ? "Open focused day in calendar" : "Open calendar"}
+                {focusContext?.selectedDay ? t("earnings.openFocusedDayInCalendar") : t("earnings.openCalendar")}
               </Text>
             </Pressable>
           </View>
@@ -234,16 +234,16 @@ export default function EarningsScreen() {
 
         <View style={cardStyle}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text style={sectionTitle}>Status</Text>
+            <Text style={sectionTitle}>{t("common.status")}</Text>
             <Pressable onPress={reload} style={secondaryButton}>
-              <Text style={secondaryButtonText}>{loading ? "Loading..." : "Refresh"}</Text>
+              <Text style={secondaryButtonText}>{loading ? t("common.loading") : t("common.refresh")}</Text>
             </Pressable>
           </View>
-          <Text style={bodyStyle}>Source: {state.source}</Text>
+          <Text style={bodyStyle}>{t("common.source")}: {state.source}</Text>
           {state.message ? <Text style={[bodyStyle, state.source === "unavailable" && errorStyle]}>{state.message}</Text> : null}
           {snapshot ? (
             <>
-              <Text style={sectionTitleSpacer}>By install type</Text>
+              <Text style={sectionTitleSpacer}>{t("earnings.byInstallType")}</Text>
               {installTypeLanes.length ? (
                 <>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={chipRowStyle}>
@@ -252,7 +252,7 @@ export default function EarningsScreen() {
                       style={[chipStyle, selectedInstallType === "ALL" && chipStyleActive]}
                     >
                       <Text style={{ color: selectedInstallType === "ALL" ? "#04111f" : "#d9e7f7", fontWeight: "600" }}>
-                        All types
+                        {t("earnings.allTypes")}
                       </Text>
                     </Pressable>
                     {installTypeLanes.map((item) => (
@@ -282,42 +282,42 @@ export default function EarningsScreen() {
                       onPress={() => setSelectedInstallType(item.code)}
                     >
                       <Text style={rowTitleStyle}>{item.label}</Text>
-                      <Text style={bodyStyle}>Amount: {item.amount.toFixed(2)} {focusContext?.currency || ""}</Text>
-                      <Text style={bodyStyle}>Qty: {item.quantity}</Text>
+                      <Text style={bodyStyle}>{t("common.amount")}: {item.amount.toFixed(2)} {focusContext?.currency || ""}</Text>
+                      <Text style={bodyStyle}>{t("common.quantity")}: {item.quantity}</Text>
                     </Pressable>
                   ))}
                 </>
               ) : (
-                <Text style={bodyStyle}>No install type breakdown for the current focus.</Text>
+                <Text style={bodyStyle}>{t("earnings.noInstallTypeBreakdown")}</Text>
               )}
 
-              <Text style={sectionTitleSpacer}>Daily breakdown</Text>
+              <Text style={sectionTitleSpacer}>{t("earnings.dailyBreakdown")}</Text>
               {snapshot.days.length ? (
                 snapshot.days.map((item) => (
                   <View key={item.date} style={rowCardStyle}>
                     <Text style={rowTitleStyle}>{item.date}</Text>
-                    <Text style={bodyStyle}>Amount: {item.amount}</Text>
-                    <Text style={bodyStyle}>Jobs: {item.jobs_count}</Text>
+                    <Text style={bodyStyle}>{t("common.amount")}: {item.amount}</Text>
+                    <Text style={bodyStyle}>{t("earnings.jobs")}: {item.jobs_count}</Text>
                   </View>
                 ))
               ) : (
-                <Text style={bodyStyle}>No daily breakdown rows yet.</Text>
+                <Text style={bodyStyle}>{t("earnings.noDailyBreakdown")}</Text>
               )}
 
-              <Text style={sectionTitleSpacer}>Day lanes</Text>
+              <Text style={sectionTitleSpacer}>{t("earnings.dayLanes")}</Text>
               {dayLanes.length ? (
                 dayLanes.map((lane) => (
                   <View key={lane.date} style={rowCardStyle}>
                     <Text style={rowTitleStyle}>{lane.date}</Text>
-                    <Text style={bodyStyle}>Amount: {lane.amount.toFixed(2)} {focusContext?.currency || ""}</Text>
-                    <Text style={bodyStyle}>Rows: {lane.rows}</Text>
-                    <Text style={bodyStyle}>Project-linked rows: {lane.projectLinkedRows}</Text>
+                    <Text style={bodyStyle}>{t("common.amount")}: {lane.amount.toFixed(2)} {focusContext?.currency || ""}</Text>
+                    <Text style={bodyStyle}>{t("common.rows")}: {lane.rows}</Text>
+                    <Text style={bodyStyle}>{t("earnings.projectLinkedRows")}: {lane.projectLinkedRows}</Text>
                     <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
                       <Pressable
                         onPress={() => router.push(`/calendar?day=${encodeURIComponent(lane.date)}` as never)}
                         style={[secondaryButton, { flex: 1 }]}
                       >
-                        <Text style={secondaryButtonText}>Open day in calendar</Text>
+                        <Text style={secondaryButtonText}>{t("earnings.openFocusedDayInCalendar")}</Text>
                       </Pressable>
                       <Pressable
                         onPress={() => {
@@ -326,65 +326,65 @@ export default function EarningsScreen() {
                         }}
                         style={[secondaryButton, { flex: 1 }]}
                       >
-                        <Text style={secondaryButtonText}>Focus this day</Text>
+                        <Text style={secondaryButtonText}>{t("earnings.focusThisDay")}</Text>
                       </Pressable>
                     </View>
                   </View>
                 ))
               ) : (
-                <Text style={bodyStyle}>No day lanes in the current focus.</Text>
+                <Text style={bodyStyle}>{t("earnings.noDayLanes")}</Text>
               )}
 
-              <Text style={sectionTitleSpacer}>Project lanes</Text>
+              <Text style={sectionTitleSpacer}>{t("earnings.projectLanes")}</Text>
               {projectLanes.length ? (
                 projectLanes.map((lane) => {
                   const projectId = lane.projectId;
                   return (
                   <View key={lane.key} style={rowCardStyle}>
                     <Text style={rowTitleStyle}>{lane.projectName}</Text>
-                    <Text style={bodyStyle}>Amount: {lane.amount.toFixed(2)} {focusContext?.currency || ""}</Text>
-                    <Text style={bodyStyle}>Rows: {lane.rows}</Text>
+                    <Text style={bodyStyle}>{t("common.amount")}: {lane.amount.toFixed(2)} {focusContext?.currency || ""}</Text>
+                    <Text style={bodyStyle}>{t("common.rows")}: {lane.rows}</Text>
                     {projectId ? (
                       <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
                         <Pressable
                           onPress={() => router.push(buildProjectRoute(projectId) as never)}
                           style={[secondaryButton, { flex: 1 }]}
                         >
-                          <Text style={secondaryButtonText}>Open project lane</Text>
+                          <Text style={secondaryButtonText}>{t("earnings.openProjectLane")}</Text>
                         </Pressable>
                         <Pressable
                           onPress={() => router.push(buildIssueProjectRoute(projectId, { doorSearch: lane.projectName }) as never)}
                           style={[secondaryButton, { flex: 1 }]}
                         >
-                          <Text style={secondaryButtonText}>Issue context</Text>
+                          <Text style={secondaryButtonText}>{t("earnings.issueContext")}</Text>
                         </Pressable>
                       </View>
                     ) : null}
                   </View>
                 )})
               ) : (
-                <Text style={bodyStyle}>No project lanes in the current focus.</Text>
+                <Text style={bodyStyle}>{t("earnings.noProjectLanes")}</Text>
               )}
 
-              <Text style={sectionTitleSpacer}>Work rows in focus</Text>
+              <Text style={sectionTitleSpacer}>{t("earnings.workRows")}</Text>
               {filteredRows.length ? (
                 filteredRows.slice(0, 12).map((item) => {
                   const projectId = item.project_id;
                   return (
                   <View key={item.id} style={rowCardStyle}>
-                    <Text style={rowTitleStyle}>{item.project_name || "No project"}</Text>
-                    <Text style={bodyStyle}>Date: {item.work_date}</Text>
-                    <Text style={bodyStyle}>Door: {item.door_label || "-"}</Text>
-                    <Text style={bodyStyle}>Type: {item.install_type_label}</Text>
-                    <Text style={bodyStyle}>Qty: {item.quantity}</Text>
-                    <Text style={bodyStyle}>Amount: {item.amount} {focusContext?.currency || ""}</Text>
+                    <Text style={rowTitleStyle}>{item.project_name || t("common.noProject")}</Text>
+                    <Text style={bodyStyle}>{t("common.date")}: {item.work_date}</Text>
+                    <Text style={bodyStyle}>{t("earnings.door")}: {item.door_label || "-"}</Text>
+                    <Text style={bodyStyle}>{t("common.type")}: {item.install_type_label}</Text>
+                    <Text style={bodyStyle}>{t("common.quantity")}: {item.quantity}</Text>
+                    <Text style={bodyStyle}>{t("common.amount")}: {item.amount} {focusContext?.currency || ""}</Text>
                     {projectId ? (
                       <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
                         <Pressable
                           onPress={() => router.push(buildProjectRoute(projectId) as never)}
                           style={[secondaryButton, { flex: 1 }]}
                         >
-                          <Text style={secondaryButtonText}>Open project</Text>
+                          <Text style={secondaryButtonText}>{t("earnings.openProject")}</Text>
                         </Pressable>
                         <Pressable
                           onPress={() =>
@@ -396,19 +396,19 @@ export default function EarningsScreen() {
                           }
                           style={[secondaryButton, { flex: 1 }]}
                         >
-                          <Text style={secondaryButtonText}>Issue context</Text>
+                          <Text style={secondaryButtonText}>{t("earnings.issueContext")}</Text>
                         </Pressable>
                       </View>
                     ) : null}
                   </View>
                 )})
               ) : (
-                <Text style={bodyStyle}>No earnings rows in the current focus.</Text>
+                <Text style={bodyStyle}>{t("earnings.noRows")}</Text>
               )}
             </>
           ) : (
             <Text style={bodyStyle}>
-              Earnings view is ready, but it will show real money data after the backend summary contract is connected.
+              {t("earnings.routeReady")}
             </Text>
           )}
         </View>

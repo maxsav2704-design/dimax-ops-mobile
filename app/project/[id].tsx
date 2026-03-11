@@ -20,8 +20,10 @@ import type {
 } from "@/modules/projects/types";
 import { getSyncQueueSummary, listPendingEvents, runSync } from "@/modules/sync/service";
 import type { PendingSyncEvent, SyncQueueSummary } from "@/modules/sync/types";
+import { useI18n } from "@/providers/AppProviders";
 
 export default function ProjectDetailsScreen() {
+  const { t, isRTL } = useI18n();
   const params = useLocalSearchParams<{
     id: string;
     issueStatus?: string;
@@ -318,14 +320,14 @@ export default function ProjectDetailsScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
         <View style={cardStyle}>
-          <Text style={{ color: "#f8fbff", fontSize: 22, fontWeight: "700" }}>{project?.name || "Project"}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 6 }}>{project?.address || "No address"}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 6 }}>Open issues: {issues.length}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 2 }}>Problem doors: {problemDoorsCount}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 2 }}>Doors: {doors.length}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 2 }}>Visible after filters: {filteredDoors.length}</Text>
+          <Text style={{ color: "#f8fbff", fontSize: 22, fontWeight: "700", textAlign: isRTL ? "right" : "left" }}>{project?.name || t("title.project")}</Text>
+          <Text style={{ color: "#8fa7c2", marginTop: 6, textAlign: isRTL ? "right" : "left" }}>{project?.address || t("project.noAddress")}</Text>
+          <Text style={{ color: "#8fa7c2", marginTop: 6 }}>{t("project.openIssues")}: {issues.length}</Text>
+          <Text style={{ color: "#8fa7c2", marginTop: 2 }}>{t("project.problemDoors")}: {problemDoorsCount}</Text>
+          <Text style={{ color: "#8fa7c2", marginTop: 2 }}>{t("project.doors")}: {doors.length}</Text>
+          <Text style={{ color: "#8fa7c2", marginTop: 2 }}>{t("project.visibleAfterFilters")}: {filteredDoors.length}</Text>
           <Text style={{ color: pendingEvents.length > 0 ? "#ffb86b" : "#63d297", marginTop: 2 }}>
-            Pending project events: {pendingEvents.length}
+            {t("project.pendingProjectEvents")}: {pendingEvents.length}
           </Text>
           <Text style={{ color: "#8fa7c2", marginTop: 2 }}>
             Queue health: pending {queueSummary?.pending || 0} / failed {queueSummary?.failed || 0} / blocked {queueSummary?.blocked || 0}
@@ -337,27 +339,27 @@ export default function ProjectDetailsScreen() {
         </View>
 
         <View style={cardStyle}>
-          <Text style={sectionTitle}>Project completion lane</Text>
-          <Text style={metaStyle}>Execution status for the current project scope.</Text>
+          <Text style={sectionTitle}>{t("project.completionLane")}</Text>
+          <Text style={metaStyle}>{t("project.executionStatus")}</Text>
           <View style={{ gap: 8, marginTop: 12 }}>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Installed</Text>
+              <Text style={summaryLabelStyle}>{t("common.installed")}</Text>
               <Text style={summaryValueInlineStyle}>{completionSummary.installed}</Text>
             </View>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Not installed</Text>
+              <Text style={summaryLabelStyle}>{t("common.notInstalled")}</Text>
               <Text style={summaryValueInlineStyle}>{completionSummary.notInstalled}</Text>
             </View>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Issue doors</Text>
+              <Text style={summaryLabelStyle}>{t("project.issueDoors")}</Text>
               <Text style={summaryValueInlineStyle}>{completionSummary.issueDoors}</Text>
             </View>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Locked</Text>
+              <Text style={summaryLabelStyle}>{t("common.locked")}</Text>
               <Text style={summaryValueInlineStyle}>{completionSummary.locked}</Text>
             </View>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Total doors</Text>
+              <Text style={summaryLabelStyle}>{t("project.totalDoors")}</Text>
               <Text style={summaryValueInlineStyle}>{completionSummary.total}</Text>
             </View>
           </View>
@@ -369,7 +371,7 @@ export default function ProjectDetailsScreen() {
               }}
               style={[secondaryButton, { flex: 1 }]}
             >
-              <Text style={secondaryButtonText}>Not installed lane</Text>
+              <Text style={secondaryButtonText}>{t("project.notInstalledLane")}</Text>
             </Pressable>
             <Pressable
               onPress={() => {
@@ -379,29 +381,29 @@ export default function ProjectDetailsScreen() {
               }}
               style={[secondaryButton, { flex: 1 }]}
             >
-              <Text style={secondaryButtonText}>Issue lane</Text>
+              <Text style={secondaryButtonText}>{t("project.issueLane")}</Text>
             </Pressable>
           </View>
         </View>
 
         <View style={cardStyle}>
-          <Text style={sectionTitle}>Project action hub</Text>
+          <Text style={sectionTitle}>{t("project.actionHub")}</Text>
           <View style={{ gap: 10, marginTop: 12 }}>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Quick links</Text>
-              <Text style={summaryValueInlineStyle}>Execution</Text>
+              <Text style={summaryLabelStyle}>{t("project.quickLinks")}</Text>
+              <Text style={summaryValueInlineStyle}>{t("project.execution")}</Text>
             </View>
             <View style={{ flexDirection: "row", gap: 10 }}>
               <Pressable onPress={() => router.push("/calendar" as never)} style={[secondaryButton, { flex: 1 }]}>
-                <Text style={secondaryButtonText}>Calendar</Text>
+                <Text style={secondaryButtonText}>{t("title.calendar")}</Text>
               </Pressable>
               <Pressable onPress={() => router.push("/earnings" as never)} style={[secondaryButton, { flex: 1 }]}>
-                <Text style={secondaryButtonText}>Earnings</Text>
+                <Text style={secondaryButtonText}>{t("title.earnings")}</Text>
               </Pressable>
             </View>
             <View style={{ flexDirection: "row", gap: 10 }}>
               <Pressable onPress={() => router.push("/sync-queue" as never)} style={[secondaryButton, { flex: 1 }]}>
-                <Text style={secondaryButtonText}>Sync queue</Text>
+                <Text style={secondaryButtonText}>{t("project.syncQueue")}</Text>
               </Pressable>
               <Pressable
                 onPress={() => {
@@ -410,11 +412,11 @@ export default function ProjectDetailsScreen() {
                 }}
                 style={[secondaryButton, { flex: 1 }]}
               >
-                <Text style={secondaryButtonText}>Open issues</Text>
+                <Text style={secondaryButtonText}>{t("calendar.openIssues")}</Text>
               </Pressable>
             </View>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Project context</Text>
+              <Text style={summaryLabelStyle}>{t("project.projectContext")}</Text>
               <Text style={summaryValueInlineStyle}>
                 {projectEarnings ? `${projectEarnings.monthTotal} ${projectEarnings.currency}` : "--"}
               </Text>
@@ -423,60 +425,60 @@ export default function ProjectDetailsScreen() {
         </View>
 
         <View style={cardStyle}>
-          <Text style={sectionTitle}>Project earnings context</Text>
-          <Text style={metaStyle}>Source: {earningsState.source}</Text>
+          <Text style={sectionTitle}>{t("project.earningsContext")}</Text>
+          <Text style={metaStyle}>{t("common.source")}: {earningsState.source}</Text>
           {earningsState.message ? <Text style={[metaStyle, { color: "#ffb86b" }]}>{earningsState.message}</Text> : null}
           <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
             <Pressable
               onPress={() => setProjectEarningsScope("TODAY")}
               style={[chipStyle, projectEarningsScope === "TODAY" && chipStyleActive]}
             >
-              <Text style={{ color: projectEarningsScope === "TODAY" ? "#04111f" : "#d9e7f7" }}>Today</Text>
+              <Text style={{ color: projectEarningsScope === "TODAY" ? "#04111f" : "#d9e7f7" }}>{t("common.today")}</Text>
             </Pressable>
             <Pressable
               onPress={() => setProjectEarningsScope("MONTH")}
               style={[chipStyle, projectEarningsScope === "MONTH" && chipStyleActive]}
             >
-              <Text style={{ color: projectEarningsScope === "MONTH" ? "#04111f" : "#d9e7f7" }}>Month</Text>
+              <Text style={{ color: projectEarningsScope === "MONTH" ? "#04111f" : "#d9e7f7" }}>{t("common.month")}</Text>
             </Pressable>
           </View>
           <View style={{ gap: 10, marginTop: 12 }}>
             <View style={summaryRowStyle}>
               <Text style={summaryLabelStyle}>
-                {projectEarningsScope === "TODAY" ? "Today on project" : "Month on project"}
+                {projectEarningsScope === "TODAY" ? t("project.todayOnProject") : t("project.monthOnProject")}
               </Text>
               <Text style={summaryValueInlineStyle}>
                 {projectEarnings ? `${scopedProjectEarningsTotal} ${projectEarnings.currency}` : "--"}
               </Text>
             </View>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Rows in scope</Text>
+              <Text style={summaryLabelStyle}>{t("earnings.rowsInFocus")}</Text>
               <Text style={summaryValueInlineStyle}>{scopedProjectEarningsRows.length}</Text>
             </View>
           </View>
           {scopedProjectInstallTypes.length ? (
             <View style={{ gap: 10, marginTop: 14 }}>
-              <Text style={fieldLabel}>By install type</Text>
+              <Text style={fieldLabel}>{t("project.byInstallType")}</Text>
               {scopedProjectInstallTypes.slice(0, 3).map((item) => (
                 <View key={item.code} style={doorCardStyle}>
                   <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{item.label}</Text>
-                  <Text style={metaStyle}>Amount: {item.amount.toFixed(2)} {projectEarnings?.currency || ""}</Text>
-                  <Text style={metaStyle}>Qty: {item.quantity}</Text>
+                  <Text style={metaStyle}>{t("common.amount")}: {item.amount.toFixed(2)} {projectEarnings?.currency || ""}</Text>
+                  <Text style={metaStyle}>{t("common.quantity")}: {item.quantity}</Text>
                 </View>
               ))}
             </View>
           ) : (
-            <Text style={metaStyle}>No project-scoped earnings rows in the current snapshot.</Text>
+            <Text style={metaStyle}>{t("earnings.noRows")}</Text>
           )}
           {scopedProjectEarningsRows.length ? (
             <View style={{ gap: 10, marginTop: 14 }}>
-              <Text style={fieldLabel}>Work rows in scope</Text>
+              <Text style={fieldLabel}>{t("project.workRows")}</Text>
               {scopedProjectEarningsRows.slice(0, 4).map((row) => (
                 <View key={row.id} style={doorCardStyle}>
                   <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{row.install_type_label}</Text>
-                  <Text style={metaStyle}>Date: {row.work_date}</Text>
-                  <Text style={metaStyle}>Door: {row.door_label || "-"}</Text>
-                  <Text style={metaStyle}>Amount: {row.amount} {projectEarnings?.currency}</Text>
+                  <Text style={metaStyle}>{t("common.date")}: {row.work_date}</Text>
+                  <Text style={metaStyle}>{t("earnings.door")}: {row.door_label || "-"}</Text>
+                  <Text style={metaStyle}>{t("common.amount")}: {row.amount} {projectEarnings?.currency}</Text>
                 </View>
               ))}
             </View>
@@ -484,25 +486,25 @@ export default function ProjectDetailsScreen() {
         </View>
 
         <Pressable onPress={handleSync} style={secondaryButton}>
-          <Text style={secondaryButtonText}>{busy ? "Working..." : "Sync queued work"}</Text>
+          <Text style={secondaryButtonText}>{busy ? t("common.working") : t("project.syncQueuedWork")}</Text>
         </Pressable>
 
         <Pressable onPress={() => router.push("/sync-queue" as never)} style={secondaryButton}>
-          <Text style={secondaryButtonText}>Open sync queue</Text>
+          <Text style={secondaryButtonText}>{t("project.openSyncQueue")}</Text>
         </Pressable>
 
         {error ? <Text style={{ color: "#ff8b8b" }}>{error}</Text> : null}
 
         <View style={cardStyle}>
-          <Text style={sectionTitle}>Door filters</Text>
+          <Text style={sectionTitle}>{t("project.doorFilters")}</Text>
           <TextInput
             value={doorSearch}
             onChangeText={setDoorSearch}
-            placeholder="Search unit / order / location"
+            placeholder={t("project.searchDoor")}
             placeholderTextColor="#6b85a4"
             style={[inputStyle, { marginTop: 12 }]}
           />
-          <Text style={fieldLabel}>Door status</Text>
+          <Text style={fieldLabel}>{t("project.doorStatus")}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
             {["ALL", "NOT_INSTALLED", "INSTALLED", "LOCKED"].map((status) => (
               <Pressable
@@ -511,15 +513,15 @@ export default function ProjectDetailsScreen() {
                 style={[chipStyle, doorStatusFilter === status && chipStyleActive]}
               >
                 <Text style={{ color: doorStatusFilter === status ? "#04111f" : "#d9e7f7" }}>
-                  {status === "ALL" ? "All doors" : status}
+                  {status === "ALL" ? t("project.allDoors") : status}
                 </Text>
               </Pressable>
             ))}
           </ScrollView>
-          <Text style={fieldLabel}>Order number</Text>
+          <Text style={fieldLabel}>{t("project.orderNumber")}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
             <Pressable onPress={() => setSelectedOrderNumber("ALL")} style={[chipStyle, selectedOrderNumber === "ALL" && chipStyleActive]}>
-              <Text style={{ color: selectedOrderNumber === "ALL" ? "#04111f" : "#d9e7f7" }}>All orders</Text>
+              <Text style={{ color: selectedOrderNumber === "ALL" ? "#04111f" : "#d9e7f7" }}>{t("project.allOrders")}</Text>
             </Pressable>
             {orderNumbers.map((orderNumber) => (
               <Pressable key={orderNumber} onPress={() => setSelectedOrderNumber(orderNumber)} style={[chipStyle, selectedOrderNumber === orderNumber && chipStyleActive]}>
@@ -528,10 +530,10 @@ export default function ProjectDetailsScreen() {
             ))}
           </ScrollView>
 
-          <Text style={fieldLabel}>Location code</Text>
+          <Text style={fieldLabel}>{t("project.locationCode")}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
             <Pressable onPress={() => setSelectedLocationCode("ALL")} style={[chipStyle, selectedLocationCode === "ALL" && chipStyleActive]}>
-              <Text style={{ color: selectedLocationCode === "ALL" ? "#04111f" : "#d9e7f7" }}>All locations</Text>
+              <Text style={{ color: selectedLocationCode === "ALL" ? "#04111f" : "#d9e7f7" }}>{t("project.allLocations")}</Text>
             </Pressable>
             {locationCodes.map((locationCode) => (
               <Pressable key={locationCode} onPress={() => setSelectedLocationCode(locationCode)} style={[chipStyle, selectedLocationCode === locationCode && chipStyleActive]}>
@@ -540,13 +542,13 @@ export default function ProjectDetailsScreen() {
             ))}
           </ScrollView>
           <Pressable onPress={resetDoorFilters} style={[secondaryButton, { marginTop: 12 }]}>
-            <Text style={secondaryButtonText}>Reset door filters</Text>
+            <Text style={secondaryButtonText}>{t("project.resetDoorFilters")}</Text>
           </Pressable>
         </View>
 
         {issues.length ? (
           <View style={warningCardStyle}>
-            <Text style={warningTitleStyle}>Open issue queue</Text>
+            <Text style={warningTitleStyle}>{t("project.openIssueQueue")}</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
               <Pressable
                 onPress={() => {
@@ -556,7 +558,7 @@ export default function ProjectDetailsScreen() {
                 style={[warningChipStyle, issueStatusFilter === "ALL" && !issueDoorFocus && warningChipStyleActive]}
               >
                 <Text style={{ color: issueStatusFilter === "ALL" && !issueDoorFocus ? "#3a2a12" : "#fff3d6" }}>
-                  All ({issueSummary.all})
+                  {t("common.all")} ({issueSummary.all})
                 </Text>
               </Pressable>
               <Pressable
@@ -567,7 +569,7 @@ export default function ProjectDetailsScreen() {
                 style={[warningChipStyle, issueStatusFilter === "OPEN" && !issueDoorFocus && warningChipStyleActive]}
               >
                 <Text style={{ color: issueStatusFilter === "OPEN" && !issueDoorFocus ? "#3a2a12" : "#fff3d6" }}>
-                  Open ({issueSummary.open})
+                  {t("common.open")} ({issueSummary.open})
                 </Text>
               </Pressable>
               <Pressable
@@ -578,7 +580,7 @@ export default function ProjectDetailsScreen() {
                 style={[warningChipStyle, issueStatusFilter === "CLOSED" && !issueDoorFocus && warningChipStyleActive]}
               >
                 <Text style={{ color: issueStatusFilter === "CLOSED" && !issueDoorFocus ? "#3a2a12" : "#fff3d6" }}>
-                  Closed ({issueSummary.closed})
+                  {t("common.closed")} ({issueSummary.closed})
                 </Text>
               </Pressable>
               <Pressable
@@ -589,7 +591,7 @@ export default function ProjectDetailsScreen() {
                 style={[warningChipStyle, issueDoorFocus && warningChipStyleActive]}
               >
                 <Text style={{ color: issueDoorFocus ? "#3a2a12" : "#fff3d6" }}>
-                  Issue doors ({issueSummary.issueDoors})
+                  {t("project.issueDoors")} ({issueSummary.issueDoors})
                 </Text>
               </Pressable>
             </ScrollView>
@@ -601,7 +603,7 @@ export default function ProjectDetailsScreen() {
                   style={[warningChipStyle, issueStatusFilter === status && warningChipStyleActive]}
                 >
                   <Text style={{ color: issueStatusFilter === status ? "#3a2a12" : "#fff3d6" }}>
-                    {status === "ALL" ? "All issues" : status}
+                    {status === "ALL" ? t("project.allIssues") : status}
                   </Text>
                 </Pressable>
               ))}
@@ -609,11 +611,11 @@ export default function ProjectDetailsScreen() {
             <View style={{ gap: 10, marginTop: 10 }}>
               {visibleIssues.map((issue) => (
                 <View key={issue.id} style={warningRowStyle}>
-                  <Text style={{ color: "#fff3d6", fontWeight: "700" }}>{issue.title || "Issue"}</Text>
-                  <Text style={{ color: "#f2cf8b", marginTop: 4 }}>Status: {issue.status}</Text>
-                  <Text style={{ color: "#f2cf8b", marginTop: 4 }}>{issue.details || "Requires installer attention"}</Text>
+                  <Text style={{ color: "#fff3d6", fontWeight: "700" }}>{issue.title || t("project.openIssues")}</Text>
+                  <Text style={{ color: "#f2cf8b", marginTop: 4 }}>{t("common.status")}: {issue.status}</Text>
+                  <Text style={{ color: "#f2cf8b", marginTop: 4 }}>{issue.details || t("project.requiresAttention")}</Text>
                   <Pressable onPress={() => focusIssueDoor(issue)} style={[secondaryButton, { marginTop: 10 }]}>
-                    <Text style={secondaryButtonText}>Only this door</Text>
+                    <Text style={secondaryButtonText}>{t("project.onlyThisDoor")}</Text>
                   </Pressable>
                 </View>
               ))}
@@ -623,15 +625,15 @@ export default function ProjectDetailsScreen() {
 
         {priorityDoors.length ? (
           <View style={cardStyle}>
-            <Text style={sectionTitle}>Priority doors</Text>
-            <Text style={metaStyle}>Top issue-linked and not-installed doors for the next action.</Text>
+            <Text style={sectionTitle}>{t("project.priorityDoors")}</Text>
+            <Text style={metaStyle}>{t("project.prioritySubtitle")}</Text>
             <View style={{ gap: 10, marginTop: 12 }}>
               {priorityDoors.map((door) => (
                 <View key={door.id} style={doorCardStyle}>
                   <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{door.unit_label}</Text>
-                  <Text style={metaStyle}>Status: {door.status}</Text>
-                  <Text style={metaStyle}>Order: {door.order_number || "-"}</Text>
-                  <Text style={metaStyle}>Location: {door.location_code || "-"}</Text>
+                  <Text style={metaStyle}>{t("common.status")}: {door.status}</Text>
+                  <Text style={metaStyle}>{t("project.order")}: {door.order_number || "-"}</Text>
+                  <Text style={metaStyle}>{t("common.location")}: {door.location_code || "-"}</Text>
                   <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
                     <Pressable
                       onPress={() => {
@@ -642,7 +644,7 @@ export default function ProjectDetailsScreen() {
                       }}
                       style={[secondaryButton, { flex: 1 }]}
                     >
-                      <Text style={secondaryButtonText}>Only this door</Text>
+                      <Text style={secondaryButtonText}>{t("project.onlyThisDoor")}</Text>
                     </Pressable>
                     {issueDoorIds.has(door.id) ? (
                       <Pressable
@@ -653,7 +655,7 @@ export default function ProjectDetailsScreen() {
                         }}
                         style={[secondaryButton, { flex: 1 }]}
                       >
-                        <Text style={secondaryButtonText}>Issue focus</Text>
+                        <Text style={secondaryButtonText}>{t("project.issueFocus")}</Text>
                       </Pressable>
                     ) : (
                       <Pressable
@@ -661,7 +663,7 @@ export default function ProjectDetailsScreen() {
                         style={[primaryButton, { flex: 1 }]}
                         disabled={busy || door.is_locked}
                       >
-                        <Text style={primaryButtonText}>Installed</Text>
+                        <Text style={primaryButtonText}>{t("common.installed")}</Text>
                       </Pressable>
                     )}
                   </View>
@@ -673,15 +675,15 @@ export default function ProjectDetailsScreen() {
 
         {floorLaneSummary.length ? (
           <View style={cardStyle}>
-            <Text style={sectionTitle}>Floor lanes</Text>
-            <Text style={metaStyle}>Actionable floor summary for the current project scope.</Text>
+            <Text style={sectionTitle}>{t("project.floorLanes")}</Text>
+            <Text style={metaStyle}>{t("project.floorSubtitle")}</Text>
             <View style={{ gap: 10, marginTop: 12 }}>
               {floorLaneSummary.map((lane) => (
                 <View key={lane.floor} style={doorCardStyle}>
-                  <Text style={{ color: "#f8fbff", fontWeight: "700" }}>Floor {lane.floor}</Text>
-                  <Text style={metaStyle}>Doors: {lane.doorsCount}</Text>
-                  <Text style={metaStyle}>Issue doors: {lane.issueCount}</Text>
-                  <Text style={metaStyle}>Not installed: {lane.notInstalledCount}</Text>
+                  <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{t("project.floor")} {lane.floor}</Text>
+                  <Text style={metaStyle}>{t("project.doors")}: {lane.doorsCount}</Text>
+                  <Text style={metaStyle}>{t("project.issueDoors")}: {lane.issueCount}</Text>
+                  <Text style={metaStyle}>{t("common.notInstalled")}: {lane.notInstalledCount}</Text>
                   {lane.firstDoor ? (
                     <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
                       <Pressable
@@ -693,7 +695,7 @@ export default function ProjectDetailsScreen() {
                         }}
                         style={[secondaryButton, { flex: 1 }]}
                       >
-                        <Text style={secondaryButtonText}>Open floor lane</Text>
+                        <Text style={secondaryButtonText}>{t("project.openFloorLane")}</Text>
                       </Pressable>
                       <Pressable
                         onPress={() => {
@@ -705,7 +707,7 @@ export default function ProjectDetailsScreen() {
                         }}
                         style={[secondaryButton, { flex: 1 }]}
                       >
-                        <Text style={secondaryButtonText}>{lane.issueCount > 0 ? "Issue doors" : "View floor"}</Text>
+                        <Text style={secondaryButtonText}>{lane.issueCount > 0 ? t("project.issueDoors") : t("project.viewFloor")}</Text>
                       </Pressable>
                     </View>
                   ) : null}
@@ -716,8 +718,8 @@ export default function ProjectDetailsScreen() {
         ) : null}
 
         <View style={cardStyle}>
-          <Text style={sectionTitle}>Offline actions</Text>
-          <Text style={fieldLabel}>Reason for NOT_INSTALLED</Text>
+          <Text style={sectionTitle}>{t("project.offlineActions")}</Text>
+          <Text style={fieldLabel}>{t("project.reasonNotInstalled")}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
             {reasons.map((reason) => (
               <Pressable key={reason.id} onPress={() => setSelectedReasonId(reason.id)} style={[chipStyle, selectedReasonId === reason.id && chipStyleActive]}>
@@ -725,8 +727,8 @@ export default function ProjectDetailsScreen() {
               </Pressable>
             ))}
           </ScrollView>
-          <TextInput value={comment} onChangeText={setComment} placeholder="Comment for issue or add-on" placeholderTextColor="#6b85a4" multiline style={[inputStyle, { marginTop: 12, minHeight: 90 }]} />
-          <Text style={fieldLabel}>Add-on type</Text>
+          <TextInput value={comment} onChangeText={setComment} placeholder={t("project.comment")} placeholderTextColor="#6b85a4" multiline style={[inputStyle, { marginTop: 12, minHeight: 90 }]} />
+          <Text style={fieldLabel}>{t("project.addonType")}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
             {addonTypes.map((addon) => (
               <Pressable key={addon.id} onPress={() => setAddonTypeId(addon.id)} style={[chipStyle, addonTypeId === addon.id && chipStyleActive]}>
@@ -736,24 +738,24 @@ export default function ProjectDetailsScreen() {
               </Pressable>
             ))}
           </ScrollView>
-          <TextInput value={addonQty} onChangeText={setAddonQty} placeholder="Qty done" placeholderTextColor="#6b85a4" style={[inputStyle, { marginTop: 12 }]} keyboardType="numeric" />
+          <TextInput value={addonQty} onChangeText={setAddonQty} placeholder={t("project.qtyDone")} placeholderTextColor="#6b85a4" style={[inputStyle, { marginTop: 12 }]} keyboardType="numeric" />
           <Pressable onPress={handleAddonFact} style={[primaryButton, { marginTop: 12 }]}>
-            <Text style={primaryButtonText}>Queue add-on fact</Text>
+            <Text style={primaryButtonText}>{t("project.queueAddonFact")}</Text>
           </Pressable>
         </View>
 
         {pendingEvents.length ? (
           <View style={cardStyle}>
-            <Text style={sectionTitle}>Pending sync queue</Text>
+            <Text style={sectionTitle}>{t("project.pendingSyncQueue")}</Text>
             <View style={{ gap: 10, marginTop: 12 }}>
               {pendingEvents.map((event) => (
                 <View key={event.client_event_id} style={doorCardStyle}>
                   <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{event.type}</Text>
-                  <Text style={metaStyle}>Queued: {event.created_at}</Text>
-                  <Text style={metaStyle}>Status: {event.status}</Text>
-                  <Text style={metaStyle}>Attempts: {event.attempts}</Text>
-                  {event.last_attempt_at ? <Text style={metaStyle}>Last attempt: {event.last_attempt_at}</Text> : null}
-                  {event.next_retry_at ? <Text style={metaStyle}>Next retry: {event.next_retry_at}</Text> : null}
+                  <Text style={metaStyle}>{t("project.queued")}: {event.created_at}</Text>
+                  <Text style={metaStyle}>{t("common.status")}: {event.status}</Text>
+                  <Text style={metaStyle}>{t("project.attempts")}: {event.attempts}</Text>
+                  {event.last_attempt_at ? <Text style={metaStyle}>{t("project.lastAttempt")}: {event.last_attempt_at}</Text> : null}
+                  {event.next_retry_at ? <Text style={metaStyle}>{t("project.nextRetry")}: {event.next_retry_at}</Text> : null}
                   {event.error ? <Text style={{ color: "#ff8b8b", marginTop: 4 }}>{event.error}</Text> : null}
                 </View>
               ))}
@@ -763,24 +765,24 @@ export default function ProjectDetailsScreen() {
 
         {Object.entries(groupedDoors).map(([floor, floorDoors]) => (
           <View key={floor} style={cardStyle}>
-            <Text style={sectionTitle}>Floor {floor}</Text>
+            <Text style={sectionTitle}>{t("project.floor")} {floor}</Text>
             <View style={{ gap: 12, marginTop: 12 }}>
               {floorDoors.map((door) => (
                 <View key={door.id} style={doorCardStyle}>
                   <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{door.unit_label}</Text>
-                  <Text style={metaStyle}>Order: {door.order_number || "-"}</Text>
-                  <Text style={metaStyle}>House: {door.house_number || "-"}</Text>
-                  <Text style={metaStyle}>Floor: {door.floor_label || "-"}</Text>
-                  <Text style={metaStyle}>Apartment: {door.apartment_number || "-"}</Text>
-                  <Text style={metaStyle}>Location: {door.location_code || "-"}</Text>
-                  <Text style={metaStyle}>Marking: {door.door_marking || "-"}</Text>
+                  <Text style={metaStyle}>{t("project.order")}: {door.order_number || "-"}</Text>
+                  <Text style={metaStyle}>{t("project.house")}: {door.house_number || "-"}</Text>
+                  <Text style={metaStyle}>{t("project.floor")}: {door.floor_label || "-"}</Text>
+                  <Text style={metaStyle}>{t("project.apartment")}: {door.apartment_number || "-"}</Text>
+                  <Text style={metaStyle}>{t("common.location")}: {door.location_code || "-"}</Text>
+                  <Text style={metaStyle}>{t("project.marking")}: {door.door_marking || "-"}</Text>
                   <Text style={[metaStyle, { color: door.status === "INSTALLED" ? "#63d297" : "#ffb86b" }]}>{door.status}</Text>
                   <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
                     <Pressable onPress={() => handleInstall(door.id)} style={[primaryButton, { flex: 1 }]} disabled={busy || door.is_locked}>
-                      <Text style={primaryButtonText}>Installed</Text>
+                      <Text style={primaryButtonText}>{t("common.installed")}</Text>
                     </Pressable>
                     <Pressable onPress={() => handleNotInstalled(door.id)} style={[secondaryButton, { flex: 1 }]} disabled={busy}>
-                      <Text style={secondaryButtonText}>Not installed</Text>
+                      <Text style={secondaryButtonText}>{t("common.notInstalled")}</Text>
                     </Pressable>
                   </View>
                 </View>

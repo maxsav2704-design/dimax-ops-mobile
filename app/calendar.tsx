@@ -8,8 +8,10 @@ import {
   buildIssueRouteFromCalendarEvent,
   buildProjectRouteFromCalendarEvent,
 } from "@/modules/projects/navigation";
+import { useI18n } from "@/providers/AppProviders";
 
 export default function CalendarScreen() {
+  const { t, isRTL } = useI18n();
   const params = useLocalSearchParams<{
     day?: string;
   }>();
@@ -55,7 +57,7 @@ export default function CalendarScreen() {
       installCount,
       linkedProjectsCount,
     };
-  }, [visibleItems]);
+  }, [t, visibleItems]);
   const projectLanes = useMemo(() => {
     const lanes = new Map<
       string,
@@ -70,7 +72,7 @@ export default function CalendarScreen() {
       const key = item.project_id || `unlinked:${item.id}`;
       const current = lanes.get(key) || {
         key,
-        title: item.project_id ? `Project ${item.project_id}` : "No project",
+        title: item.project_id ? `${t("common.project")} ${item.project_id}` : t("common.noProject"),
         projectId: item.project_id,
         items: [],
       };
@@ -105,28 +107,26 @@ export default function CalendarScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
         <View style={cardStyle}>
-          <Text style={titleStyle}>Installer Calendar</Text>
-          <Text style={bodyStyle}>
-            Read-only mobile calendar baseline for assigned installer events.
-          </Text>
+          <Text style={[titleStyle, { textAlign: isRTL ? "right" : "left" }]}>{t("calendar.title")}</Text>
+          <Text style={[bodyStyle, { textAlign: isRTL ? "right" : "left" }]}>{t("calendar.subtitle")}</Text>
         </View>
 
         <View style={cardStyle}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text style={sectionTitle}>Status</Text>
+            <Text style={sectionTitle}>{t("common.status")}</Text>
             <Pressable onPress={reload} style={secondaryButton}>
-              <Text style={secondaryButtonText}>{loading ? "Loading..." : "Refresh"}</Text>
+              <Text style={secondaryButtonText}>{loading ? t("common.loading") : t("common.refresh")}</Text>
             </Pressable>
           </View>
-          <Text style={bodyStyle}>Source: {state.source}</Text>
+          <Text style={bodyStyle}>{t("common.source")}: {state.source}</Text>
           {state.message ? <Text style={[bodyStyle, state.source === "unavailable" && errorStyle]}>{state.message}</Text> : null}
         </View>
 
         <View style={cardStyle}>
-          <Text style={sectionTitle}>Day focus</Text>
+          <Text style={sectionTitle}>{t("calendar.dayFocus")}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={chipRowStyle}>
             <Pressable onPress={() => setSelectedDay("ALL")} style={[chipStyle, selectedDay === "ALL" && chipStyleActive]}>
-              <Text style={{ color: selectedDay === "ALL" ? "#04111f" : "#d9e7f7", fontWeight: "600" }}>All 7 days</Text>
+              <Text style={{ color: selectedDay === "ALL" ? "#04111f" : "#d9e7f7", fontWeight: "600" }}>{t("calendar.all7Days")}</Text>
             </Pressable>
             {dayOptions.map((day) => (
               <Pressable key={day} onPress={() => setSelectedDay(day)} style={[chipStyle, selectedDay === day && chipStyleActive]}>
@@ -136,11 +136,11 @@ export default function CalendarScreen() {
           </ScrollView>
           <View style={{ gap: 8, marginTop: 14 }}>
             <View style={summaryRowStyle}>
-              <Text style={bodyStyle}>Focused day</Text>
-              <Text style={summaryValueStyle}>{selectedDay === "ALL" ? "All" : selectedDay}</Text>
+              <Text style={bodyStyle}>{t("calendar.focusedDay")}</Text>
+              <Text style={summaryValueStyle}>{selectedDay === "ALL" ? t("common.all") : selectedDay}</Text>
             </View>
             <View style={summaryRowStyle}>
-              <Text style={bodyStyle}>Visible events</Text>
+              <Text style={bodyStyle}>{t("calendar.visibleEvents")}</Text>
               <Text style={summaryValueStyle}>{visibleItems.length}</Text>
             </View>
           </View>
@@ -150,32 +150,32 @@ export default function CalendarScreen() {
                 onPress={() => router.push(`/earnings?focus=DAY&day=${encodeURIComponent(selectedDay)}` as never)}
                 style={[secondaryButton, { flex: 1 }]}
               >
-                <Text style={secondaryButtonText}>Open day earnings</Text>
+                <Text style={secondaryButtonText}>{t("calendar.openDayEarnings")}</Text>
               </Pressable>
             </View>
           ) : null}
         </View>
 
         <View style={cardStyle}>
-          <Text style={sectionTitle}>Day quick summary</Text>
+          <Text style={sectionTitle}>{t("calendar.quickSummary")}</Text>
           <View style={{ gap: 8, marginTop: 14 }}>
             <View style={summaryRowStyle}>
-              <Text style={bodyStyle}>Service events</Text>
+              <Text style={bodyStyle}>{t("calendar.serviceEvents")}</Text>
               <Text style={summaryValueStyle}>{visibleSummary.serviceCount}</Text>
             </View>
             <View style={summaryRowStyle}>
-              <Text style={bodyStyle}>Install events</Text>
+              <Text style={bodyStyle}>{t("calendar.installEvents")}</Text>
               <Text style={summaryValueStyle}>{visibleSummary.installCount}</Text>
             </View>
             <View style={summaryRowStyle}>
-              <Text style={bodyStyle}>Project-linked items</Text>
+              <Text style={bodyStyle}>{t("calendar.projectLinkedItems")}</Text>
               <Text style={summaryValueStyle}>{visibleSummary.linkedProjectsCount}</Text>
             </View>
           </View>
         </View>
 
         <View style={cardStyle}>
-          <Text style={sectionTitle}>Project lanes</Text>
+          <Text style={sectionTitle}>{t("calendar.projectLanes")}</Text>
           {projectLanes.length ? (
             <View style={{ gap: 10, marginTop: 14 }}>
               {projectLanes.map((lane) => {
@@ -183,22 +183,22 @@ export default function CalendarScreen() {
                 return (
                   <View key={lane.key} style={eventCardStyle}>
                     <Text style={eventTitleStyle}>{lane.title}</Text>
-                    <Text style={bodyStyle}>Events: {lane.items.length}</Text>
-                    <Text style={bodyStyle}>Service items: {serviceCount}</Text>
-                    <Text style={bodyStyle}>Install items: {lane.items.length - serviceCount}</Text>
+                    <Text style={bodyStyle}>{t("common.events")}: {lane.items.length}</Text>
+                    <Text style={bodyStyle}>{t("calendar.serviceEvents")}: {serviceCount}</Text>
+                    <Text style={bodyStyle}>{t("calendar.installEvents")}: {lane.items.length - serviceCount}</Text>
                     {lane.projectId ? (
                       <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
                         <Pressable
                           onPress={() => router.push(`/project/${lane.projectId}` as never)}
                           style={[secondaryButton, { flex: 1 }]}
                         >
-                          <Text style={secondaryButtonText}>Open lane project</Text>
+                          <Text style={secondaryButtonText}>{t("calendar.openLaneProject")}</Text>
                         </Pressable>
                         <Pressable
                           onPress={() => router.push(`/project/${lane.projectId}?issueStatus=OPEN` as never)}
                           style={[secondaryButton, { flex: 1 }]}
                         >
-                          <Text style={secondaryButtonText}>Open lane issues</Text>
+                          <Text style={secondaryButtonText}>{t("calendar.openLaneIssues")}</Text>
                         </Pressable>
                       </View>
                     ) : null}
@@ -207,20 +207,20 @@ export default function CalendarScreen() {
               })}
             </View>
           ) : (
-            <Text style={bodyStyle}>No project lanes in the current day focus.</Text>
+            <Text style={bodyStyle}>{t("calendar.noProjectLanes")}</Text>
           )}
         </View>
 
         <View style={cardStyle}>
-          <Text style={sectionTitle}>Service lane</Text>
+          <Text style={sectionTitle}>{t("calendar.serviceLane")}</Text>
           {serviceLaneItems.length ? (
             <View style={{ gap: 10, marginTop: 14 }}>
               {serviceLaneItems.map((item) => (
                 <View key={item.id} style={eventCardStyle}>
                   <Text style={eventTitleStyle}>{item.title}</Text>
-                  <Text style={bodyStyle}>Starts: {item.starts_at}</Text>
-                  <Text style={bodyStyle}>Project: {item.project_id || "No project"}</Text>
-                  {item.location ? <Text style={bodyStyle}>Location: {item.location}</Text> : null}
+                  <Text style={bodyStyle}>{t("common.starts")}: {item.starts_at}</Text>
+                  <Text style={bodyStyle}>{t("common.project")}: {item.project_id || t("common.noProject")}</Text>
+                  {item.location ? <Text style={bodyStyle}>{t("common.location")}: {item.location}</Text> : null}
                   <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
                     {item.project_id ? (
                       <Pressable
@@ -232,11 +232,11 @@ export default function CalendarScreen() {
                         }}
                         style={[secondaryButton, { flex: 1 }]}
                       >
-                        <Text style={secondaryButtonText}>Open issue context</Text>
+                        <Text style={secondaryButtonText}>{t("calendar.openIssueContext")}</Text>
                       </Pressable>
                     ) : (
                       <Pressable onPress={() => router.push("/earnings" as never)} style={[secondaryButton, { flex: 1 }]}>
-                        <Text style={secondaryButtonText}>Open earnings</Text>
+                        <Text style={secondaryButtonText}>{t("calendar.openEarnings")}</Text>
                       </Pressable>
                     )}
                   </View>
@@ -244,23 +244,23 @@ export default function CalendarScreen() {
               ))}
             </View>
           ) : (
-            <Text style={bodyStyle}>No service items in the current day focus.</Text>
+            <Text style={bodyStyle}>{t("calendar.noServiceItems")}</Text>
           )}
         </View>
 
         <View style={cardStyle}>
-          <Text style={sectionTitle}>Upcoming events</Text>
+          <Text style={sectionTitle}>{t("calendar.upcomingEvents")}</Text>
           {visibleItems.length ? (
             visibleItems.map((item) => {
               const projectId = item.project_id;
               return (
               <View key={item.id} style={eventCardStyle}>
                 <Text style={eventTitleStyle}>{item.title}</Text>
-                <Text style={bodyStyle}>Type: {item.event_type}</Text>
-                <Text style={bodyStyle}>Starts: {item.starts_at}</Text>
-                <Text style={bodyStyle}>Ends: {item.ends_at}</Text>
-                <Text style={bodyStyle}>Project: {projectId || "No project"}</Text>
-                {item.location ? <Text style={bodyStyle}>Location: {item.location}</Text> : null}
+                <Text style={bodyStyle}>{t("common.type")}: {item.event_type}</Text>
+                <Text style={bodyStyle}>{t("common.starts")}: {item.starts_at}</Text>
+                <Text style={bodyStyle}>{t("common.ends")}: {item.ends_at}</Text>
+                <Text style={bodyStyle}>{t("common.project")}: {projectId || t("common.noProject")}</Text>
+                {item.location ? <Text style={bodyStyle}>{t("common.location")}: {item.location}</Text> : null}
                 {projectId ? (
                   <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
                     <Pressable
@@ -272,7 +272,7 @@ export default function CalendarScreen() {
                       }}
                       style={[secondaryButton, { flex: 1 }]}
                     >
-                      <Text style={secondaryButtonText}>Open project</Text>
+                      <Text style={secondaryButtonText}>{t("calendar.openProject")}</Text>
                     </Pressable>
                     <Pressable
                       onPress={() => {
@@ -287,7 +287,7 @@ export default function CalendarScreen() {
                       style={[secondaryButton, { flex: 1 }]}
                     >
                       <Text style={secondaryButtonText}>
-                        {item.event_type.toUpperCase() === "SERVICE" ? "Open issues" : "Prep doors"}
+                        {item.event_type.toUpperCase() === "SERVICE" ? t("calendar.openIssues") : t("calendar.prepDoors")}
                       </Text>
                     </Pressable>
                   </View>
@@ -296,7 +296,7 @@ export default function CalendarScreen() {
             )})
           ) : (
             <Text style={bodyStyle}>
-              {snapshot ? "No events in the current day focus." : "Calendar route is ready for real installer events."}
+              {snapshot ? t("calendar.noEvents") : t("calendar.routeReady")}
             </Text>
           )}
         </View>
