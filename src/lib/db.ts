@@ -1,7 +1,7 @@
 import * as SQLite from "expo-sqlite";
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
-const DB_SCHEMA_VERSION = 3;
+const DB_SCHEMA_VERSION = 4;
 
 export async function getDb() {
   if (!dbPromise) {
@@ -122,6 +122,14 @@ async function createBaseSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       payload_json TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS installer_calendar_snapshots (
+      range_key TEXT PRIMARY KEY NOT NULL,
+      starts_at TEXT NOT NULL,
+      ends_at TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 }
 
@@ -159,6 +167,18 @@ async function migrateDb(db: SQLite.SQLiteDatabase): Promise<void> {
         currency TEXT NOT NULL,
         today_total TEXT NOT NULL,
         month_total TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+  }
+
+  if (currentVersion < 4) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS installer_calendar_snapshots (
+        range_key TEXT PRIMARY KEY NOT NULL,
+        starts_at TEXT NOT NULL,
+        ends_at TEXT NOT NULL,
         payload_json TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
