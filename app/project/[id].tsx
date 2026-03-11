@@ -54,6 +54,7 @@ export default function ProjectDetailsScreen() {
   const [doorSearch, setDoorSearch] = useState("");
   const [doorStatusFilter, setDoorStatusFilter] = useState<string>("ALL");
   const [issueStatusFilter, setIssueStatusFilter] = useState<string>("ALL");
+  const [issueDoorFocus, setIssueDoorFocus] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -116,12 +117,14 @@ export default function ProjectDetailsScreen() {
     () => Array.from(new Set(doors.map((door) => door.location_code).filter(Boolean) as string[])).sort(),
     [doors]
   );
+  const issueDoorIds = useMemo(() => new Set(issues.map((issue) => issue.door_id)), [issues]);
 
   const filteredDoors = useMemo(() => {
     return doors.filter((door) => {
       const orderMatch = selectedOrderNumber === "ALL" || door.order_number === selectedOrderNumber;
       const locationMatch = selectedLocationCode === "ALL" || door.location_code === selectedLocationCode;
       const statusMatch = doorStatusFilter === "ALL" || door.status === doorStatusFilter;
+      const issueDoorMatch = !issueDoorFocus || issueDoorIds.has(door.id);
       const searchNeedle = doorSearch.trim().toLowerCase();
       const searchMatch =
         !searchNeedle ||
@@ -136,15 +139,13 @@ export default function ProjectDetailsScreen() {
         ]
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(searchNeedle));
-      return orderMatch && locationMatch && statusMatch && searchMatch;
+      return orderMatch && locationMatch && statusMatch && issueDoorMatch && searchMatch;
     });
-  }, [doorSearch, doorStatusFilter, doors, selectedLocationCode, selectedOrderNumber]);
+  }, [doorSearch, doorStatusFilter, doors, issueDoorFocus, issueDoorIds, selectedLocationCode, selectedOrderNumber]);
 
   const visibleIssues = useMemo(() => {
     return issues.filter((issue) => issueStatusFilter === "ALL" || issue.status === issueStatusFilter);
   }, [issueStatusFilter, issues]);
-
-  const issueDoorIds = useMemo(() => new Set(issues.map((issue) => issue.door_id)), [issues]);
   const problemDoorsCount = useMemo(
     () => doors.filter((door) => issueDoorIds.has(door.id)).length,
     [doors, issueDoorIds]
@@ -163,6 +164,16 @@ export default function ProjectDetailsScreen() {
       return acc;
     }, {});
   }, [filteredDoors]);
+  const issueSummary = useMemo(() => {
+    const open = issues.filter((issue) => issue.status === "OPEN").length;
+    const closed = issues.filter((issue) => issue.status === "CLOSED").length;
+    return {
+      all: issues.length,
+      open,
+      closed,
+      issueDoors: problemDoorsCount,
+    };
+  }, [issues, problemDoorsCount]);
 
   const todayDate = new Date().toISOString().slice(0, 10);
   const projectEarnings = useMemo(
@@ -257,6 +268,7 @@ export default function ProjectDetailsScreen() {
       return;
     }
     setIssueStatusFilter("OPEN");
+    setIssueDoorFocus(true);
     setDoorStatusFilter("ALL");
     setSelectedOrderNumber(matchingDoor.order_number || "ALL");
     setSelectedLocationCode(matchingDoor.location_code || "ALL");
@@ -268,6 +280,7 @@ export default function ProjectDetailsScreen() {
     setSelectedLocationCode("ALL");
     setDoorSearch("");
     setDoorStatusFilter("ALL");
+    setIssueDoorFocus(false);
   };
 
   return (
@@ -455,6 +468,52 @@ export default function ProjectDetailsScreen() {
         {issues.length ? (
           <View style={warningCardStyle}>
             <Text style={warningTitleStyle}>Open issue queue</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
+              <Pressable
+                onPress={() => {
+                  setIssueStatusFilter("ALL");
+                  setIssueDoorFocus(false);
+                }}
+                style={[warningChipStyle, issueStatusFilter === "ALL" && !issueDoorFocus && warningChipStyleActive]}
+              >
+                <Text style={{ color: issueStatusFilter === "ALL" && !issueDoorFocus ? "#3a2a12" : "#fff3d6" }}>
+                  All ({issueSummary.all})
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setIssueStatusFilter("OPEN");
+                  setIssueDoorFocus(false);
+                }}
+                style={[warningChipStyle, issueStatusFilter === "OPEN" && !issueDoorFocus && warningChipStyleActive]}
+              >
+                <Text style={{ color: issueStatusFilter === "OPEN" && !issueDoorFocus ? "#3a2a12" : "#fff3d6" }}>
+                  Open ({issueSummary.open})
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setIssueStatusFilter("CLOSED");
+                  setIssueDoorFocus(false);
+                }}
+                style={[warningChipStyle, issueStatusFilter === "CLOSED" && !issueDoorFocus && warningChipStyleActive]}
+              >
+                <Text style={{ color: issueStatusFilter === "CLOSED" && !issueDoorFocus ? "#3a2a12" : "#fff3d6" }}>
+                  Closed ({issueSummary.closed})
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setIssueStatusFilter("OPEN");
+                  setIssueDoorFocus(true);
+                }}
+                style={[warningChipStyle, issueDoorFocus && warningChipStyleActive]}
+              >
+                <Text style={{ color: issueDoorFocus ? "#3a2a12" : "#fff3d6" }}>
+                  Issue doors ({issueSummary.issueDoors})
+                </Text>
+              </Pressable>
+            </ScrollView>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
               {["ALL", "OPEN", "CLOSED"].map((status) => (
                 <Pressable
