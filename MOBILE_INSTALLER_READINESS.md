@@ -73,10 +73,12 @@ Validated locally with:
 - `vitest`: `22 passed`
 - `expo config --json`
 - `tsc --noEmit`
+- `.\workspace.cmd preflight-mobile-device`
+- `.\workspace.cmd smoke-mobile`
 
 ## Remaining gaps before production mobile release
 
-- real device / emulator smoke on Android
+- real in-app navigation smoke on Android emulator / physical device
 - screen-level tests for navigation and continuity
 - multilingual UI layer inside mobile screens
 - visual QA on small devices

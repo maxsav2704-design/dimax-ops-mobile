@@ -87,6 +87,11 @@ Preflight Android toolchain first:
 .\workspace.cmd preflight-mobile-device
 ```
 
+Current baseline already validated:
+
+- `.\workspace.cmd preflight-mobile-device`
+- `.\workspace.cmd smoke-mobile`
+
 5. Run first device/emulator smoke with real navigation
 6. Add deeper SQLite migrations if local schema expands beyond sync queue
 7. Expand mobile tests from pure sync rules to screen flows
