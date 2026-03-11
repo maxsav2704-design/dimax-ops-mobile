@@ -80,6 +80,32 @@ export default function EarningsScreen() {
     }
     return Array.from(lanes.values()).sort((a, b) => b.amount - a.amount);
   }, [filteredRows]);
+  const dayLanes = useMemo(() => {
+    const lanes = new Map<
+      string,
+      {
+        date: string;
+        amount: number;
+        rows: number;
+        projectLinkedRows: number;
+      }
+    >();
+    for (const row of filteredRows) {
+      const current = lanes.get(row.work_date) || {
+        date: row.work_date,
+        amount: 0,
+        rows: 0,
+        projectLinkedRows: 0,
+      };
+      current.amount += Number.parseFloat(row.amount) || 0;
+      current.rows += 1;
+      if (row.project_id) {
+        current.projectLinkedRows += 1;
+      }
+      lanes.set(row.work_date, current);
+    }
+    return Array.from(lanes.values()).sort((a, b) => b.date.localeCompare(a.date));
+  }, [filteredRows]);
 
   useEffect(() => {
     if (!snapshot?.days.length) {
@@ -276,6 +302,37 @@ export default function EarningsScreen() {
                 ))
               ) : (
                 <Text style={bodyStyle}>No daily breakdown rows yet.</Text>
+              )}
+
+              <Text style={sectionTitleSpacer}>Day lanes</Text>
+              {dayLanes.length ? (
+                dayLanes.map((lane) => (
+                  <View key={lane.date} style={rowCardStyle}>
+                    <Text style={rowTitleStyle}>{lane.date}</Text>
+                    <Text style={bodyStyle}>Amount: {lane.amount.toFixed(2)} {focusContext?.currency || ""}</Text>
+                    <Text style={bodyStyle}>Rows: {lane.rows}</Text>
+                    <Text style={bodyStyle}>Project-linked rows: {lane.projectLinkedRows}</Text>
+                    <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+                      <Pressable
+                        onPress={() => router.push(`/calendar?day=${encodeURIComponent(lane.date)}`)}
+                        style={[secondaryButton, { flex: 1 }]}
+                      >
+                        <Text style={secondaryButtonText}>Open day in calendar</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          setFocus("DAY");
+                          setSelectedDay(lane.date);
+                        }}
+                        style={[secondaryButton, { flex: 1 }]}
+                      >
+                        <Text style={secondaryButtonText}>Focus this day</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))
+              ) : (
+                <Text style={bodyStyle}>No day lanes in the current focus.</Text>
               )}
 
               <Text style={sectionTitleSpacer}>Project lanes</Text>
