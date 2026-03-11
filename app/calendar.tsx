@@ -3,6 +3,11 @@ import React, { useEffect, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
 import { loadInstallerCalendar } from "@/modules/calendar/service";
 import type { InstallerCalendarViewModel } from "@/modules/calendar/types";
+import {
+  buildDoorPrepRoute,
+  buildIssueRouteFromCalendarEvent,
+  buildProjectRouteFromCalendarEvent,
+} from "@/modules/projects/navigation";
 
 export default function CalendarScreen() {
   const [state, setState] = useState<InstallerCalendarViewModel>({
@@ -51,24 +56,49 @@ export default function CalendarScreen() {
         <View style={cardStyle}>
           <Text style={sectionTitle}>Upcoming events</Text>
           {snapshot?.items.length ? (
-            snapshot.items.map((item) => (
+            snapshot.items.map((item) => {
+              const projectId = item.project_id;
+              return (
               <View key={item.id} style={eventCardStyle}>
                 <Text style={eventTitleStyle}>{item.title}</Text>
                 <Text style={bodyStyle}>Type: {item.event_type}</Text>
                 <Text style={bodyStyle}>Starts: {item.starts_at}</Text>
                 <Text style={bodyStyle}>Ends: {item.ends_at}</Text>
-                <Text style={bodyStyle}>Project: {item.project_id || "No project"}</Text>
+                <Text style={bodyStyle}>Project: {projectId || "No project"}</Text>
                 {item.location ? <Text style={bodyStyle}>Location: {item.location}</Text> : null}
-                {item.project_id ? (
-                  <Pressable
-                    onPress={() => router.push(`/project/${item.project_id}`)}
-                    style={[secondaryButton, { marginTop: 10 }]}
-                  >
-                    <Text style={secondaryButtonText}>Open project</Text>
-                  </Pressable>
+                {projectId ? (
+                  <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+                    <Pressable
+                      onPress={() => {
+                        const route = buildProjectRouteFromCalendarEvent(item);
+                        if (route) {
+                          router.push(route);
+                        }
+                      }}
+                      style={[secondaryButton, { flex: 1 }]}
+                    >
+                      <Text style={secondaryButtonText}>Open project</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        const route =
+                          item.event_type.toUpperCase() === "SERVICE"
+                            ? buildIssueRouteFromCalendarEvent(item)
+                            : buildDoorPrepRoute(projectId);
+                        if (route) {
+                          router.push(route);
+                        }
+                      }}
+                      style={[secondaryButton, { flex: 1 }]}
+                    >
+                      <Text style={secondaryButtonText}>
+                        {item.event_type.toUpperCase() === "SERVICE" ? "Open issues" : "Prep doors"}
+                      </Text>
+                    </Pressable>
+                  </View>
                 ) : null}
               </View>
-            ))
+            )})
           ) : (
             <Text style={bodyStyle}>
               {snapshot ? "No events in the current range." : "Calendar route is ready for real installer events."}

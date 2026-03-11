@@ -5,6 +5,12 @@ import { loadInstallerCalendar } from "@/modules/calendar/service";
 import type { InstallerCalendarViewModel } from "@/modules/calendar/types";
 import { loadInstallerEarnings } from "@/modules/earnings/service";
 import type { InstallerEarningsViewModel } from "@/modules/earnings/types";
+import {
+  buildIssueProjectRoute,
+  buildPriorityRoute,
+  buildProblemProjectRoute,
+  buildProjectRoute,
+} from "@/modules/projects/navigation";
 import { listProjects } from "@/modules/projects/repository";
 import type { ProjectListItem } from "@/modules/projects/types";
 import { bootstrapOnlineData, countPendingEvents, getLastSyncAt, getSyncQueueSummary, runSync } from "@/modules/sync/service";
@@ -99,6 +105,7 @@ export default function ProjectsScreen() {
       title: item.title,
       subtitle: item.starts_at,
       projectId: item.project_id as string,
+      eventType: item.event_type,
     }));
   }, [calendarState.snapshot]);
 
@@ -175,11 +182,14 @@ export default function ProjectsScreen() {
               <Pressable
                 key={item.key}
                 style={priorityCardStyle}
-                onPress={() => router.push(`/project/${item.projectId}`)}
+                onPress={() =>
+                  router.push(buildPriorityRoute(item))
+                }
               >
                 <Text style={priorityTitleStyle}>{item.title}</Text>
                 <Text style={priorityMetaStyle}>{item.subtitle}</Text>
                 <Text style={priorityMetaStyle}>Project: {item.projectId}</Text>
+                <Text style={priorityMetaStyle}>Type: {item.eventType}</Text>
               </Pressable>
             ))
           ) : (
@@ -189,13 +199,45 @@ export default function ProjectsScreen() {
           )}
         </View>
 
+        {problemProjects.length ? (
+          <View style={cardStyle}>
+            <Text style={sectionTitle}>Problem projects</Text>
+            {problemProjects.slice(0, 3).map((item) => (
+              <Pressable
+                key={item.id}
+                style={priorityCardStyle}
+                onPress={() => router.push(buildProblemProjectRoute(item))}
+              >
+                <Text style={priorityTitleStyle}>{item.name}</Text>
+                <Text style={priorityMetaStyle}>{item.address || "No address"}</Text>
+                <Text style={[priorityMetaStyle, { color: "#ffb86b" }]}>Open issues context</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+
         <View style={{ gap: 12 }}>
           {items.map((item) => (
-            <Pressable key={item.id} style={cardStyle} onPress={() => router.push(`/project/${item.id}`)}>
-              <Text style={{ color: "#f8fbff", fontSize: 18, fontWeight: "600" }}>{item.name}</Text>
-              <Text style={{ color: "#8fa7c2", marginTop: 6 }}>{item.address || "No address"}</Text>
-              <Text style={{ color: item.status === "PROBLEM" ? "#ffb86b" : "#63d297", marginTop: 8 }}>{item.status}</Text>
-            </Pressable>
+            <View key={item.id} style={cardStyle}>
+              <Pressable onPress={() => router.push(buildProjectRoute(item.id))}>
+                <Text style={{ color: "#f8fbff", fontSize: 18, fontWeight: "600" }}>{item.name}</Text>
+                <Text style={{ color: "#8fa7c2", marginTop: 6 }}>{item.address || "No address"}</Text>
+                <Text style={{ color: item.status === "PROBLEM" ? "#ffb86b" : "#63d297", marginTop: 8 }}>{item.status}</Text>
+              </Pressable>
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+                <Pressable onPress={() => router.push(buildProjectRoute(item.id))} style={[secondaryButton, { flex: 1 }]}>
+                  <Text style={secondaryButtonText}>Open project</Text>
+                </Pressable>
+                {item.status === "PROBLEM" ? (
+                  <Pressable
+                    onPress={() => router.push(buildIssueProjectRoute(item.id, { doorSearch: item.name }))}
+                    style={[secondaryButton, { flex: 1 }]}
+                  >
+                    <Text style={secondaryButtonText}>Open issues</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
           ))}
           {!items.length ? (
             <View style={cardStyle}>

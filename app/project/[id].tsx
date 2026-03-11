@@ -19,7 +19,15 @@ import { getSyncQueueSummary, listPendingEvents, runSync } from "@/modules/sync/
 import type { PendingSyncEvent, SyncQueueSummary } from "@/modules/sync/types";
 
 export default function ProjectDetailsScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    issueStatus?: string;
+    doorSearch?: string;
+    doorStatus?: string;
+    orderNumber?: string;
+    locationCode?: string;
+  }>();
+  const { id } = params;
   const projectId = id || "";
   const [project, setProject] = useState<ProjectListItem | null>(null);
   const [doors, setDoors] = useState<InstallerDoor[]>([]);
@@ -69,6 +77,24 @@ export default function ProjectDetailsScreen() {
   useEffect(() => {
     reload();
   }, [projectId]);
+
+  useEffect(() => {
+    if (typeof params.issueStatus === "string" && params.issueStatus.trim()) {
+      setIssueStatusFilter(params.issueStatus.trim().toUpperCase());
+    }
+    if (typeof params.doorSearch === "string" && params.doorSearch.trim()) {
+      setDoorSearch(params.doorSearch.trim());
+    }
+    if (typeof params.doorStatus === "string" && params.doorStatus.trim()) {
+      setDoorStatusFilter(params.doorStatus.trim().toUpperCase());
+    }
+    if (typeof params.orderNumber === "string" && params.orderNumber.trim()) {
+      setSelectedOrderNumber(params.orderNumber.trim());
+    }
+    if (typeof params.locationCode === "string" && params.locationCode.trim()) {
+      setSelectedLocationCode(params.locationCode.trim());
+    }
+  }, [params.doorSearch, params.doorStatus, params.issueStatus, params.locationCode, params.orderNumber]);
 
   const orderNumbers = useMemo(
     () => Array.from(new Set(doors.map((door) => door.order_number).filter(Boolean) as string[])).sort(),
@@ -181,6 +207,7 @@ export default function ProjectDetailsScreen() {
     if (!matchingDoor) {
       return;
     }
+    setIssueStatusFilter("OPEN");
     setDoorStatusFilter("ALL");
     setSelectedOrderNumber(matchingDoor.order_number || "ALL");
     setSelectedLocationCode(matchingDoor.location_code || "ALL");
