@@ -83,6 +83,10 @@ export default function CalendarScreen() {
       return a.title.localeCompare(b.title);
     });
   }, [visibleItems]);
+  const serviceLaneItems = useMemo(
+    () => visibleItems.filter((item) => item.event_type.trim().toUpperCase() === "SERVICE"),
+    [visibleItems]
+  );
 
   useEffect(() => {
     if (selectedDay !== "ALL" && !dayOptions.includes(selectedDay)) {
@@ -204,6 +208,43 @@ export default function CalendarScreen() {
             </View>
           ) : (
             <Text style={bodyStyle}>No project lanes in the current day focus.</Text>
+          )}
+        </View>
+
+        <View style={cardStyle}>
+          <Text style={sectionTitle}>Service lane</Text>
+          {serviceLaneItems.length ? (
+            <View style={{ gap: 10, marginTop: 14 }}>
+              {serviceLaneItems.map((item) => (
+                <View key={item.id} style={eventCardStyle}>
+                  <Text style={eventTitleStyle}>{item.title}</Text>
+                  <Text style={bodyStyle}>Starts: {item.starts_at}</Text>
+                  <Text style={bodyStyle}>Project: {item.project_id || "No project"}</Text>
+                  {item.location ? <Text style={bodyStyle}>Location: {item.location}</Text> : null}
+                  <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+                    {item.project_id ? (
+                      <Pressable
+                        onPress={() => {
+                          const route = buildIssueRouteFromCalendarEvent(item);
+                          if (route) {
+                            router.push(route);
+                          }
+                        }}
+                        style={[secondaryButton, { flex: 1 }]}
+                      >
+                        <Text style={secondaryButtonText}>Open issue context</Text>
+                      </Pressable>
+                    ) : (
+                      <Pressable onPress={() => router.push("/earnings" as never)} style={[secondaryButton, { flex: 1 }]}>
+                        <Text style={secondaryButtonText}>Open earnings</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={bodyStyle}>No service items in the current day focus.</Text>
           )}
         </View>
 
