@@ -123,6 +123,11 @@ export default function ProjectsScreen() {
       }));
   }, [calendarState.snapshot]);
 
+  const earningsInstallTypeSummary = useMemo(
+    () => (earningsState.snapshot?.install_types || []).slice(0, 3),
+    [earningsState.snapshot]
+  );
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
@@ -158,6 +163,28 @@ export default function ProjectsScreen() {
             <Text style={summaryValueStyle}>{earningsState.snapshot?.month_total || "--"}</Text>
             <Text style={summaryMetaStyle}>Problem projects: {problemProjects.length}</Text>
           </View>
+        </View>
+
+        <View style={cardStyle}>
+          <Text style={sectionTitle}>Earnings by install type</Text>
+          <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
+            Read-only breakdown from the current earnings snapshot.
+          </Text>
+          {earningsInstallTypeSummary.length ? (
+            <View style={{ gap: 10, marginTop: 14 }}>
+              {earningsInstallTypeSummary.map((item) => (
+                <View key={item.code} style={priorityCardStyle}>
+                  <Text style={priorityTitleStyle}>{item.label}</Text>
+                  <Text style={priorityMetaStyle}>Amount: {item.amount}</Text>
+                  <Text style={priorityMetaStyle}>Qty: {item.quantity}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={{ color: "#8fa7c2", marginTop: 12 }}>
+              No install type earnings breakdown in the current snapshot.
+            </Text>
+          )}
         </View>
 
         <View style={cardStyle}>
