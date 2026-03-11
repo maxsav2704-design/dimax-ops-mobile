@@ -22,7 +22,7 @@ import { useAuth, useI18n } from "@/providers/AppProviders";
 export default function ProjectsScreen() {
   const router = useRouter();
   const { user, signOut } = useAuth();
-  const { t, isRTL } = useI18n();
+  const { t, isRTL, locale } = useI18n();
   const [items, setItems] = useState<ProjectListItem[]>([]);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
@@ -168,6 +168,12 @@ export default function ProjectsScreen() {
     return todayEarningsContext;
   }, [dayFocusedEarningsContext, monthEarningsContext, todayEarningsContext, workspaceEarningsFocus]);
 
+  const lt = (en: string, ru: string, he: string) => {
+    if (locale === "ru") return ru;
+    if (locale === "he") return he;
+    return en;
+  };
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
@@ -192,59 +198,67 @@ export default function ProjectsScreen() {
 
         <View style={summaryGridStyle}>
           <View style={summaryCardStyle}>
-            <Text style={summaryEyebrowStyle}>Today tasks</Text>
+            <Text style={summaryEyebrowStyle}>{lt("Today tasks", "Задачи на сегодня", "משימות להיום")}</Text>
             <Text style={summaryValueStyle}>{todayTasksCount}</Text>
-            <Text style={summaryMetaStyle}>Source: {calendarState.source}</Text>
+            <Text style={summaryMetaStyle}>{lt("Source", "Источник", "מקור")}: {calendarState.source}</Text>
           </View>
           <View style={summaryCardStyle}>
-            <Text style={summaryEyebrowStyle}>Today earnings</Text>
+            <Text style={summaryEyebrowStyle}>{lt("Today earnings", "Заработок сегодня", "הכנסות היום")}</Text>
             <Text style={summaryValueStyle}>{earningsState.snapshot?.today_total || "--"}</Text>
-            <Text style={summaryMetaStyle}>Source: {earningsState.source}</Text>
+            <Text style={summaryMetaStyle}>{lt("Source", "Источник", "מקור")}: {earningsState.source}</Text>
           </View>
           <View style={summaryCardStyle}>
-            <Text style={summaryEyebrowStyle}>This month</Text>
+            <Text style={summaryEyebrowStyle}>{lt("This month", "Этот месяц", "החודש")}</Text>
             <Text style={summaryValueStyle}>{earningsState.snapshot?.month_total || "--"}</Text>
-            <Text style={summaryMetaStyle}>Problem projects: {problemProjects.length}</Text>
+            <Text style={summaryMetaStyle}>{lt("Problem projects", "Проблемные проекты", "פרויקטים עם בעיה")}: {problemProjects.length}</Text>
           </View>
         </View>
 
         <View style={cardStyle}>
-          <Text style={sectionTitle}>Readiness summary</Text>
+          <Text style={sectionTitle}>{lt("Readiness summary", "Сводка готовности", "סיכום מוכנות")}</Text>
           <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
-            Operational snapshot for today before entering detailed flow.
+            {lt(
+              "Operational snapshot for today before entering detailed flow.",
+              "Операционная сводка дня перед входом в детальный сценарий.",
+              "תמונת מצב תפעולית ליום הנוכחי לפני כניסה לזרימה המפורטת."
+            )}
           </Text>
           <View style={{ gap: 8, marginTop: 14 }}>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Service items today</Text>
+              <Text style={summaryLabelStyle}>{lt("Service items today", "Сервисные задачи сегодня", "פריטי שירות היום")}</Text>
               <Text style={summaryValueInlineStyle}>{readinessSummary.serviceItems}</Text>
             </View>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Problem projects</Text>
+              <Text style={summaryLabelStyle}>{lt("Problem projects", "Проблемные проекты", "פרויקטים עם בעיה")}</Text>
               <Text style={summaryValueInlineStyle}>{readinessSummary.problemProjects}</Text>
             </View>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Priority items with project</Text>
+              <Text style={summaryLabelStyle}>{lt("Priority items with project", "Приоритеты с проектом", "פריטי עדיפות עם פרויקט")}</Text>
               <Text style={summaryValueInlineStyle}>{readinessSummary.linkedPriorityItems}</Text>
             </View>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Pending sync work</Text>
+              <Text style={summaryLabelStyle}>{lt("Pending sync work", "Ожидающий синк", "עבודת סנכרון ממתינה")}</Text>
               <Text style={summaryValueInlineStyle}>{readinessSummary.pendingSync}</Text>
             </View>
           </View>
           <View style={{ flexDirection: "row", gap: 12, marginTop: 14 }}>
             <Pressable onPress={() => router.push("/calendar" as never)} style={[secondaryButton, { flex: 1 }]}>
-              <Text style={secondaryButtonText}>Review calendar</Text>
+              <Text style={secondaryButtonText}>{lt("Review calendar", "Проверить календарь", "בדוק יומן")}</Text>
             </Pressable>
             <Pressable onPress={() => router.push("/sync-queue" as never)} style={[secondaryButton, { flex: 1 }]}>
-              <Text style={secondaryButtonText}>Review queue</Text>
+              <Text style={secondaryButtonText}>{lt("Review queue", "Проверить очередь", "בדוק תור")}</Text>
             </Pressable>
           </View>
         </View>
 
         <View style={cardStyle}>
-          <Text style={sectionTitle}>Service lane</Text>
+          <Text style={sectionTitle}>{lt("Service lane", "Сервисная линия", "מסלול שירות")}</Text>
           <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
-            Today service items that require issue-focused follow-up.
+            {lt(
+              "Today service items that require issue-focused follow-up.",
+              "Сервисные задачи дня, требующие перехода в контекст проблемы.",
+              "פריטי שירות להיום שדורשים המשך טיפול מתוך הקשר תקלה."
+            )}
           </Text>
           {serviceLaneItems.length ? (
             <View style={{ gap: 10, marginTop: 14 }}>
@@ -278,10 +292,10 @@ export default function ProjectsScreen() {
                       }
                       style={[secondaryButton, { flex: 1 }]}
                     >
-                      <Text style={secondaryButtonText}>Open issue context</Text>
+                      <Text style={secondaryButtonText}>{lt("Open issue context", "Открыть контекст проблемы", "פתח הקשר תקלה")}</Text>
                     </Pressable>
                     <Pressable onPress={() => router.push("/calendar" as never)} style={[secondaryButton, { flex: 1 }]}>
-                      <Text style={secondaryButtonText}>Open calendar</Text>
+                      <Text style={secondaryButtonText}>{lt("Open calendar", "Открыть календарь", "פתח יומן")}</Text>
                     </Pressable>
                   </View>
                 </Pressable>
@@ -289,7 +303,7 @@ export default function ProjectsScreen() {
             </View>
           ) : (
             <Text style={{ color: "#8fa7c2", marginTop: 12 }}>
-              No service items in today execution lane.
+              {lt("No service items in today execution lane.", "В линии дня нет сервисных задач.", "אין פריטי שירות במסלול היום.")}
             </Text>
           )}
         </View>
@@ -317,40 +331,46 @@ export default function ProjectsScreen() {
         </View>
 
         <View style={cardStyle}>
-          <Text style={sectionTitle}>Today earnings lane</Text>
+          <Text style={sectionTitle}>{lt("Today earnings lane", "Линия заработка дня", "מסלול הכנסות יומי")}</Text>
           <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
-            Today money rows from the current read-only earnings snapshot.
+            {lt(
+              "Today money rows from the current read-only earnings snapshot.",
+              "Строки денег за день из текущего read-only earnings snapshot.",
+              "שורות הכנסה יומיות מתוך תמונת ההכנסות לקריאה בלבד."
+            )}
           </Text>
           <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
             <Pressable
               onPress={() => setWorkspaceEarningsFocus("TODAY")}
               style={[chipStyle, workspaceEarningsFocus === "TODAY" && chipStyleActive]}
             >
-              <Text style={{ color: workspaceEarningsFocus === "TODAY" ? "#04111f" : "#d9e7f7" }}>Today total</Text>
+              <Text style={{ color: workspaceEarningsFocus === "TODAY" ? "#04111f" : "#d9e7f7" }}>{lt("Today total", "Итог за сегодня", "סה\"כ היום")}</Text>
             </Pressable>
             <Pressable
               onPress={() => setWorkspaceEarningsFocus("DAY")}
               style={[chipStyle, workspaceEarningsFocus === "DAY" && chipStyleActive]}
             >
-              <Text style={{ color: workspaceEarningsFocus === "DAY" ? "#04111f" : "#d9e7f7" }}>Today rows</Text>
+              <Text style={{ color: workspaceEarningsFocus === "DAY" ? "#04111f" : "#d9e7f7" }}>{lt("Today rows", "Строки дня", "שורות היום")}</Text>
             </Pressable>
             <Pressable
               onPress={() => setWorkspaceEarningsFocus("MONTH")}
               style={[chipStyle, workspaceEarningsFocus === "MONTH" && chipStyleActive]}
             >
-              <Text style={{ color: workspaceEarningsFocus === "MONTH" ? "#04111f" : "#d9e7f7" }}>Month</Text>
+              <Text style={{ color: workspaceEarningsFocus === "MONTH" ? "#04111f" : "#d9e7f7" }}>{lt("Month", "Месяц", "חודש")}</Text>
             </Pressable>
           </View>
           <View style={{ gap: 8, marginTop: 14 }}>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Focused total</Text>
+              <Text style={summaryLabelStyle}>{lt("Focused total", "Сумма в фокусе", "סה\"כ במיקוד")}</Text>
               <Text style={summaryValueInlineStyle}>
                 {workspaceEarningsContext ? `${workspaceEarningsContext.total} ${workspaceEarningsContext.currency}` : "--"}
               </Text>
             </View>
             <View style={summaryRowStyle}>
               <Text style={summaryLabelStyle}>
-                {workspaceEarningsFocus === "MONTH" ? "Rows this month" : "Rows in focus"}
+                {workspaceEarningsFocus === "MONTH"
+                  ? lt("Rows this month", "Строк за месяц", "שורות החודש")
+                  : lt("Rows in focus", "Строк в фокусе", "שורות במיקוד")}
               </Text>
               <Text style={summaryValueInlineStyle}>{workspaceEarningsContext?.rows.length ?? "--"}</Text>
             </View>
@@ -380,36 +400,44 @@ export default function ProjectsScreen() {
             </View>
           ) : (
             <Text style={{ color: "#8fa7c2", marginTop: 12 }}>
-              No earnings rows for the current workspace focus.
+              {lt(
+                "No earnings rows for the current workspace focus.",
+                "Для текущего фокуса на workspace нет строк заработка.",
+                "אין שורות הכנסה למיקוד הנוכחי במסך העבודה."
+              )}
             </Text>
           )}
         </View>
 
         <View style={cardStyle}>
-          <Text style={sectionTitle}>Today execution lane</Text>
+          <Text style={sectionTitle}>{lt("Today execution lane", "Линия исполнения дня", "מסלול ביצוע יומי")}</Text>
           <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
-            Tasks, money and next actions for the current day.
+            {lt(
+              "Tasks, money and next actions for the current day.",
+              "Задачи, деньги и следующие действия на текущий день.",
+              "משימות, כסף והפעולות הבאות ליום הנוכחי."
+            )}
           </Text>
           <View style={{ gap: 10, marginTop: 14 }}>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Today tasks</Text>
+              <Text style={summaryLabelStyle}>{lt("Today tasks", "Задачи на сегодня", "משימות להיום")}</Text>
               <Text style={summaryValueInlineStyle}>{todayTasksCount}</Text>
             </View>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Today earnings</Text>
+              <Text style={summaryLabelStyle}>{lt("Today earnings", "Заработок сегодня", "הכנסות היום")}</Text>
               <Text style={summaryValueInlineStyle}>{earningsState.snapshot?.today_total || "--"}</Text>
             </View>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Priority events</Text>
+              <Text style={summaryLabelStyle}>{lt("Priority events", "Приоритетные события", "אירועי עדיפות")}</Text>
               <Text style={summaryValueInlineStyle}>{todayExecutionItems.length}</Text>
             </View>
           </View>
           <View style={{ flexDirection: "row", gap: 12, marginTop: 14 }}>
             <Pressable onPress={() => router.push("/calendar" as never)} style={[secondaryButton, { flex: 1 }]}>
-              <Text style={secondaryButtonText}>Today calendar</Text>
+              <Text style={secondaryButtonText}>{lt("Today calendar", "Календарь дня", "יומן היום")}</Text>
             </Pressable>
             <Pressable onPress={() => router.push("/earnings" as never)} style={[secondaryButton, { flex: 1 }]}>
-              <Text style={secondaryButtonText}>Today earnings</Text>
+              <Text style={secondaryButtonText}>{lt("Today earnings", "Заработок дня", "הכנסות היום")}</Text>
             </Pressable>
           </View>
           {todayExecutionItems.length ? (
@@ -439,32 +467,36 @@ export default function ProjectsScreen() {
             </View>
           ) : (
             <Text style={{ color: "#8fa7c2", marginTop: 12 }}>
-              No same-day execution events in the current calendar snapshot.
+              {lt(
+                "No same-day execution events in the current calendar snapshot.",
+                "В текущем calendar snapshot нет событий этого дня.",
+                "אין אירועי ביצוע של אותו יום בתמונת היומן הנוכחית."
+              )}
             </Text>
           )}
         </View>
 
         <View style={{ flexDirection: "row", gap: 12 }}>
           <Pressable onPress={hydrate} style={[primaryButton, busy && { opacity: 0.6 }]} disabled={busy}>
-            <Text style={primaryButtonText}>{busy ? "Working..." : "Bootstrap"}</Text>
+            <Text style={primaryButtonText}>{busy ? t("common.working") : lt("Bootstrap", "Бутстрап", "Bootstrap")}</Text>
           </Pressable>
           <Pressable onPress={syncNow} style={[secondaryButton, busy && { opacity: 0.6 }]} disabled={busy}>
-            <Text style={secondaryButtonText}>Sync Now</Text>
+            <Text style={secondaryButtonText}>{lt("Sync Now", "Синхронизировать", "סנכרן עכשיו")}</Text>
           </Pressable>
         </View>
 
         <View style={{ flexDirection: "row", gap: 12 }}>
           <Pressable onPress={() => router.push("/calendar" as never)} style={secondaryButton}>
-            <Text style={secondaryButtonText}>Calendar</Text>
+            <Text style={secondaryButtonText}>{t("title.calendar")}</Text>
           </Pressable>
           <Pressable onPress={() => router.push("/earnings" as never)} style={secondaryButton}>
-            <Text style={secondaryButtonText}>Earnings</Text>
+            <Text style={secondaryButtonText}>{t("title.earnings")}</Text>
           </Pressable>
         </View>
 
         <View style={{ flexDirection: "row", gap: 12 }}>
           <Pressable onPress={() => router.push("/sync-queue" as never)} style={secondaryButton}>
-            <Text style={secondaryButtonText}>Queue</Text>
+            <Text style={secondaryButtonText}>{lt("Queue", "Очередь", "תור")}</Text>
           </Pressable>
           <Pressable onPress={signOut} style={secondaryButton}>
             <Text style={secondaryButtonText}>{t("common.logout")}</Text>
@@ -474,7 +506,7 @@ export default function ProjectsScreen() {
         {error ? <Text style={{ color: "#ff8b8b" }}>{error}</Text> : null}
 
         <View style={cardStyle}>
-          <Text style={sectionTitle}>Today priorities</Text>
+          <Text style={sectionTitle}>{lt("Today priorities", "Приоритеты дня", "עדיפויות היום")}</Text>
           {topPriorities.length ? (
             topPriorities.map((item) => (
               <Pressable
@@ -492,36 +524,44 @@ export default function ProjectsScreen() {
             ))
           ) : (
             <Text style={{ color: "#8fa7c2", marginTop: 8 }}>
-              No priority events in the current calendar snapshot.
+              {lt(
+                "No priority events in the current calendar snapshot.",
+                "В текущем calendar snapshot нет приоритетных событий.",
+                "אין אירועי עדיפות בתמונת היומן הנוכחית."
+              )}
             </Text>
           )}
         </View>
 
         {problemProjects.length ? (
           <View style={cardStyle}>
-            <Text style={sectionTitle}>Problem projects lane</Text>
+            <Text style={sectionTitle}>{lt("Problem projects lane", "Линия проблемных проектов", "מסלול פרויקטים בעייתיים")}</Text>
             <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
-              Fast recovery entry for projects that need attention now.
+              {lt(
+                "Fast recovery entry for projects that need attention now.",
+                "Быстрый вход в восстановление для проектов, которым нужно внимание прямо сейчас.",
+                "כניסה מהירה לשחזור עבור פרויקטים שדורשים תשומת לב עכשיו."
+              )}
             </Text>
             {problemProjects.slice(0, 3).map((item) => (
               <View key={item.id} style={priorityCardStyle}>
                 <Pressable onPress={() => router.push(buildProblemProjectRoute(item) as never)}>
                   <Text style={priorityTitleStyle}>{item.name}</Text>
                   <Text style={priorityMetaStyle}>{item.address || "No address"}</Text>
-                  <Text style={[priorityMetaStyle, { color: "#ffb86b" }]}>Open issues context</Text>
+                  <Text style={[priorityMetaStyle, { color: "#ffb86b" }]}>{lt("Open issues context", "Открыть контекст проблем", "פתח הקשר תקלות")}</Text>
                 </Pressable>
                 <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
                   <Pressable
                     onPress={() => router.push(buildProblemProjectRoute(item) as never)}
                     style={[secondaryButton, { flex: 1 }]}
                   >
-                    <Text style={secondaryButtonText}>Issue context</Text>
+                    <Text style={secondaryButtonText}>{lt("Issue context", "Контекст проблем", "הקשר תקלות")}</Text>
                   </Pressable>
                   <Pressable
                     onPress={() => router.push(`/earnings?focus=MONTH` as never)}
                     style={[secondaryButton, { flex: 1 }]}
                   >
-                    <Text style={secondaryButtonText}>Earnings context</Text>
+                    <Text style={secondaryButtonText}>{lt("Earnings context", "Контекст заработка", "הקשר הכנסות")}</Text>
                   </Pressable>
                 </View>
               </View>
@@ -534,19 +574,19 @@ export default function ProjectsScreen() {
             <View key={item.id} style={cardStyle}>
               <Pressable onPress={() => router.push(buildProjectRoute(item.id) as never)}>
                 <Text style={{ color: "#f8fbff", fontSize: 18, fontWeight: "600" }}>{item.name}</Text>
-                <Text style={{ color: "#8fa7c2", marginTop: 6 }}>{item.address || "No address"}</Text>
+                <Text style={{ color: "#8fa7c2", marginTop: 6 }}>{item.address || lt("No address", "Нет адреса", "אין כתובת")}</Text>
                 <Text style={{ color: item.status === "PROBLEM" ? "#ffb86b" : "#63d297", marginTop: 8 }}>{item.status}</Text>
               </Pressable>
               <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
                 <Pressable onPress={() => router.push(buildProjectRoute(item.id) as never)} style={[secondaryButton, { flex: 1 }]}>
-                  <Text style={secondaryButtonText}>Open project</Text>
+                  <Text style={secondaryButtonText}>{lt("Open project", "Открыть проект", "פתח פרויקט")}</Text>
                 </Pressable>
                 {item.status === "PROBLEM" ? (
                   <Pressable
                     onPress={() => router.push(buildIssueProjectRoute(item.id, { doorSearch: item.name }) as never)}
                     style={[secondaryButton, { flex: 1 }]}
                   >
-                    <Text style={secondaryButtonText}>Open issues</Text>
+                    <Text style={secondaryButtonText}>{lt("Open issues", "Открыть проблемы", "פתח תקלות")}</Text>
                   </Pressable>
                 ) : null}
               </View>
@@ -554,7 +594,13 @@ export default function ProjectsScreen() {
           ))}
           {!items.length ? (
             <View style={cardStyle}>
-              <Text style={{ color: "#8fa7c2" }}>No local projects yet. Use Bootstrap to pull assigned projects and seed offline storage.</Text>
+              <Text style={{ color: "#8fa7c2" }}>
+                {lt(
+                  "No local projects yet. Use Bootstrap to pull assigned projects and seed offline storage.",
+                  "Локальных проектов пока нет. Используй Bootstrap, чтобы подтянуть назначенные проекты и заполнить offline-хранилище.",
+                  "עדיין אין פרויקטים מקומיים. השתמש ב-Bootstrap כדי למשוך פרויקטים משויכים ולמלא את אחסון האופליין."
+                )}
+              </Text>
             </View>
           ) : null}
         </View>
