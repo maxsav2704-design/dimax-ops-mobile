@@ -1,7 +1,7 @@
 import * as SQLite from "expo-sqlite";
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
-const DB_SCHEMA_VERSION = 2;
+const DB_SCHEMA_VERSION = 3;
 
 export async function getDb() {
   if (!dbPromise) {
@@ -113,6 +113,15 @@ async function createBaseSchema(db: SQLite.SQLiteDatabase): Promise<void> {
 
     CREATE INDEX IF NOT EXISTS idx_pending_events_status_retry
       ON pending_events(status, next_retry_at, created_at);
+
+    CREATE TABLE IF NOT EXISTS installer_earnings_snapshots (
+      period_key TEXT PRIMARY KEY NOT NULL,
+      currency TEXT NOT NULL,
+      today_total TEXT NOT NULL,
+      month_total TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 }
 
@@ -140,6 +149,19 @@ async function migrateDb(db: SQLite.SQLiteDatabase): Promise<void> {
     await db.execAsync(`
       CREATE INDEX IF NOT EXISTS idx_pending_events_status_retry
         ON pending_events(status, next_retry_at, created_at);
+    `);
+  }
+
+  if (currentVersion < 3) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS installer_earnings_snapshots (
+        period_key TEXT PRIMARY KEY NOT NULL,
+        currency TEXT NOT NULL,
+        today_total TEXT NOT NULL,
+        month_total TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
     `);
   }
 
