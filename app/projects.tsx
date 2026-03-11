@@ -1,6 +1,7 @@
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
+import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { loadInstallerCalendar } from "@/modules/calendar/service";
 import type { InstallerCalendarViewModel } from "@/modules/calendar/types";
 import { buildEarningsFocusContext } from "@/modules/earnings/presentation";
@@ -16,11 +17,12 @@ import { listProjects } from "@/modules/projects/repository";
 import type { ProjectListItem } from "@/modules/projects/types";
 import { bootstrapOnlineData, countPendingEvents, getLastSyncAt, getSyncQueueSummary, runSync } from "@/modules/sync/service";
 import type { SyncQueueSummary } from "@/modules/sync/types";
-import { useAuth } from "@/providers/AppProviders";
+import { useAuth, useI18n } from "@/providers/AppProviders";
 
 export default function ProjectsScreen() {
   const router = useRouter();
   const { user, signOut } = useAuth();
+  const { t, isRTL } = useI18n();
   const [items, setItems] = useState<ProjectListItem[]>([]);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
@@ -170,17 +172,20 @@ export default function ProjectsScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
         <View style={cardStyle}>
-          <Text style={{ color: "#f8fbff", fontSize: 22, fontWeight: "700" }}>Installer Workspace</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 6 }}>{user?.full_name}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 4 }}>Last sync: {lastSyncAt || "never"}</Text>
+          <View style={{ alignSelf: isRTL ? "flex-end" : "flex-start", marginBottom: 8 }}>
+            <LocaleSwitcher />
+          </View>
+          <Text style={{ color: "#f8fbff", fontSize: 22, fontWeight: "700", textAlign: isRTL ? "right" : "left" }}>{t("workspace.title")}</Text>
+          <Text style={{ color: "#8fa7c2", marginTop: 6, textAlign: isRTL ? "right" : "left" }}>{user?.full_name}</Text>
+          <Text style={{ color: "#8fa7c2", marginTop: 4, textAlign: isRTL ? "right" : "left" }}>{t("workspace.lastSync")}: {lastSyncAt || t("workspace.never")}</Text>
           <Text style={{ color: pendingCount > 0 ? "#ffb86b" : "#63d297", marginTop: 4 }}>
-            Pending offline events: {pendingCount}
+            {t("workspace.pendingOffline")}: {pendingCount}
           </Text>
           <Text style={{ color: "#8fa7c2", marginTop: 4 }}>
-            Queue health: pending {queueSummary?.pending || 0} / failed {queueSummary?.failed || 0} / blocked {queueSummary?.blocked || 0}
+            {t("workspace.queueHealth")}: pending {queueSummary?.pending || 0} / failed {queueSummary?.failed || 0} / blocked {queueSummary?.blocked || 0}
           </Text>
           <Text style={{ color: "#8fa7c2", marginTop: 4 }}>
-            Ready now: {queueSummary?.ready_to_send || 0}
+            {t("workspace.readyNow")}: {queueSummary?.ready_to_send || 0}
             {queueSummary?.next_retry_at ? ` | next retry ${queueSummary.next_retry_at}` : ""}
           </Text>
         </View>
@@ -252,7 +257,7 @@ export default function ProjectsScreen() {
                       ? router.push(
                           buildIssueProjectRoute(item.projectId, {
                             doorSearch: item.title,
-                          })
+                          }) as never
                         )
                       : router.push("/calendar" as never)
                   }
@@ -267,7 +272,7 @@ export default function ProjectsScreen() {
                           ? router.push(
                               buildIssueProjectRoute(item.projectId, {
                                 doorSearch: item.title,
-                              })
+                              }) as never
                             )
                           : router.push("/calendar" as never)
                       }
@@ -361,7 +366,7 @@ export default function ProjectsScreen() {
                       ? router.push(
                           buildIssueProjectRoute(row.project_id, {
                             doorSearch: row.door_label || row.project_name || undefined,
-                          })
+                          }) as never
                         )
                       : router.push("/earnings" as never)
                   }
@@ -419,7 +424,7 @@ export default function ProjectsScreen() {
                           projectId: item.projectId,
                           eventType: item.eventType,
                           title: item.title,
-                        }))
+                        }) as never)
                       : router.push("/calendar" as never)
                   }
                 >
@@ -462,7 +467,7 @@ export default function ProjectsScreen() {
             <Text style={secondaryButtonText}>Queue</Text>
           </Pressable>
           <Pressable onPress={signOut} style={secondaryButton}>
-            <Text style={secondaryButtonText}>Logout</Text>
+            <Text style={secondaryButtonText}>{t("common.logout")}</Text>
           </Pressable>
         </View>
 
@@ -476,7 +481,7 @@ export default function ProjectsScreen() {
                 key={item.key}
                 style={priorityCardStyle}
                 onPress={() =>
-                  router.push(buildPriorityRoute(item))
+                  router.push(buildPriorityRoute(item) as never)
                 }
               >
                 <Text style={priorityTitleStyle}>{item.title}</Text>
@@ -500,14 +505,14 @@ export default function ProjectsScreen() {
             </Text>
             {problemProjects.slice(0, 3).map((item) => (
               <View key={item.id} style={priorityCardStyle}>
-                <Pressable onPress={() => router.push(buildProblemProjectRoute(item))}>
+                <Pressable onPress={() => router.push(buildProblemProjectRoute(item) as never)}>
                   <Text style={priorityTitleStyle}>{item.name}</Text>
                   <Text style={priorityMetaStyle}>{item.address || "No address"}</Text>
                   <Text style={[priorityMetaStyle, { color: "#ffb86b" }]}>Open issues context</Text>
                 </Pressable>
                 <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
                   <Pressable
-                    onPress={() => router.push(buildProblemProjectRoute(item))}
+                    onPress={() => router.push(buildProblemProjectRoute(item) as never)}
                     style={[secondaryButton, { flex: 1 }]}
                   >
                     <Text style={secondaryButtonText}>Issue context</Text>
@@ -527,18 +532,18 @@ export default function ProjectsScreen() {
         <View style={{ gap: 12 }}>
           {items.map((item) => (
             <View key={item.id} style={cardStyle}>
-              <Pressable onPress={() => router.push(buildProjectRoute(item.id))}>
+              <Pressable onPress={() => router.push(buildProjectRoute(item.id) as never)}>
                 <Text style={{ color: "#f8fbff", fontSize: 18, fontWeight: "600" }}>{item.name}</Text>
                 <Text style={{ color: "#8fa7c2", marginTop: 6 }}>{item.address || "No address"}</Text>
                 <Text style={{ color: item.status === "PROBLEM" ? "#ffb86b" : "#63d297", marginTop: 8 }}>{item.status}</Text>
               </Pressable>
               <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
-                <Pressable onPress={() => router.push(buildProjectRoute(item.id))} style={[secondaryButton, { flex: 1 }]}>
+                <Pressable onPress={() => router.push(buildProjectRoute(item.id) as never)} style={[secondaryButton, { flex: 1 }]}>
                   <Text style={secondaryButtonText}>Open project</Text>
                 </Pressable>
                 {item.status === "PROBLEM" ? (
                   <Pressable
-                    onPress={() => router.push(buildIssueProjectRoute(item.id, { doorSearch: item.name }))}
+                    onPress={() => router.push(buildIssueProjectRoute(item.id, { doorSearch: item.name }) as never)}
                     style={[secondaryButton, { flex: 1 }]}
                   >
                     <Text style={secondaryButtonText}>Open issues</Text>

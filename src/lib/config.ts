@@ -6,3 +6,5 @@ export const AUTH_STORAGE_KEYS = {
   companyId: "dimax_mobile_company_id",
   email: "dimax_mobile_email",
 } as const;
+
+export const LOCALE_STORAGE_KEY = "dimax_mobile_locale";

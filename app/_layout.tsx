@@ -1,25 +1,33 @@
 import { Stack } from "expo-router";
 import React from "react";
-import { AppProviders } from "@/providers/AppProviders";
+import { AppProviders, useI18n } from "@/providers/AppProviders";
 
 export default function RootLayout() {
   return (
     <AppProviders>
-      <Stack
-        screenOptions={{
-          headerStyle: { backgroundColor: "#071523" },
-          headerTintColor: "#f8fbff",
-          contentStyle: { backgroundColor: "#04111f" },
-        }}
-      >
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="login" options={{ title: "DIMAX Installer" }} />
-        <Stack.Screen name="projects" options={{ title: "My Projects" }} />
-        <Stack.Screen name="calendar" options={{ title: "My Calendar" }} />
-        <Stack.Screen name="earnings" options={{ title: "My Earnings" }} />
-        <Stack.Screen name="sync-queue" options={{ title: "Sync Queue" }} />
-        <Stack.Screen name="project/[id]" options={{ title: "Project" }} />
-      </Stack>
+      <RootNavigator />
     </AppProviders>
+  );
+}
+
+function RootNavigator() {
+  const { t } = useI18n();
+
+  return (
+    <Stack
+      screenOptions={{
+        headerStyle: { backgroundColor: "#071523" },
+        headerTintColor: "#f8fbff",
+        contentStyle: { backgroundColor: "#04111f" },
+      }}
+    >
+      <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="login" options={{ title: t("title.login") }} />
+      <Stack.Screen name="projects" options={{ title: t("title.projects") }} />
+      <Stack.Screen name="calendar" options={{ title: t("title.calendar") }} />
+      <Stack.Screen name="earnings" options={{ title: t("title.earnings") }} />
+      <Stack.Screen name="sync-queue" options={{ title: t("title.syncQueue") }} />
+      <Stack.Screen name="project/[id]" options={{ title: t("title.project") }} />
+    </Stack>
   );
 }

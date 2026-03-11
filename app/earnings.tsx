@@ -219,8 +219,8 @@ export default function EarningsScreen() {
               onPress={() =>
                 router.push(
                   focusContext?.selectedDay
-                    ? `/calendar?day=${encodeURIComponent(focusContext.selectedDay)}`
-                    : "/calendar"
+                    ? (`/calendar?day=${encodeURIComponent(focusContext.selectedDay)}` as never)
+                    : ("/calendar" as never)
                 )
               }
               style={[secondaryButton, { flex: 1 }]}
@@ -314,7 +314,7 @@ export default function EarningsScreen() {
                     <Text style={bodyStyle}>Project-linked rows: {lane.projectLinkedRows}</Text>
                     <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
                       <Pressable
-                        onPress={() => router.push(`/calendar?day=${encodeURIComponent(lane.date)}`)}
+                        onPress={() => router.push(`/calendar?day=${encodeURIComponent(lane.date)}` as never)}
                         style={[secondaryButton, { flex: 1 }]}
                       >
                         <Text style={secondaryButtonText}>Open day in calendar</Text>
@@ -347,13 +347,13 @@ export default function EarningsScreen() {
                     {projectId ? (
                       <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
                         <Pressable
-                          onPress={() => router.push(buildProjectRoute(projectId))}
+                          onPress={() => router.push(buildProjectRoute(projectId) as never)}
                           style={[secondaryButton, { flex: 1 }]}
                         >
                           <Text style={secondaryButtonText}>Open project lane</Text>
                         </Pressable>
                         <Pressable
-                          onPress={() => router.push(buildIssueProjectRoute(projectId, { doorSearch: lane.projectName }))}
+                          onPress={() => router.push(buildIssueProjectRoute(projectId, { doorSearch: lane.projectName }) as never)}
                           style={[secondaryButton, { flex: 1 }]}
                         >
                           <Text style={secondaryButtonText}>Issue context</Text>
@@ -381,7 +381,7 @@ export default function EarningsScreen() {
                     {projectId ? (
                       <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
                         <Pressable
-                          onPress={() => router.push(buildProjectRoute(projectId))}
+                          onPress={() => router.push(buildProjectRoute(projectId) as never)}
                           style={[secondaryButton, { flex: 1 }]}
                         >
                           <Text style={secondaryButtonText}>Open project</Text>
@@ -391,7 +391,7 @@ export default function EarningsScreen() {
                             router.push(
                               buildIssueProjectRoute(projectId, {
                                 doorSearch: item.door_label || item.project_name || undefined,
-                              })
+                              }) as never
                             )
                           }
                           style={[secondaryButton, { flex: 1 }]}

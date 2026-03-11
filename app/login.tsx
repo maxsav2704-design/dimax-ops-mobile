@@ -1,10 +1,13 @@
 import { router } from "expo-router";
 import React, { useMemo, useState } from "react";
 import { Pressable, SafeAreaView, Text, TextInput, View } from "react-native";
+import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { useAuth } from "@/providers/AppProviders";
+import { useI18n } from "@/providers/AppProviders";
 
 export default function LoginScreen() {
   const { signIn } = useAuth();
+  const { t, isRTL } = useI18n();
   const [companyId, setCompanyId] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,7 +27,7 @@ export default function LoginScreen() {
       await signIn(companyId.trim(), email.trim(), password);
       router.replace("/projects");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Login failed");
+      setError(e instanceof Error ? e.message : t("login.failed"));
     } finally {
       setSubmitting(false);
     }
@@ -33,17 +36,20 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f", padding: 24, justifyContent: "center" }}>
       <View style={{ gap: 16 }}>
-        <Text style={{ color: "#f8fbff", fontSize: 28, fontWeight: "700" }}>DIMAX Installer</Text>
-        <Text style={{ color: "#8fa7c2", fontSize: 15 }}>Offline-first installer workspace with cursor sync.</Text>
+        <View style={{ alignSelf: isRTL ? "flex-end" : "flex-start" }}>
+          <LocaleSwitcher />
+        </View>
+        <Text style={{ color: "#f8fbff", fontSize: 28, fontWeight: "700", textAlign: isRTL ? "right" : "left" }}>{t("title.login")}</Text>
+        <Text style={{ color: "#8fa7c2", fontSize: 15, textAlign: isRTL ? "right" : "left" }}>{t("login.subtitle")}</Text>
 
-        <TextInput value={companyId} onChangeText={setCompanyId} placeholder="Company UUID" placeholderTextColor="#6b85a4" style={inputStyle} autoCapitalize="none" />
-        <TextInput value={email} onChangeText={setEmail} placeholder="Email" placeholderTextColor="#6b85a4" style={inputStyle} autoCapitalize="none" keyboardType="email-address" />
-        <TextInput value={password} onChangeText={setPassword} placeholder="Password" placeholderTextColor="#6b85a4" style={inputStyle} secureTextEntry />
+        <TextInput value={companyId} onChangeText={setCompanyId} placeholder={t("login.companyId")} placeholderTextColor="#6b85a4" style={[inputStyle, { textAlign: isRTL ? "right" : "left" }]} autoCapitalize="none" />
+        <TextInput value={email} onChangeText={setEmail} placeholder={t("login.email")} placeholderTextColor="#6b85a4" style={[inputStyle, { textAlign: isRTL ? "right" : "left" }]} autoCapitalize="none" keyboardType="email-address" />
+        <TextInput value={password} onChangeText={setPassword} placeholder={t("login.password")} placeholderTextColor="#6b85a4" style={[inputStyle, { textAlign: isRTL ? "right" : "left" }]} secureTextEntry />
 
-        {error ? <Text style={{ color: "#ff8b8b" }}>{error}</Text> : null}
+        {error ? <Text style={{ color: "#ff8b8b", textAlign: isRTL ? "right" : "left" }}>{error}</Text> : null}
 
         <Pressable onPress={onSubmit} disabled={!canSubmit || submitting} style={[buttonStyle, (!canSubmit || submitting) && { opacity: 0.5 }]}>
-          <Text style={{ color: "#04111f", fontWeight: "700" }}>{submitting ? "Signing in..." : "Sign In"}</Text>
+          <Text style={{ color: "#04111f", fontWeight: "700" }}>{submitting ? t("login.signingIn") : t("login.signIn")}</Text>
         </Pressable>
       </View>
     </SafeAreaView>

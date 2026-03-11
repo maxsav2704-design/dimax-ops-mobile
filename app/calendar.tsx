@@ -147,7 +147,7 @@ export default function CalendarScreen() {
           {selectedDay !== "ALL" ? (
             <View style={{ flexDirection: "row", gap: 12, marginTop: 14 }}>
               <Pressable
-                onPress={() => router.push(`/earnings?focus=DAY&day=${encodeURIComponent(selectedDay)}`)}
+                onPress={() => router.push(`/earnings?focus=DAY&day=${encodeURIComponent(selectedDay)}` as never)}
                 style={[secondaryButton, { flex: 1 }]}
               >
                 <Text style={secondaryButtonText}>Open day earnings</Text>
@@ -189,13 +189,13 @@ export default function CalendarScreen() {
                     {lane.projectId ? (
                       <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
                         <Pressable
-                          onPress={() => router.push(`/project/${lane.projectId}`)}
+                          onPress={() => router.push(`/project/${lane.projectId}` as never)}
                           style={[secondaryButton, { flex: 1 }]}
                         >
                           <Text style={secondaryButtonText}>Open lane project</Text>
                         </Pressable>
                         <Pressable
-                          onPress={() => router.push(`/project/${lane.projectId}?issueStatus=OPEN`)}
+                          onPress={() => router.push(`/project/${lane.projectId}?issueStatus=OPEN` as never)}
                           style={[secondaryButton, { flex: 1 }]}
                         >
                           <Text style={secondaryButtonText}>Open lane issues</Text>
@@ -227,7 +227,7 @@ export default function CalendarScreen() {
                         onPress={() => {
                           const route = buildIssueRouteFromCalendarEvent(item);
                           if (route) {
-                            router.push(route);
+                            router.push(route as never);
                           }
                         }}
                         style={[secondaryButton, { flex: 1 }]}
@@ -267,7 +267,7 @@ export default function CalendarScreen() {
                       onPress={() => {
                         const route = buildProjectRouteFromCalendarEvent(item);
                         if (route) {
-                          router.push(route);
+                          router.push(route as never);
                         }
                       }}
                       style={[secondaryButton, { flex: 1 }]}
@@ -281,7 +281,7 @@ export default function CalendarScreen() {
                             ? buildIssueRouteFromCalendarEvent(item)
                             : buildDoorPrepRoute(projectId);
                         if (route) {
-                          router.push(route);
+                          router.push(route as never);
                         }
                       }}
                       style={[secondaryButton, { flex: 1 }]}
