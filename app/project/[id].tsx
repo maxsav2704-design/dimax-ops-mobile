@@ -260,6 +260,44 @@ export default function ProjectDetailsScreen() {
         </View>
 
         <View style={cardStyle}>
+          <Text style={sectionTitle}>Project action hub</Text>
+          <View style={{ gap: 10, marginTop: 12 }}>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Quick links</Text>
+              <Text style={summaryValueInlineStyle}>Execution</Text>
+            </View>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Pressable onPress={() => router.push("/calendar" as never)} style={[secondaryButton, { flex: 1 }]}>
+                <Text style={secondaryButtonText}>Calendar</Text>
+              </Pressable>
+              <Pressable onPress={() => router.push("/earnings" as never)} style={[secondaryButton, { flex: 1 }]}>
+                <Text style={secondaryButtonText}>Earnings</Text>
+              </Pressable>
+            </View>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Pressable onPress={() => router.push("/sync-queue" as never)} style={[secondaryButton, { flex: 1 }]}>
+                <Text style={secondaryButtonText}>Sync queue</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setIssueStatusFilter("OPEN");
+                  setDoorStatusFilter("ALL");
+                }}
+                style={[secondaryButton, { flex: 1 }]}
+              >
+                <Text style={secondaryButtonText}>Open issues</Text>
+              </Pressable>
+            </View>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Project context</Text>
+              <Text style={summaryValueInlineStyle}>
+                {projectEarnings ? `${projectEarnings.monthTotal} ${projectEarnings.currency}` : "--"}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={cardStyle}>
           <Text style={sectionTitle}>Project earnings context</Text>
           <Text style={metaStyle}>Source: {earningsState.source}</Text>
           {earningsState.message ? <Text style={[metaStyle, { color: "#ffb86b" }]}>{earningsState.message}</Text> : null}
