@@ -43,6 +43,16 @@ export default function CalendarScreen() {
     }
     return items.filter((item) => item.starts_at.slice(0, 10) === selectedDay);
   }, [selectedDay, snapshot]);
+  const visibleSummary = useMemo(() => {
+    const serviceCount = visibleItems.filter((item) => item.event_type.trim().toUpperCase() === "SERVICE").length;
+    const installCount = visibleItems.filter((item) => item.event_type.trim().toUpperCase() !== "SERVICE").length;
+    const linkedProjectsCount = visibleItems.filter((item) => item.project_id).length;
+    return {
+      serviceCount,
+      installCount,
+      linkedProjectsCount,
+    };
+  }, [visibleItems]);
 
   useEffect(() => {
     if (selectedDay !== "ALL" && !dayOptions.includes(selectedDay)) {
@@ -91,6 +101,24 @@ export default function CalendarScreen() {
             <View style={summaryRowStyle}>
               <Text style={bodyStyle}>Visible events</Text>
               <Text style={summaryValueStyle}>{visibleItems.length}</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={cardStyle}>
+          <Text style={sectionTitle}>Day quick summary</Text>
+          <View style={{ gap: 8, marginTop: 14 }}>
+            <View style={summaryRowStyle}>
+              <Text style={bodyStyle}>Service events</Text>
+              <Text style={summaryValueStyle}>{visibleSummary.serviceCount}</Text>
+            </View>
+            <View style={summaryRowStyle}>
+              <Text style={bodyStyle}>Install events</Text>
+              <Text style={summaryValueStyle}>{visibleSummary.installCount}</Text>
+            </View>
+            <View style={summaryRowStyle}>
+              <Text style={bodyStyle}>Project-linked items</Text>
+              <Text style={summaryValueStyle}>{visibleSummary.linkedProjectsCount}</Text>
             </View>
           </View>
         </View>
