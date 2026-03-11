@@ -43,6 +43,7 @@ export default function ProjectDetailsScreen() {
     source: "unavailable",
     message: null,
   });
+  const [projectEarningsScope, setProjectEarningsScope] = useState<"TODAY" | "MONTH">("TODAY");
   const [reasons, setReasons] = useState<Array<{ id: string; code: string; name: string }>>([]);
   const [selectedReasonId, setSelectedReasonId] = useState<string>("");
   const [comment, setComment] = useState("");
@@ -163,6 +164,33 @@ export default function ProjectDetailsScreen() {
     () => buildProjectEarningsContext(earningsState.snapshot, projectId, todayDate),
     [earningsState.snapshot, projectId, todayDate]
   );
+  const scopedProjectEarningsRows = useMemo(() => {
+    if (!projectEarnings) {
+      return [];
+    }
+    return projectEarningsScope === "TODAY" ? projectEarnings.todayRows : projectEarnings.rows;
+  }, [projectEarnings, projectEarningsScope]);
+  const scopedProjectEarningsTotal = useMemo(() => {
+    if (!projectEarnings) {
+      return "--";
+    }
+    return projectEarningsScope === "TODAY" ? projectEarnings.todayTotal : projectEarnings.monthTotal;
+  }, [projectEarnings, projectEarningsScope]);
+  const scopedProjectInstallTypes = useMemo(() => {
+    const map = new Map<string, { code: string; label: string; amount: number; quantity: number }>();
+    for (const row of scopedProjectEarningsRows) {
+      const current = map.get(row.install_type_code) || {
+        code: row.install_type_code,
+        label: row.install_type_label,
+        amount: 0,
+        quantity: 0,
+      };
+      current.amount += Number.parseFloat(row.amount) || 0;
+      current.quantity += row.quantity;
+      map.set(row.install_type_code, current);
+    }
+    return Array.from(map.values()).sort((a, b) => b.amount - a.amount);
+  }, [scopedProjectEarningsRows]);
 
   const handleInstall = async (doorId: string) => {
     setBusy(true);
@@ -301,31 +329,41 @@ export default function ProjectDetailsScreen() {
           <Text style={sectionTitle}>Project earnings context</Text>
           <Text style={metaStyle}>Source: {earningsState.source}</Text>
           {earningsState.message ? <Text style={[metaStyle, { color: "#ffb86b" }]}>{earningsState.message}</Text> : null}
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+            <Pressable
+              onPress={() => setProjectEarningsScope("TODAY")}
+              style={[chipStyle, projectEarningsScope === "TODAY" && chipStyleActive]}
+            >
+              <Text style={{ color: projectEarningsScope === "TODAY" ? "#04111f" : "#d9e7f7" }}>Today</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setProjectEarningsScope("MONTH")}
+              style={[chipStyle, projectEarningsScope === "MONTH" && chipStyleActive]}
+            >
+              <Text style={{ color: projectEarningsScope === "MONTH" ? "#04111f" : "#d9e7f7" }}>Month</Text>
+            </Pressable>
+          </View>
           <View style={{ gap: 10, marginTop: 12 }}>
             <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Today on project</Text>
-              <Text style={summaryValueInlineStyle}>
-                {projectEarnings ? `${projectEarnings.todayTotal} ${projectEarnings.currency}` : "--"}
+              <Text style={summaryLabelStyle}>
+                {projectEarningsScope === "TODAY" ? "Today on project" : "Month on project"}
               </Text>
-            </View>
-            <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>Month on project</Text>
               <Text style={summaryValueInlineStyle}>
-                {projectEarnings ? `${projectEarnings.monthTotal} ${projectEarnings.currency}` : "--"}
+                {projectEarnings ? `${scopedProjectEarningsTotal} ${projectEarnings.currency}` : "--"}
               </Text>
             </View>
             <View style={summaryRowStyle}>
               <Text style={summaryLabelStyle}>Rows in scope</Text>
-              <Text style={summaryValueInlineStyle}>{projectEarnings?.rows.length ?? "--"}</Text>
+              <Text style={summaryValueInlineStyle}>{scopedProjectEarningsRows.length}</Text>
             </View>
           </View>
-          {projectEarnings?.installTypeSummary.length ? (
+          {scopedProjectInstallTypes.length ? (
             <View style={{ gap: 10, marginTop: 14 }}>
               <Text style={fieldLabel}>By install type</Text>
-              {projectEarnings.installTypeSummary.slice(0, 3).map((item) => (
+              {scopedProjectInstallTypes.slice(0, 3).map((item) => (
                 <View key={item.code} style={doorCardStyle}>
                   <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{item.label}</Text>
-                  <Text style={metaStyle}>Amount: {item.amount.toFixed(2)} {projectEarnings.currency}</Text>
+                  <Text style={metaStyle}>Amount: {item.amount.toFixed(2)} {projectEarnings?.currency || ""}</Text>
                   <Text style={metaStyle}>Qty: {item.quantity}</Text>
                 </View>
               ))}
@@ -333,6 +371,19 @@ export default function ProjectDetailsScreen() {
           ) : (
             <Text style={metaStyle}>No project-scoped earnings rows in the current snapshot.</Text>
           )}
+          {scopedProjectEarningsRows.length ? (
+            <View style={{ gap: 10, marginTop: 14 }}>
+              <Text style={fieldLabel}>Work rows in scope</Text>
+              {scopedProjectEarningsRows.slice(0, 4).map((row) => (
+                <View key={row.id} style={doorCardStyle}>
+                  <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{row.install_type_label}</Text>
+                  <Text style={metaStyle}>Date: {row.work_date}</Text>
+                  <Text style={metaStyle}>Door: {row.door_label || "-"}</Text>
+                  <Text style={metaStyle}>Amount: {row.amount} {projectEarnings?.currency}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
         </View>
 
         <Pressable onPress={handleSync} style={secondaryButton}>
