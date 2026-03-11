@@ -103,6 +103,16 @@ export default function CalendarScreen() {
               <Text style={summaryValueStyle}>{visibleItems.length}</Text>
             </View>
           </View>
+          {selectedDay !== "ALL" ? (
+            <View style={{ flexDirection: "row", gap: 12, marginTop: 14 }}>
+              <Pressable
+                onPress={() => router.push(`/earnings?focus=DAY&day=${encodeURIComponent(selectedDay)}`)}
+                style={[secondaryButton, { flex: 1 }]}
+              >
+                <Text style={secondaryButtonText}>Open day earnings</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </View>
 
         <View style={cardStyle}>

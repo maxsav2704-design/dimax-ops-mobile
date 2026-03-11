@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
 import {
@@ -10,6 +10,10 @@ import { loadInstallerEarnings } from "@/modules/earnings/service";
 import type { InstallerEarningsViewModel } from "@/modules/earnings/types";
 
 export default function EarningsScreen() {
+  const params = useLocalSearchParams<{
+    focus?: string;
+    day?: string;
+  }>();
   const [state, setState] = useState<InstallerEarningsViewModel>({
     snapshot: null,
     source: "unavailable",
@@ -48,6 +52,17 @@ export default function EarningsScreen() {
       setSelectedDay(snapshot.days[0].date);
     }
   }, [selectedDay, snapshot]);
+
+  useEffect(() => {
+    const incomingFocus = typeof params.focus === "string" ? params.focus.trim().toUpperCase() : "";
+    const incomingDay = typeof params.day === "string" ? params.day.trim() : "";
+    if (incomingFocus === "TODAY" || incomingFocus === "MONTH" || incomingFocus === "DAY") {
+      setFocus(incomingFocus as EarningsPeriodFocus);
+    }
+    if (incomingDay) {
+      setSelectedDay(incomingDay);
+    }
+  }, [params.day, params.focus]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
