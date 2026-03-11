@@ -34,6 +34,9 @@ export default function ProjectDetailsScreen() {
   const [addonQty, setAddonQty] = useState("1");
   const [selectedOrderNumber, setSelectedOrderNumber] = useState<string>("ALL");
   const [selectedLocationCode, setSelectedLocationCode] = useState<string>("ALL");
+  const [doorSearch, setDoorSearch] = useState("");
+  const [doorStatusFilter, setDoorStatusFilter] = useState<string>("ALL");
+  const [issueStatusFilter, setIssueStatusFilter] = useState<string>("ALL");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,9 +84,34 @@ export default function ProjectDetailsScreen() {
     return doors.filter((door) => {
       const orderMatch = selectedOrderNumber === "ALL" || door.order_number === selectedOrderNumber;
       const locationMatch = selectedLocationCode === "ALL" || door.location_code === selectedLocationCode;
-      return orderMatch && locationMatch;
+      const statusMatch = doorStatusFilter === "ALL" || door.status === doorStatusFilter;
+      const searchNeedle = doorSearch.trim().toLowerCase();
+      const searchMatch =
+        !searchNeedle ||
+        [
+          door.unit_label,
+          door.order_number,
+          door.house_number,
+          door.floor_label,
+          door.apartment_number,
+          door.location_code,
+          door.door_marking,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(searchNeedle));
+      return orderMatch && locationMatch && statusMatch && searchMatch;
     });
-  }, [doors, selectedLocationCode, selectedOrderNumber]);
+  }, [doorSearch, doorStatusFilter, doors, selectedLocationCode, selectedOrderNumber]);
+
+  const visibleIssues = useMemo(() => {
+    return issues.filter((issue) => issueStatusFilter === "ALL" || issue.status === issueStatusFilter);
+  }, [issueStatusFilter, issues]);
+
+  const issueDoorIds = useMemo(() => new Set(issues.map((issue) => issue.door_id)), [issues]);
+  const problemDoorsCount = useMemo(
+    () => doors.filter((door) => issueDoorIds.has(door.id)).length,
+    [doors, issueDoorIds]
+  );
 
   const groupedDoors = useMemo(() => {
     return filteredDoors.reduce<Record<string, InstallerDoor[]>>((acc, door) => {
@@ -148,6 +176,24 @@ export default function ProjectDetailsScreen() {
     }
   };
 
+  const focusIssueDoor = (issue: ProjectIssue) => {
+    const matchingDoor = doors.find((door) => door.id === issue.door_id);
+    if (!matchingDoor) {
+      return;
+    }
+    setDoorStatusFilter("ALL");
+    setSelectedOrderNumber(matchingDoor.order_number || "ALL");
+    setSelectedLocationCode(matchingDoor.location_code || "ALL");
+    setDoorSearch(matchingDoor.unit_label);
+  };
+
+  const resetDoorFilters = () => {
+    setSelectedOrderNumber("ALL");
+    setSelectedLocationCode("ALL");
+    setDoorSearch("");
+    setDoorStatusFilter("ALL");
+  };
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
@@ -155,6 +201,7 @@ export default function ProjectDetailsScreen() {
           <Text style={{ color: "#f8fbff", fontSize: 22, fontWeight: "700" }}>{project?.name || "Project"}</Text>
           <Text style={{ color: "#8fa7c2", marginTop: 6 }}>{project?.address || "No address"}</Text>
           <Text style={{ color: "#8fa7c2", marginTop: 6 }}>Open issues: {issues.length}</Text>
+          <Text style={{ color: "#8fa7c2", marginTop: 2 }}>Problem doors: {problemDoorsCount}</Text>
           <Text style={{ color: "#8fa7c2", marginTop: 2 }}>Doors: {doors.length}</Text>
           <Text style={{ color: "#8fa7c2", marginTop: 2 }}>Visible after filters: {filteredDoors.length}</Text>
           <Text style={{ color: pendingEvents.length > 0 ? "#ffb86b" : "#63d297", marginTop: 2 }}>
@@ -181,6 +228,27 @@ export default function ProjectDetailsScreen() {
 
         <View style={cardStyle}>
           <Text style={sectionTitle}>Door filters</Text>
+          <TextInput
+            value={doorSearch}
+            onChangeText={setDoorSearch}
+            placeholder="Search unit / order / location"
+            placeholderTextColor="#6b85a4"
+            style={[inputStyle, { marginTop: 12 }]}
+          />
+          <Text style={fieldLabel}>Door status</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
+            {["ALL", "NOT_INSTALLED", "INSTALLED", "LOCKED"].map((status) => (
+              <Pressable
+                key={status}
+                onPress={() => setDoorStatusFilter(status)}
+                style={[chipStyle, doorStatusFilter === status && chipStyleActive]}
+              >
+                <Text style={{ color: doorStatusFilter === status ? "#04111f" : "#d9e7f7" }}>
+                  {status === "ALL" ? "All doors" : status}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
           <Text style={fieldLabel}>Order number</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
             <Pressable onPress={() => setSelectedOrderNumber("ALL")} style={[chipStyle, selectedOrderNumber === "ALL" && chipStyleActive]}>
@@ -204,16 +272,36 @@ export default function ProjectDetailsScreen() {
               </Pressable>
             ))}
           </ScrollView>
+          <Pressable onPress={resetDoorFilters} style={[secondaryButton, { marginTop: 12 }]}>
+            <Text style={secondaryButtonText}>Reset door filters</Text>
+          </Pressable>
         </View>
 
         {issues.length ? (
           <View style={warningCardStyle}>
             <Text style={warningTitleStyle}>Open issue queue</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
+              {["ALL", "OPEN", "CLOSED"].map((status) => (
+                <Pressable
+                  key={status}
+                  onPress={() => setIssueStatusFilter(status)}
+                  style={[warningChipStyle, issueStatusFilter === status && warningChipStyleActive]}
+                >
+                  <Text style={{ color: issueStatusFilter === status ? "#3a2a12" : "#fff3d6" }}>
+                    {status === "ALL" ? "All issues" : status}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
             <View style={{ gap: 10, marginTop: 10 }}>
-              {issues.map((issue) => (
+              {visibleIssues.map((issue) => (
                 <View key={issue.id} style={warningRowStyle}>
                   <Text style={{ color: "#fff3d6", fontWeight: "700" }}>{issue.title || "Issue"}</Text>
+                  <Text style={{ color: "#f2cf8b", marginTop: 4 }}>Status: {issue.status}</Text>
                   <Text style={{ color: "#f2cf8b", marginTop: 4 }}>{issue.details || "Requires installer attention"}</Text>
+                  <Pressable onPress={() => focusIssueDoor(issue)} style={[secondaryButton, { marginTop: 10 }]}>
+                    <Text style={secondaryButtonText}>Only this door</Text>
+                  </Pressable>
                 </View>
               ))}
             </View>
@@ -400,6 +488,20 @@ const warningRowStyle = {
   backgroundColor: "#503617",
   borderRadius: 14,
   padding: 14,
+} as const;
+
+const warningChipStyle = {
+  paddingHorizontal: 12,
+  paddingVertical: 8,
+  borderRadius: 999,
+  borderWidth: 1,
+  borderColor: "#8a6429",
+  backgroundColor: "#503617",
+} as const;
+
+const warningChipStyleActive = {
+  backgroundColor: "#f2cf8b",
+  borderColor: "#f2cf8b",
 } as const;
 
 
