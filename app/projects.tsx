@@ -394,17 +394,32 @@ export default function ProjectsScreen() {
 
         {problemProjects.length ? (
           <View style={cardStyle}>
-            <Text style={sectionTitle}>Problem projects</Text>
+            <Text style={sectionTitle}>Problem projects lane</Text>
+            <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
+              Fast recovery entry for projects that need attention now.
+            </Text>
             {problemProjects.slice(0, 3).map((item) => (
-              <Pressable
-                key={item.id}
-                style={priorityCardStyle}
-                onPress={() => router.push(buildProblemProjectRoute(item))}
-              >
-                <Text style={priorityTitleStyle}>{item.name}</Text>
-                <Text style={priorityMetaStyle}>{item.address || "No address"}</Text>
-                <Text style={[priorityMetaStyle, { color: "#ffb86b" }]}>Open issues context</Text>
-              </Pressable>
+              <View key={item.id} style={priorityCardStyle}>
+                <Pressable onPress={() => router.push(buildProblemProjectRoute(item))}>
+                  <Text style={priorityTitleStyle}>{item.name}</Text>
+                  <Text style={priorityMetaStyle}>{item.address || "No address"}</Text>
+                  <Text style={[priorityMetaStyle, { color: "#ffb86b" }]}>Open issues context</Text>
+                </Pressable>
+                <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+                  <Pressable
+                    onPress={() => router.push(buildProblemProjectRoute(item))}
+                    style={[secondaryButton, { flex: 1 }]}
+                  >
+                    <Text style={secondaryButtonText}>Issue context</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => router.push(`/earnings?focus=MONTH` as never)}
+                    style={[secondaryButton, { flex: 1 }]}
+                  >
+                    <Text style={secondaryButtonText}>Earnings context</Text>
+                  </Pressable>
+                </View>
+              </View>
             ))}
           </View>
         ) : null}
