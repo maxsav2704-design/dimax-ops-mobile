@@ -56,6 +56,7 @@ This was added in backend in the same step so the mobile app can recover full of
 ## Implementation planning
 
 - `MOBILE_INSTALLER_IMPLEMENTATION_PLAN.md`
+- `MOBILE_INSTALLER_READINESS.md`
 
 ## Next mobile steps
 
