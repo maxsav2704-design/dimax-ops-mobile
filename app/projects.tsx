@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
 import { loadInstallerCalendar } from "@/modules/calendar/service";
 import type { InstallerCalendarViewModel } from "@/modules/calendar/types";
+import { buildEarningsFocusContext } from "@/modules/earnings/presentation";
 import { loadInstallerEarnings } from "@/modules/earnings/service";
 import type { InstallerEarningsViewModel } from "@/modules/earnings/types";
 import {
@@ -127,6 +128,10 @@ export default function ProjectsScreen() {
     () => (earningsState.snapshot?.install_types || []).slice(0, 3),
     [earningsState.snapshot]
   );
+  const todayEarningsContext = useMemo(
+    () => buildEarningsFocusContext(earningsState.snapshot, new Date().toISOString().slice(0, 10), "TODAY"),
+    [earningsState.snapshot]
+  );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
@@ -183,6 +188,53 @@ export default function ProjectsScreen() {
           ) : (
             <Text style={{ color: "#8fa7c2", marginTop: 12 }}>
               No install type earnings breakdown in the current snapshot.
+            </Text>
+          )}
+        </View>
+
+        <View style={cardStyle}>
+          <Text style={sectionTitle}>Today earnings lane</Text>
+          <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
+            Today money rows from the current read-only earnings snapshot.
+          </Text>
+          <View style={{ gap: 8, marginTop: 14 }}>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Focused total</Text>
+              <Text style={summaryValueInlineStyle}>
+                {todayEarningsContext ? `${todayEarningsContext.total} ${todayEarningsContext.currency}` : "--"}
+              </Text>
+            </View>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Rows today</Text>
+              <Text style={summaryValueInlineStyle}>{todayEarningsContext?.rows.length ?? "--"}</Text>
+            </View>
+          </View>
+          {todayEarningsContext?.rows.length ? (
+            <View style={{ gap: 10, marginTop: 14 }}>
+              {todayEarningsContext.rows.slice(0, 3).map((row) => (
+                <Pressable
+                  key={row.id}
+                  style={priorityCardStyle}
+                  onPress={() =>
+                    row.project_id
+                      ? router.push(
+                          buildIssueProjectRoute(row.project_id, {
+                            doorSearch: row.door_label || row.project_name || undefined,
+                          })
+                        )
+                      : router.push("/earnings" as never)
+                  }
+                >
+                  <Text style={priorityTitleStyle}>{row.project_name || row.install_type_label}</Text>
+                  <Text style={priorityMetaStyle}>Door: {row.door_label || "-"}</Text>
+                  <Text style={priorityMetaStyle}>Type: {row.install_type_label}</Text>
+                  <Text style={priorityMetaStyle}>Amount: {row.amount}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : (
+            <Text style={{ color: "#8fa7c2", marginTop: 12 }}>
+              No earnings rows for today in the current snapshot.
             </Text>
           )}
         </View>
