@@ -1,6 +1,10 @@
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
+import { loadInstallerCalendar } from "@/modules/calendar/service";
+import type { InstallerCalendarViewModel } from "@/modules/calendar/types";
+import { loadInstallerEarnings } from "@/modules/earnings/service";
+import type { InstallerEarningsViewModel } from "@/modules/earnings/types";
 import { listProjects } from "@/modules/projects/repository";
 import type { ProjectListItem } from "@/modules/projects/types";
 import { bootstrapOnlineData, countPendingEvents, getLastSyncAt, getSyncQueueSummary, runSync } from "@/modules/sync/service";
@@ -14,20 +18,34 @@ export default function ProjectsScreen() {
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const [queueSummary, setQueueSummary] = useState<SyncQueueSummary | null>(null);
+  const [calendarState, setCalendarState] = useState<InstallerCalendarViewModel>({
+    snapshot: null,
+    source: "unavailable",
+    message: null,
+  });
+  const [earningsState, setEarningsState] = useState<InstallerEarningsViewModel>({
+    snapshot: null,
+    source: "unavailable",
+    message: null,
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const reload = async () => {
-    const [projects, lastSync, pending, summary] = await Promise.all([
+    const [projects, lastSync, pending, summary, calendar, earnings] = await Promise.all([
       listProjects(),
       getLastSyncAt(),
       countPendingEvents(),
       getSyncQueueSummary(),
+      loadInstallerCalendar("7d"),
+      loadInstallerEarnings(),
     ]);
     setItems(projects);
     setLastSyncAt(lastSync);
     setPendingCount(pending);
     setQueueSummary(summary);
+    setCalendarState(calendar);
+    setEarningsState(earnings);
   };
 
   useEffect(() => {
@@ -61,6 +79,29 @@ export default function ProjectsScreen() {
     }
   };
 
+  const todayTasksCount = useMemo(() => {
+    const items = calendarState.snapshot?.items || [];
+    const todayKey = new Date().toISOString().slice(0, 10);
+    return items.filter((item) => item.starts_at.slice(0, 10) === todayKey).length;
+  }, [calendarState.snapshot]);
+
+  const problemProjects = useMemo(
+    () => items.filter((item) => item.status === "PROBLEM"),
+    [items]
+  );
+
+  const topPriorities = useMemo(() => {
+    const eventItems = (calendarState.snapshot?.items || [])
+      .filter((item) => item.project_id)
+      .slice(0, 3);
+    return eventItems.map((item) => ({
+      key: item.id,
+      title: item.title,
+      subtitle: item.starts_at,
+      projectId: item.project_id as string,
+    }));
+  }, [calendarState.snapshot]);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
@@ -78,6 +119,24 @@ export default function ProjectsScreen() {
             Ready now: {queueSummary?.ready_to_send || 0}
             {queueSummary?.next_retry_at ? ` | next retry ${queueSummary.next_retry_at}` : ""}
           </Text>
+        </View>
+
+        <View style={summaryGridStyle}>
+          <View style={summaryCardStyle}>
+            <Text style={summaryEyebrowStyle}>Today tasks</Text>
+            <Text style={summaryValueStyle}>{todayTasksCount}</Text>
+            <Text style={summaryMetaStyle}>Source: {calendarState.source}</Text>
+          </View>
+          <View style={summaryCardStyle}>
+            <Text style={summaryEyebrowStyle}>Today earnings</Text>
+            <Text style={summaryValueStyle}>{earningsState.snapshot?.today_total || "--"}</Text>
+            <Text style={summaryMetaStyle}>Source: {earningsState.source}</Text>
+          </View>
+          <View style={summaryCardStyle}>
+            <Text style={summaryEyebrowStyle}>This month</Text>
+            <Text style={summaryValueStyle}>{earningsState.snapshot?.month_total || "--"}</Text>
+            <Text style={summaryMetaStyle}>Problem projects: {problemProjects.length}</Text>
+          </View>
         </View>
 
         <View style={{ flexDirection: "row", gap: 12 }}>
@@ -108,6 +167,27 @@ export default function ProjectsScreen() {
         </View>
 
         {error ? <Text style={{ color: "#ff8b8b" }}>{error}</Text> : null}
+
+        <View style={cardStyle}>
+          <Text style={sectionTitle}>Today priorities</Text>
+          {topPriorities.length ? (
+            topPriorities.map((item) => (
+              <Pressable
+                key={item.key}
+                style={priorityCardStyle}
+                onPress={() => router.push(`/project/${item.projectId}`)}
+              >
+                <Text style={priorityTitleStyle}>{item.title}</Text>
+                <Text style={priorityMetaStyle}>{item.subtitle}</Text>
+                <Text style={priorityMetaStyle}>Project: {item.projectId}</Text>
+              </Pressable>
+            ))
+          ) : (
+            <Text style={{ color: "#8fa7c2", marginTop: 8 }}>
+              No priority events in the current calendar snapshot.
+            </Text>
+          )}
+        </View>
 
         <View style={{ gap: 12 }}>
           {items.map((item) => (
@@ -164,4 +244,60 @@ const primaryButtonText = {
 const secondaryButtonText = {
   color: "#f8fbff",
   fontWeight: "600",
+} as const;
+
+const summaryGridStyle = {
+  gap: 12,
+} as const;
+
+const summaryCardStyle = {
+  backgroundColor: "#0d2034",
+  borderRadius: 16,
+  borderWidth: 1,
+  borderColor: "#183653",
+  padding: 16,
+} as const;
+
+const summaryEyebrowStyle = {
+  color: "#8fa7c2",
+  fontSize: 12,
+  textTransform: "uppercase",
+} as const;
+
+const summaryValueStyle = {
+  color: "#f8fbff",
+  fontSize: 24,
+  fontWeight: "700",
+  marginTop: 8,
+} as const;
+
+const summaryMetaStyle = {
+  color: "#8fa7c2",
+  marginTop: 6,
+} as const;
+
+const sectionTitle = {
+  color: "#f8fbff",
+  fontSize: 18,
+  fontWeight: "700",
+} as const;
+
+const priorityCardStyle = {
+  backgroundColor: "#0d2034",
+  borderRadius: 14,
+  borderWidth: 1,
+  borderColor: "#183653",
+  padding: 14,
+  marginTop: 10,
+} as const;
+
+const priorityTitleStyle = {
+  color: "#f8fbff",
+  fontSize: 15,
+  fontWeight: "700",
+} as const;
+
+const priorityMetaStyle = {
+  color: "#8fa7c2",
+  marginTop: 6,
 } as const;
