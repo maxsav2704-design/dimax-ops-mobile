@@ -164,6 +164,25 @@ export default function ProjectDetailsScreen() {
       return acc;
     }, {});
   }, [filteredDoors]);
+  const floorLaneSummary = useMemo(() => {
+    return Object.entries(groupedDoors)
+      .map(([floor, floorDoors]) => {
+        const issueCount = floorDoors.filter((door) => issueDoorIds.has(door.id)).length;
+        const notInstalledCount = floorDoors.filter((door) => door.status === "NOT_INSTALLED").length;
+        return {
+          floor,
+          doorsCount: floorDoors.length,
+          issueCount,
+          notInstalledCount,
+          firstDoor: floorDoors[0] || null,
+        };
+      })
+      .sort((a, b) => {
+        if (b.issueCount !== a.issueCount) return b.issueCount - a.issueCount;
+        if (b.notInstalledCount !== a.notInstalledCount) return b.notInstalledCount - a.notInstalledCount;
+        return a.floor.localeCompare(b.floor);
+      });
+  }, [groupedDoors, issueDoorIds]);
   const issueSummary = useMemo(() => {
     const open = issues.filter((issue) => issue.status === "OPEN").length;
     const closed = issues.filter((issue) => issue.status === "CLOSED").length;
@@ -586,6 +605,50 @@ export default function ProjectDetailsScreen() {
                       </Pressable>
                     )}
                   </View>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
+        {floorLaneSummary.length ? (
+          <View style={cardStyle}>
+            <Text style={sectionTitle}>Floor lanes</Text>
+            <Text style={metaStyle}>Actionable floor summary for the current project scope.</Text>
+            <View style={{ gap: 10, marginTop: 12 }}>
+              {floorLaneSummary.map((lane) => (
+                <View key={lane.floor} style={doorCardStyle}>
+                  <Text style={{ color: "#f8fbff", fontWeight: "700" }}>Floor {lane.floor}</Text>
+                  <Text style={metaStyle}>Doors: {lane.doorsCount}</Text>
+                  <Text style={metaStyle}>Issue doors: {lane.issueCount}</Text>
+                  <Text style={metaStyle}>Not installed: {lane.notInstalledCount}</Text>
+                  {lane.firstDoor ? (
+                    <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+                      <Pressable
+                        onPress={() => {
+                          setDoorSearch(lane.firstDoor?.unit_label || "");
+                          setSelectedOrderNumber(lane.firstDoor?.order_number || "ALL");
+                          setSelectedLocationCode(lane.firstDoor?.location_code || "ALL");
+                          setDoorStatusFilter("ALL");
+                        }}
+                        style={[secondaryButton, { flex: 1 }]}
+                      >
+                        <Text style={secondaryButtonText}>Open floor lane</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          setDoorSearch("");
+                          setSelectedOrderNumber("ALL");
+                          setSelectedLocationCode("ALL");
+                          setDoorStatusFilter("ALL");
+                          setIssueDoorFocus(lane.issueCount > 0);
+                        }}
+                        style={[secondaryButton, { flex: 1 }]}
+                      >
+                        <Text style={secondaryButtonText}>{lane.issueCount > 0 ? "Issue doors" : "View floor"}</Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
                 </View>
               ))}
             </View>
