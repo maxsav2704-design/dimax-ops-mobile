@@ -1,9 +1,11 @@
+import { router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
 import {
   buildEarningsFocusContext,
   type EarningsPeriodFocus,
 } from "@/modules/earnings/presentation";
+import { buildIssueProjectRoute, buildProjectRoute } from "@/modules/projects/navigation";
 import { loadInstallerEarnings } from "@/modules/earnings/service";
 import type { InstallerEarningsViewModel } from "@/modules/earnings/types";
 
@@ -165,7 +167,9 @@ export default function EarningsScreen() {
 
               <Text style={sectionTitleSpacer}>Work rows in focus</Text>
               {focusContext?.rows.length ? (
-                focusContext.rows.slice(0, 12).map((item) => (
+                focusContext.rows.slice(0, 12).map((item) => {
+                  const projectId = item.project_id;
+                  return (
                   <View key={item.id} style={rowCardStyle}>
                     <Text style={rowTitleStyle}>{item.project_name || "No project"}</Text>
                     <Text style={bodyStyle}>Date: {item.work_date}</Text>
@@ -173,8 +177,30 @@ export default function EarningsScreen() {
                     <Text style={bodyStyle}>Type: {item.install_type_label}</Text>
                     <Text style={bodyStyle}>Qty: {item.quantity}</Text>
                     <Text style={bodyStyle}>Amount: {item.amount} {focusContext.currency}</Text>
+                    {projectId ? (
+                      <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+                        <Pressable
+                          onPress={() => router.push(buildProjectRoute(projectId))}
+                          style={[secondaryButton, { flex: 1 }]}
+                        >
+                          <Text style={secondaryButtonText}>Open project</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() =>
+                            router.push(
+                              buildIssueProjectRoute(projectId, {
+                                doorSearch: item.door_label || item.project_name || undefined,
+                              })
+                            )
+                          }
+                          style={[secondaryButton, { flex: 1 }]}
+                        >
+                          <Text style={secondaryButtonText}>Issue context</Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
                   </View>
-                ))
+                )})
               ) : (
                 <Text style={bodyStyle}>No earnings rows in the current focus.</Text>
               )}
