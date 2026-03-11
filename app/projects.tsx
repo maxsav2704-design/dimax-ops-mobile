@@ -124,6 +124,16 @@ export default function ProjectsScreen() {
         eventType: item.event_type,
       }));
   }, [calendarState.snapshot]);
+  const readinessSummary = useMemo(() => {
+    const serviceItems = todayExecutionItems.filter((item) => item.eventType.trim().toUpperCase() === "SERVICE").length;
+    const linkedPriorityItems = todayExecutionItems.filter((item) => item.projectId).length;
+    return {
+      serviceItems,
+      linkedPriorityItems,
+      problemProjects: problemProjects.length,
+      pendingSync: pendingCount,
+    };
+  }, [pendingCount, problemProjects.length, todayExecutionItems]);
 
   const earningsInstallTypeSummary = useMemo(
     () => (earningsState.snapshot?.install_types || []).slice(0, 3),
@@ -186,6 +196,39 @@ export default function ProjectsScreen() {
             <Text style={summaryEyebrowStyle}>This month</Text>
             <Text style={summaryValueStyle}>{earningsState.snapshot?.month_total || "--"}</Text>
             <Text style={summaryMetaStyle}>Problem projects: {problemProjects.length}</Text>
+          </View>
+        </View>
+
+        <View style={cardStyle}>
+          <Text style={sectionTitle}>Readiness summary</Text>
+          <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
+            Operational snapshot for today before entering detailed flow.
+          </Text>
+          <View style={{ gap: 8, marginTop: 14 }}>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Service items today</Text>
+              <Text style={summaryValueInlineStyle}>{readinessSummary.serviceItems}</Text>
+            </View>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Problem projects</Text>
+              <Text style={summaryValueInlineStyle}>{readinessSummary.problemProjects}</Text>
+            </View>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Priority items with project</Text>
+              <Text style={summaryValueInlineStyle}>{readinessSummary.linkedPriorityItems}</Text>
+            </View>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Pending sync work</Text>
+              <Text style={summaryValueInlineStyle}>{readinessSummary.pendingSync}</Text>
+            </View>
+          </View>
+          <View style={{ flexDirection: "row", gap: 12, marginTop: 14 }}>
+            <Pressable onPress={() => router.push("/calendar" as never)} style={[secondaryButton, { flex: 1 }]}>
+              <Text style={secondaryButtonText}>Review calendar</Text>
+            </Pressable>
+            <Pressable onPress={() => router.push("/sync-queue" as never)} style={[secondaryButton, { flex: 1 }]}>
+              <Text style={secondaryButtonText}>Review queue</Text>
+            </Pressable>
           </View>
         </View>
 
