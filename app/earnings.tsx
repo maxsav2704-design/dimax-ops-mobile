@@ -141,6 +141,22 @@ export default function EarningsScreen() {
               </View>
             ) : null}
           </View>
+          <View style={{ flexDirection: "row", gap: 12, marginTop: 14 }}>
+            <Pressable
+              onPress={() =>
+                router.push(
+                  focusContext?.selectedDay
+                    ? `/calendar?day=${encodeURIComponent(focusContext.selectedDay)}`
+                    : "/calendar"
+                )
+              }
+              style={[secondaryButton, { flex: 1 }]}
+            >
+              <Text style={secondaryButtonText}>
+                {focusContext?.selectedDay ? "Open focused day in calendar" : "Open calendar"}
+              </Text>
+            </Pressable>
+          </View>
         </View>
 
         <View style={cardStyle}>

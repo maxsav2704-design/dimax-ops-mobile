@@ -1,4 +1,4 @@
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
 import { loadInstallerCalendar } from "@/modules/calendar/service";
@@ -10,6 +10,9 @@ import {
 } from "@/modules/projects/navigation";
 
 export default function CalendarScreen() {
+  const params = useLocalSearchParams<{
+    day?: string;
+  }>();
   const [state, setState] = useState<InstallerCalendarViewModel>({
     snapshot: null,
     source: "unavailable",
@@ -59,6 +62,13 @@ export default function CalendarScreen() {
       setSelectedDay("ALL");
     }
   }, [dayOptions, selectedDay]);
+
+  useEffect(() => {
+    const incomingDay = typeof params.day === "string" ? params.day.trim() : "";
+    if (incomingDay) {
+      setSelectedDay(incomingDay);
+    }
+  }, [params.day]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
