@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildProjectEarningsContext } from "@/modules/earnings/presentation";
+import { buildEarningsFocusContext, buildProjectEarningsContext } from "@/modules/earnings/presentation";
 
 describe("buildProjectEarningsContext", () => {
   it("builds project-scoped totals and install type summary", () => {
@@ -102,6 +102,59 @@ describe("buildProjectEarningsContext", () => {
       rows: [],
       todayRows: [],
       installTypeSummary: [],
+    });
+  });
+
+  it("builds focused earnings context for a selected day", () => {
+    const context = buildEarningsFocusContext(
+      {
+        period_key: "2026-03",
+        currency: "ILS",
+        today_total: "100.00",
+        month_total: "3000.00",
+        days: [],
+        install_types: [],
+        rows: [
+          {
+            id: "row-1",
+            work_date: "2026-03-11",
+            project_id: "project-1",
+            project_name: "Alpha",
+            door_label: "A-1",
+            install_type_code: "INSTALL",
+            install_type_label: "Install",
+            quantity: 1,
+            rate: "120.00",
+            amount: "120.00",
+          },
+          {
+            id: "row-2",
+            work_date: "2026-03-10",
+            project_id: "project-2",
+            project_name: "Beta",
+            door_label: "B-1",
+            install_type_code: "SERVICE",
+            install_type_label: "Service",
+            quantity: 1,
+            rate: "80.00",
+            amount: "80.00",
+          },
+        ],
+        generated_at: "2026-03-11T10:00:00Z",
+      },
+      "2026-03-11",
+      "DAY",
+      "2026-03-10"
+    );
+
+    expect(context?.selectedDay).toBe("2026-03-10");
+    expect(context?.total).toBe("80.00");
+    expect(context?.rows).toHaveLength(1);
+    expect(context?.installTypeSummary[0]).toEqual({
+      code: "SERVICE",
+      label: "Service",
+      amount: 80,
+      quantity: 1,
     });
   });
 });
