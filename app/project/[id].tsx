@@ -2,6 +2,9 @@ import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, TextInput, View } from "react-native";
 import { addAddonFact, markDoorInstalled, markDoorNotInstalled } from "@/modules/doors/actions";
+import { loadInstallerEarnings } from "@/modules/earnings/service";
+import type { InstallerEarningsViewModel } from "@/modules/earnings/types";
+import { buildProjectEarningsContext } from "@/modules/earnings/presentation";
 import {
   getProject,
   listProjectAddonTypes,
@@ -35,6 +38,11 @@ export default function ProjectDetailsScreen() {
   const [addonTypes, setAddonTypes] = useState<ProjectAddonTypeOption[]>([]);
   const [pendingEvents, setPendingEvents] = useState<PendingSyncEvent[]>([]);
   const [queueSummary, setQueueSummary] = useState<SyncQueueSummary | null>(null);
+  const [earningsState, setEarningsState] = useState<InstallerEarningsViewModel>({
+    snapshot: null,
+    source: "unavailable",
+    message: null,
+  });
   const [reasons, setReasons] = useState<Array<{ id: string; code: string; name: string }>>([]);
   const [selectedReasonId, setSelectedReasonId] = useState<string>("");
   const [comment, setComment] = useState("");
@@ -50,7 +58,7 @@ export default function ProjectDetailsScreen() {
 
   const reload = async () => {
     if (!projectId) return;
-    const [projectRow, doorRows, issueRows, reasonRows, addonTypeRows, pendingRows, queueSummaryRow] = await Promise.all([
+    const [projectRow, doorRows, issueRows, reasonRows, addonTypeRows, pendingRows, queueSummaryRow, earnings] = await Promise.all([
       getProject(projectId),
       listProjectDoors(projectId),
       listProjectIssues(projectId),
@@ -58,6 +66,7 @@ export default function ProjectDetailsScreen() {
       listProjectAddonTypes(projectId),
       listPendingEvents(projectId),
       getSyncQueueSummary(projectId),
+      loadInstallerEarnings(),
     ]);
     setProject(projectRow);
     setDoors(doorRows);
@@ -65,6 +74,7 @@ export default function ProjectDetailsScreen() {
     setAddonTypes(addonTypeRows);
     setPendingEvents(pendingRows);
     setQueueSummary(queueSummaryRow);
+    setEarningsState(earnings);
     setReasons(reasonRows);
     if (!selectedReasonId && reasonRows[0]?.id) {
       setSelectedReasonId(reasonRows[0].id);
@@ -147,6 +157,12 @@ export default function ProjectDetailsScreen() {
       return acc;
     }, {});
   }, [filteredDoors]);
+
+  const todayDate = new Date().toISOString().slice(0, 10);
+  const projectEarnings = useMemo(
+    () => buildProjectEarningsContext(earningsState.snapshot, projectId, todayDate),
+    [earningsState.snapshot, projectId, todayDate]
+  );
 
   const handleInstall = async (doorId: string) => {
     setBusy(true);
@@ -241,6 +257,44 @@ export default function ProjectDetailsScreen() {
             Ready now: {queueSummary?.ready_to_send || 0}
             {queueSummary?.next_retry_at ? ` | next retry ${queueSummary.next_retry_at}` : ""}
           </Text>
+        </View>
+
+        <View style={cardStyle}>
+          <Text style={sectionTitle}>Project earnings context</Text>
+          <Text style={metaStyle}>Source: {earningsState.source}</Text>
+          {earningsState.message ? <Text style={[metaStyle, { color: "#ffb86b" }]}>{earningsState.message}</Text> : null}
+          <View style={{ gap: 10, marginTop: 12 }}>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Today on project</Text>
+              <Text style={summaryValueInlineStyle}>
+                {projectEarnings ? `${projectEarnings.todayTotal} ${projectEarnings.currency}` : "--"}
+              </Text>
+            </View>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Month on project</Text>
+              <Text style={summaryValueInlineStyle}>
+                {projectEarnings ? `${projectEarnings.monthTotal} ${projectEarnings.currency}` : "--"}
+              </Text>
+            </View>
+            <View style={summaryRowStyle}>
+              <Text style={summaryLabelStyle}>Rows in scope</Text>
+              <Text style={summaryValueInlineStyle}>{projectEarnings?.rows.length ?? "--"}</Text>
+            </View>
+          </View>
+          {projectEarnings?.installTypeSummary.length ? (
+            <View style={{ gap: 10, marginTop: 14 }}>
+              <Text style={fieldLabel}>By install type</Text>
+              {projectEarnings.installTypeSummary.slice(0, 3).map((item) => (
+                <View key={item.code} style={doorCardStyle}>
+                  <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{item.label}</Text>
+                  <Text style={metaStyle}>Amount: {item.amount.toFixed(2)} {projectEarnings.currency}</Text>
+                  <Text style={metaStyle}>Qty: {item.quantity}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={metaStyle}>No project-scoped earnings rows in the current snapshot.</Text>
+          )}
         </View>
 
         <Pressable onPress={handleSync} style={secondaryButton}>
@@ -481,6 +535,21 @@ const fieldLabel = {
 const metaStyle = {
   color: "#8fa7c2",
   marginTop: 4,
+} as const;
+
+const summaryRowStyle = {
+  flexDirection: "row",
+  justifyContent: "space-between",
+  alignItems: "center",
+} as const;
+
+const summaryLabelStyle = {
+  color: "#8fa7c2",
+} as const;
+
+const summaryValueInlineStyle = {
+  color: "#f8fbff",
+  fontWeight: "700",
 } as const;
 
 const chipStyle = {
