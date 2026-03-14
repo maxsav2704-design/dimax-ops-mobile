@@ -95,6 +95,10 @@ Current baseline already validated:
 - `.\workspace.cmd preflight-mobile-device`
 - `.\workspace.cmd smoke-mobile`
 - `.\workspace.cmd preflight-mobile-native-build`
+- physical Android device:
+  - debug APK install
+  - live app launch
+  - installer login success
 - first `expo run:android` needs `JAVA_HOME` and a cached Gradle `8.10.2` distribution or internet access to `services.gradle.org`
 
 5. Run first device/emulator smoke with real navigation

@@ -74,7 +74,12 @@ Validated locally with:
 - `expo config --json`
 - `tsc --noEmit`
 - `.\workspace.cmd preflight-mobile-device`
+- `.\workspace.cmd preflight-mobile-native-build`
 - `.\workspace.cmd smoke-mobile`
+- physical Android device pass:
+  - APK install
+  - app launch
+  - live installer login
 - mobile visual/device readiness is tracked in:
   - `MOBILE_VISUAL_QA_READINESS.md`
 
@@ -90,7 +95,7 @@ Validated locally with:
 
 ## Remaining gaps before production mobile release
 
-- real in-app navigation smoke on Android emulator / physical device
+- deeper route-by-route visual pass after login on physical device
 - screen-level tests for navigation and continuity
 - visual QA on small devices
 - push / notification strategy, if required
@@ -102,4 +107,4 @@ Validated locally with:
 - execution flow: strong
 - backend contract dependence: explicit and safe
 - production release readiness: not final yet
-- mobile product baseline: ready for next validation stage
+- mobile product baseline: ready and device-confirmed
