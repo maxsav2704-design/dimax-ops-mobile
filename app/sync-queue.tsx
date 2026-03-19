@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
+import { translateEnum } from "@/lib/i18n";
 import { getProject, listProjects } from "@/modules/projects/repository";
 import { buildEventSummary, getStatusTone } from "@/modules/sync/presentation";
 import {
@@ -13,7 +14,7 @@ import type { PendingSyncEvent, SyncQueueSummary } from "@/modules/sync/types";
 import { useI18n } from "@/providers/AppProviders";
 
 export default function SyncQueueScreen() {
-  const { t, isRTL } = useI18n();
+  const { t, isRTL, locale } = useI18n();
   const [items, setItems] = useState<PendingSyncEvent[]>([]);
   const [queueSummary, setQueueSummary] = useState<SyncQueueSummary | null>(null);
   const [projectNames, setProjectNames] = useState<Record<string, string>>({});
@@ -161,10 +162,10 @@ export default function SyncQueueScreen() {
 
           return (
             <View key={item.client_event_id} style={cardStyle}>
-              <Text style={{ color: "#f8fbff", fontSize: 17, fontWeight: "700" }}>{buildEventSummary(item)}</Text>
-              <Text style={{ color: "#8fa7c2", marginTop: 6 }}>{t("common.project")}: {projectName}</Text>
+              <Text style={{ color: "#f8fbff", fontSize: 17, fontWeight: "700" }}>{buildEventSummary(item, locale)}</Text>
+              <Text style={{ color: "#8fa7c2", marginTop: 6 }}>{t("common.project")}: {projectName || t("common.noProject")}</Text>
               <Text style={{ color: getStatusTone(item.status), marginTop: 4, fontWeight: "700" }}>
-                {item.status}
+                {translateEnum(locale, item.status)}
               </Text>
               <Text style={{ color: "#8fa7c2", marginTop: 4 }}>{t("project.queued")}: {item.created_at}</Text>
               <Text style={{ color: "#8fa7c2", marginTop: 4 }}>{t("project.attempts")}: {item.attempts}</Text>

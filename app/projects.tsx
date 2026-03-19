@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
+import { translateEnum } from "@/lib/i18n";
 import { loadInstallerCalendar } from "@/modules/calendar/service";
 import type { InstallerCalendarViewModel } from "@/modules/calendar/types";
 import { buildEarningsFocusContext } from "@/modules/earnings/presentation";
@@ -188,11 +189,11 @@ export default function ProjectsScreen() {
             {t("workspace.pendingOffline")}: {pendingCount}
           </Text>
           <Text style={{ color: "#8fa7c2", marginTop: 4 }}>
-            {t("workspace.queueHealth")}: pending {queueSummary?.pending || 0} / failed {queueSummary?.failed || 0} / blocked {queueSummary?.blocked || 0}
+            {t("workspace.queueHealth")}: {t("sync.pending")} {queueSummary?.pending || 0} / {t("sync.failed")} {queueSummary?.failed || 0} / {t("sync.blocked")} {queueSummary?.blocked || 0}
           </Text>
           <Text style={{ color: "#8fa7c2", marginTop: 4 }}>
             {t("workspace.readyNow")}: {queueSummary?.ready_to_send || 0}
-            {queueSummary?.next_retry_at ? ` | next retry ${queueSummary.next_retry_at}` : ""}
+            {queueSummary?.next_retry_at ? ` | ${t("sync.nextRetry")} ${queueSummary.next_retry_at}` : ""}
           </Text>
         </View>
 
@@ -200,12 +201,12 @@ export default function ProjectsScreen() {
           <View style={summaryCardStyle}>
             <Text style={summaryEyebrowStyle}>{lt("Today tasks", "Задачи на сегодня", "משימות להיום")}</Text>
             <Text style={summaryValueStyle}>{todayTasksCount}</Text>
-            <Text style={summaryMetaStyle}>{lt("Source", "Источник", "מקור")}: {calendarState.source}</Text>
+            <Text style={summaryMetaStyle}>{lt("Source", "Источник", "מקור")}: {translateEnum(locale, calendarState.source)}</Text>
           </View>
           <View style={summaryCardStyle}>
             <Text style={summaryEyebrowStyle}>{lt("Today earnings", "Заработок сегодня", "הכנסות היום")}</Text>
             <Text style={summaryValueStyle}>{earningsState.snapshot?.today_total || "--"}</Text>
-            <Text style={summaryMetaStyle}>{lt("Source", "Источник", "מקור")}: {earningsState.source}</Text>
+            <Text style={summaryMetaStyle}>{lt("Source", "Источник", "מקור")}: {translateEnum(locale, earningsState.source)}</Text>
           </View>
           <View style={summaryCardStyle}>
             <Text style={summaryEyebrowStyle}>{lt("This month", "Этот месяц", "החודש")}</Text>
@@ -278,7 +279,7 @@ export default function ProjectsScreen() {
                 >
                   <Text style={priorityTitleStyle}>{item.title}</Text>
                   <Text style={priorityMetaStyle}>{item.startsAt}</Text>
-                  <Text style={priorityMetaStyle}>{item.projectId ? `Project: ${item.projectId}` : "No project"}</Text>
+                  <Text style={priorityMetaStyle}>{item.projectId ? `${t("common.project")}: ${item.projectId}` : t("common.noProject")}</Text>
                   <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
                     <Pressable
                       onPress={() =>
@@ -318,8 +319,8 @@ export default function ProjectsScreen() {
               {earningsInstallTypeSummary.map((item) => (
                 <View key={item.code} style={priorityCardStyle}>
                   <Text style={priorityTitleStyle}>{item.label}</Text>
-                  <Text style={priorityMetaStyle}>Amount: {item.amount}</Text>
-                  <Text style={priorityMetaStyle}>Qty: {item.quantity}</Text>
+                  <Text style={priorityMetaStyle}>{t("common.amount")}: {item.amount}</Text>
+                  <Text style={priorityMetaStyle}>{t("common.quantity")}: {item.quantity}</Text>
                 </View>
               ))}
             </View>
@@ -459,9 +460,9 @@ export default function ProjectsScreen() {
                   <Text style={priorityTitleStyle}>{item.title}</Text>
                   <Text style={priorityMetaStyle}>{item.startsAt}</Text>
                   <Text style={priorityMetaStyle}>
-                    {item.projectId ? `Project: ${item.projectId}` : "No project"}
+                    {item.projectId ? `${t("common.project")}: ${item.projectId}` : t("common.noProject")}
                   </Text>
-                  <Text style={priorityMetaStyle}>Type: {item.eventType}</Text>
+                  <Text style={priorityMetaStyle}>{t("common.type")}: {translateEnum(locale, item.eventType)}</Text>
                 </Pressable>
               ))}
             </View>
@@ -518,8 +519,8 @@ export default function ProjectsScreen() {
               >
                 <Text style={priorityTitleStyle}>{item.title}</Text>
                 <Text style={priorityMetaStyle}>{item.subtitle}</Text>
-                <Text style={priorityMetaStyle}>Project: {item.projectId}</Text>
-                <Text style={priorityMetaStyle}>Type: {item.eventType}</Text>
+                <Text style={priorityMetaStyle}>{t("common.project")}: {item.projectId}</Text>
+                <Text style={priorityMetaStyle}>{t("common.type")}: {translateEnum(locale, item.eventType)}</Text>
               </Pressable>
             ))
           ) : (
@@ -547,7 +548,7 @@ export default function ProjectsScreen() {
               <View key={item.id} style={priorityCardStyle}>
                 <Pressable onPress={() => router.push(buildProblemProjectRoute(item) as never)}>
                   <Text style={priorityTitleStyle}>{item.name}</Text>
-                  <Text style={priorityMetaStyle}>{item.address || "No address"}</Text>
+                  <Text style={priorityMetaStyle}>{item.address || t("project.noAddress")}</Text>
                   <Text style={[priorityMetaStyle, { color: "#ffb86b" }]}>{lt("Open issues context", "Открыть контекст проблем", "פתח הקשר תקלות")}</Text>
                 </Pressable>
                 <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
@@ -575,7 +576,7 @@ export default function ProjectsScreen() {
               <Pressable onPress={() => router.push(buildProjectRoute(item.id) as never)}>
                 <Text style={{ color: "#f8fbff", fontSize: 18, fontWeight: "600" }}>{item.name}</Text>
                 <Text style={{ color: "#8fa7c2", marginTop: 6 }}>{item.address || lt("No address", "Нет адреса", "אין כתובת")}</Text>
-                <Text style={{ color: item.status === "PROBLEM" ? "#ffb86b" : "#63d297", marginTop: 8 }}>{item.status}</Text>
+                <Text style={{ color: item.status === "PROBLEM" ? "#ffb86b" : "#63d297", marginTop: 8 }}>{translateEnum(locale, item.status)}</Text>
               </Pressable>
               <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
                 <Pressable onPress={() => router.push(buildProjectRoute(item.id) as never)} style={[secondaryButton, { flex: 1 }]}>

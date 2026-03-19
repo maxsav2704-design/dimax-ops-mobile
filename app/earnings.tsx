@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
+import { translateEnum } from "@/lib/i18n";
 import {
   buildEarningsFocusContext,
   type EarningsPeriodFocus,
@@ -11,7 +12,7 @@ import type { InstallerEarningsViewModel } from "@/modules/earnings/types";
 import { useI18n } from "@/providers/AppProviders";
 
 export default function EarningsScreen() {
-  const { t, isRTL } = useI18n();
+  const { t, isRTL, locale } = useI18n();
   const params = useLocalSearchParams<{
     focus?: string;
     day?: string;
@@ -72,7 +73,7 @@ export default function EarningsScreen() {
       const current = lanes.get(key) || {
         key,
         projectId: row.project_id,
-        projectName: row.project_name || "No project",
+        projectName: row.project_name || t("common.noProject"),
         amount: 0,
         rows: 0,
       };
@@ -239,7 +240,7 @@ export default function EarningsScreen() {
               <Text style={secondaryButtonText}>{loading ? t("common.loading") : t("common.refresh")}</Text>
             </Pressable>
           </View>
-          <Text style={bodyStyle}>{t("common.source")}: {state.source}</Text>
+          <Text style={bodyStyle}>{t("common.source")}: {translateEnum(locale, state.source)}</Text>
           {state.message ? <Text style={[bodyStyle, state.source === "unavailable" && errorStyle]}>{state.message}</Text> : null}
           {snapshot ? (
             <>

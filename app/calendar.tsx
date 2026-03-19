@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
+import { translateEnum } from "@/lib/i18n";
 import { loadInstallerCalendar } from "@/modules/calendar/service";
 import type { InstallerCalendarViewModel } from "@/modules/calendar/types";
 import {
@@ -11,7 +12,7 @@ import {
 import { useI18n } from "@/providers/AppProviders";
 
 export default function CalendarScreen() {
-  const { t, isRTL } = useI18n();
+  const { t, isRTL, locale } = useI18n();
   const params = useLocalSearchParams<{
     day?: string;
   }>();
@@ -118,7 +119,7 @@ export default function CalendarScreen() {
               <Text style={secondaryButtonText}>{loading ? t("common.loading") : t("common.refresh")}</Text>
             </Pressable>
           </View>
-          <Text style={bodyStyle}>{t("common.source")}: {state.source}</Text>
+          <Text style={bodyStyle}>{t("common.source")}: {translateEnum(locale, state.source)}</Text>
           {state.message ? <Text style={[bodyStyle, state.source === "unavailable" && errorStyle]}>{state.message}</Text> : null}
         </View>
 
@@ -256,7 +257,7 @@ export default function CalendarScreen() {
               return (
               <View key={item.id} style={eventCardStyle}>
                 <Text style={eventTitleStyle}>{item.title}</Text>
-                <Text style={bodyStyle}>{t("common.type")}: {item.event_type}</Text>
+                <Text style={bodyStyle}>{t("common.type")}: {translateEnum(locale, item.event_type)}</Text>
                 <Text style={bodyStyle}>{t("common.starts")}: {item.starts_at}</Text>
                 <Text style={bodyStyle}>{t("common.ends")}: {item.ends_at}</Text>
                 <Text style={bodyStyle}>{t("common.project")}: {projectId || t("common.noProject")}</Text>

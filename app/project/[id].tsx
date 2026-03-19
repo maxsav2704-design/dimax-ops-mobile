@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, TextInput, View } from "react-native";
+import { translateEnum } from "@/lib/i18n";
 import { addAddonFact, markDoorInstalled, markDoorNotInstalled } from "@/modules/doors/actions";
 import { loadInstallerEarnings } from "@/modules/earnings/service";
 import type { InstallerEarningsViewModel } from "@/modules/earnings/types";
@@ -23,7 +24,7 @@ import type { PendingSyncEvent, SyncQueueSummary } from "@/modules/sync/types";
 import { useI18n } from "@/providers/AppProviders";
 
 export default function ProjectDetailsScreen() {
-  const { t, isRTL } = useI18n();
+  const { t, isRTL, locale } = useI18n();
   const params = useLocalSearchParams<{
     id: string;
     issueStatus?: string;
@@ -330,11 +331,11 @@ export default function ProjectDetailsScreen() {
             {t("project.pendingProjectEvents")}: {pendingEvents.length}
           </Text>
           <Text style={{ color: "#8fa7c2", marginTop: 2 }}>
-            Queue health: pending {queueSummary?.pending || 0} / failed {queueSummary?.failed || 0} / blocked {queueSummary?.blocked || 0}
+            {t("workspace.queueHealth")}: {t("sync.pending")} {queueSummary?.pending || 0} / {t("sync.failed")} {queueSummary?.failed || 0} / {t("sync.blocked")} {queueSummary?.blocked || 0}
           </Text>
           <Text style={{ color: "#8fa7c2", marginTop: 2 }}>
-            Ready now: {queueSummary?.ready_to_send || 0}
-            {queueSummary?.next_retry_at ? ` | next retry ${queueSummary.next_retry_at}` : ""}
+            {t("workspace.readyNow")}: {queueSummary?.ready_to_send || 0}
+            {queueSummary?.next_retry_at ? ` | ${t("sync.nextRetry")} ${queueSummary.next_retry_at}` : ""}
           </Text>
         </View>
 
@@ -426,7 +427,7 @@ export default function ProjectDetailsScreen() {
 
         <View style={cardStyle}>
           <Text style={sectionTitle}>{t("project.earningsContext")}</Text>
-          <Text style={metaStyle}>{t("common.source")}: {earningsState.source}</Text>
+          <Text style={metaStyle}>{t("common.source")}: {translateEnum(locale, earningsState.source)}</Text>
           {earningsState.message ? <Text style={[metaStyle, { color: "#ffb86b" }]}>{earningsState.message}</Text> : null}
           <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
             <Pressable
@@ -513,7 +514,7 @@ export default function ProjectDetailsScreen() {
                 style={[chipStyle, doorStatusFilter === status && chipStyleActive]}
               >
                 <Text style={{ color: doorStatusFilter === status ? "#04111f" : "#d9e7f7" }}>
-                  {status === "ALL" ? t("project.allDoors") : status}
+                  {status === "ALL" ? t("project.allDoors") : translateEnum(locale, status)}
                 </Text>
               </Pressable>
             ))}
@@ -603,7 +604,7 @@ export default function ProjectDetailsScreen() {
                   style={[warningChipStyle, issueStatusFilter === status && warningChipStyleActive]}
                 >
                   <Text style={{ color: issueStatusFilter === status ? "#3a2a12" : "#fff3d6" }}>
-                    {status === "ALL" ? t("project.allIssues") : status}
+                    {status === "ALL" ? t("project.allIssues") : translateEnum(locale, status)}
                   </Text>
                 </Pressable>
               ))}
@@ -612,7 +613,7 @@ export default function ProjectDetailsScreen() {
               {visibleIssues.map((issue) => (
                 <View key={issue.id} style={warningRowStyle}>
                   <Text style={{ color: "#fff3d6", fontWeight: "700" }}>{issue.title || t("project.openIssues")}</Text>
-                  <Text style={{ color: "#f2cf8b", marginTop: 4 }}>{t("common.status")}: {issue.status}</Text>
+                  <Text style={{ color: "#f2cf8b", marginTop: 4 }}>{t("common.status")}: {translateEnum(locale, issue.status)}</Text>
                   <Text style={{ color: "#f2cf8b", marginTop: 4 }}>{issue.details || t("project.requiresAttention")}</Text>
                   <Pressable onPress={() => focusIssueDoor(issue)} style={[secondaryButton, { marginTop: 10 }]}>
                     <Text style={secondaryButtonText}>{t("project.onlyThisDoor")}</Text>
@@ -631,7 +632,7 @@ export default function ProjectDetailsScreen() {
               {priorityDoors.map((door) => (
                 <View key={door.id} style={doorCardStyle}>
                   <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{door.unit_label}</Text>
-                  <Text style={metaStyle}>{t("common.status")}: {door.status}</Text>
+                  <Text style={metaStyle}>{t("common.status")}: {translateEnum(locale, door.status)}</Text>
                   <Text style={metaStyle}>{t("project.order")}: {door.order_number || "-"}</Text>
                   <Text style={metaStyle}>{t("common.location")}: {door.location_code || "-"}</Text>
                   <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
@@ -750,9 +751,9 @@ export default function ProjectDetailsScreen() {
             <View style={{ gap: 10, marginTop: 12 }}>
               {pendingEvents.map((event) => (
                 <View key={event.client_event_id} style={doorCardStyle}>
-                  <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{event.type}</Text>
+                  <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{translateEnum(locale, event.type)}</Text>
                   <Text style={metaStyle}>{t("project.queued")}: {event.created_at}</Text>
-                  <Text style={metaStyle}>{t("common.status")}: {event.status}</Text>
+                  <Text style={metaStyle}>{t("common.status")}: {translateEnum(locale, event.status)}</Text>
                   <Text style={metaStyle}>{t("project.attempts")}: {event.attempts}</Text>
                   {event.last_attempt_at ? <Text style={metaStyle}>{t("project.lastAttempt")}: {event.last_attempt_at}</Text> : null}
                   {event.next_retry_at ? <Text style={metaStyle}>{t("project.nextRetry")}: {event.next_retry_at}</Text> : null}
@@ -776,7 +777,7 @@ export default function ProjectDetailsScreen() {
                   <Text style={metaStyle}>{t("project.apartment")}: {door.apartment_number || "-"}</Text>
                   <Text style={metaStyle}>{t("common.location")}: {door.location_code || "-"}</Text>
                   <Text style={metaStyle}>{t("project.marking")}: {door.door_marking || "-"}</Text>
-                  <Text style={[metaStyle, { color: door.status === "INSTALLED" ? "#63d297" : "#ffb86b" }]}>{door.status}</Text>
+                  <Text style={[metaStyle, { color: door.status === "INSTALLED" ? "#63d297" : "#ffb86b" }]}>{translateEnum(locale, door.status)}</Text>
                   <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
                     <Pressable onPress={() => handleInstall(door.id)} style={[primaryButton, { flex: 1 }]} disabled={busy || door.is_locked}>
                       <Text style={primaryButtonText}>{t("common.installed")}</Text>
