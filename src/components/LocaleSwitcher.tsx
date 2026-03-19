@@ -1,5 +1,6 @@
 import React from "react";
 import { Pressable, Text, View } from "react-native";
+import { installerTheme } from "@/components/installer-ui";
 import { useI18n } from "@/providers/AppProviders";
 
 export function LocaleSwitcher() {
@@ -16,11 +17,11 @@ export function LocaleSwitcher() {
             paddingVertical: 6,
             borderRadius: 999,
             borderWidth: 1,
-            borderColor: value === locale ? "#5aa8ff" : "#17314f",
-            backgroundColor: value === locale ? "#5aa8ff" : "#0c1d30",
+            borderColor: value === locale ? "#BDD0FF" : installerTheme.border,
+            backgroundColor: value === locale ? installerTheme.primarySoft : installerTheme.card,
           }}
         >
-          <Text style={{ color: value === locale ? "#04111f" : "#f8fbff", fontWeight: "700" }}>
+          <Text style={{ color: value === locale ? installerTheme.primary : installerTheme.textMuted, fontWeight: "700" }}>
             {t(`locale.${value}`)}
           </Text>
         </Pressable>

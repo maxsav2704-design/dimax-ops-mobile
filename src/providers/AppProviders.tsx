@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { ReactNode, createContext, useContext, useEffect, useMemo, useState } from "react";
 import * as SecureStore from "expo-secure-store";
 import { ActivityIndicator, AppState, View } from "react-native";
+import { installerTheme } from "@/components/installer-ui";
 import { LOCALE_STORAGE_KEY } from "@/lib/config";
 import {
   isRtlLocale,
@@ -148,8 +149,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
       <I18nContext.Provider value={i18nValue}>
         <AuthContext.Provider value={value}>
           {loading ? (
-            <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#04111f" }}>
-              <ActivityIndicator size="large" color="#5aa8ff" />
+            <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: installerTheme.background }}>
+              <ActivityIndicator size="large" color={installerTheme.primary} />
             </View>
           ) : (
             children

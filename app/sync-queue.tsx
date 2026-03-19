@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
+import { InstallerBottomNav, installerTheme } from "@/components/installer-ui";
 import { translateEnum } from "@/lib/i18n";
 import { getProject, listProjects } from "@/modules/projects/repository";
 import { buildEventSummary, getStatusTone } from "@/modules/sync/presentation";
@@ -123,19 +124,19 @@ export default function SyncQueueScreen() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
-      <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: installerTheme.background }}>
+      <ScrollView contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 120 }}>
         <View style={cardStyle}>
-          <Text style={{ color: "#f8fbff", fontSize: 22, fontWeight: "700", textAlign: isRTL ? "right" : "left" }}>{t("sync.title")}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
+          <Text style={{ color: installerTheme.text, fontSize: 22, fontWeight: "700", textAlign: isRTL ? "right" : "left" }}>{t("sync.title")}</Text>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 6 }}>
             {t("sync.pending")} {queueSummary?.pending || 0} / {t("sync.failed")} {queueSummary?.failed || 0} / {t("sync.blocked")} {queueSummary?.blocked || 0}
           </Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 4 }}>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 4 }}>
             {t("workspace.readyNow")}: {queueSummary?.ready_to_send || 0}
             {queueSummary?.next_retry_at ? ` | ${t("sync.nextRetry")} ${queueSummary.next_retry_at}` : ""}
           </Text>
           {queueSummary?.blocked ? (
-            <Text style={{ color: "#ffb86b", marginTop: 10 }}>{t("sync.subtitle")}</Text>
+            <Text style={{ color: installerTheme.warning, marginTop: 10 }}>{t("sync.subtitle")}</Text>
           ) : null}
         </View>
 
@@ -148,11 +149,11 @@ export default function SyncQueueScreen() {
           </Pressable>
         </View>
 
-        {error ? <Text style={{ color: "#ff8b8b" }}>{error}</Text> : null}
+        {error ? <Text style={{ color: installerTheme.danger }}>{error}</Text> : null}
 
         {!items.length ? (
           <View style={cardStyle}>
-            <Text style={{ color: "#8fa7c2" }}>{t("sync.empty")}</Text>
+            <Text style={{ color: installerTheme.textMuted }}>{t("sync.empty")}</Text>
           </View>
         ) : null}
 
@@ -162,20 +163,20 @@ export default function SyncQueueScreen() {
 
           return (
             <View key={item.client_event_id} style={cardStyle}>
-              <Text style={{ color: "#f8fbff", fontSize: 17, fontWeight: "700" }}>{buildEventSummary(item, locale)}</Text>
-              <Text style={{ color: "#8fa7c2", marginTop: 6 }}>{t("common.project")}: {projectName || t("common.noProject")}</Text>
+              <Text style={{ color: installerTheme.text, fontSize: 17, fontWeight: "700" }}>{buildEventSummary(item, locale)}</Text>
+              <Text style={{ color: installerTheme.textMuted, marginTop: 6 }}>{t("common.project")}: {projectName || t("common.noProject")}</Text>
               <Text style={{ color: getStatusTone(item.status), marginTop: 4, fontWeight: "700" }}>
                 {translateEnum(locale, item.status)}
               </Text>
-              <Text style={{ color: "#8fa7c2", marginTop: 4 }}>{t("project.queued")}: {item.created_at}</Text>
-              <Text style={{ color: "#8fa7c2", marginTop: 4 }}>{t("project.attempts")}: {item.attempts}</Text>
+              <Text style={{ color: installerTheme.textMuted, marginTop: 4 }}>{t("project.queued")}: {item.created_at}</Text>
+              <Text style={{ color: installerTheme.textMuted, marginTop: 4 }}>{t("project.attempts")}: {item.attempts}</Text>
               {item.last_attempt_at ? (
-                <Text style={{ color: "#8fa7c2", marginTop: 4 }}>{t("project.lastAttempt")}: {item.last_attempt_at}</Text>
+                <Text style={{ color: installerTheme.textMuted, marginTop: 4 }}>{t("project.lastAttempt")}: {item.last_attempt_at}</Text>
               ) : null}
               {item.next_retry_at ? (
-                <Text style={{ color: "#8fa7c2", marginTop: 4 }}>{t("project.nextRetry")}: {item.next_retry_at}</Text>
+                <Text style={{ color: installerTheme.textMuted, marginTop: 4 }}>{t("project.nextRetry")}: {item.next_retry_at}</Text>
               ) : null}
-              {item.error ? <Text style={{ color: "#ff8b8b", marginTop: 8 }}>{item.error}</Text> : null}
+              {item.error ? <Text style={{ color: installerTheme.danger, marginTop: 8 }}>{item.error}</Text> : null}
 
               <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
                 <Pressable
@@ -197,20 +198,21 @@ export default function SyncQueueScreen() {
           );
         })}
       </ScrollView>
+      <InstallerBottomNav />
     </SafeAreaView>
   );
 }
 
 const cardStyle = {
-  backgroundColor: "#0a1a2b",
+  backgroundColor: installerTheme.card,
   borderRadius: 18,
   borderWidth: 1,
-  borderColor: "#17314f",
+  borderColor: installerTheme.border,
   padding: 18,
 } as const;
 
 const primaryButton = {
-  backgroundColor: "#5aa8ff",
+  backgroundColor: installerTheme.primary,
   borderRadius: 12,
   minHeight: 44,
   alignItems: "center",
@@ -218,10 +220,10 @@ const primaryButton = {
 } as const;
 
 const secondaryButton = {
-  backgroundColor: "#0c1d30",
+  backgroundColor: installerTheme.cardMuted,
   borderRadius: 12,
   borderWidth: 1,
-  borderColor: "#17314f",
+  borderColor: installerTheme.border,
   minHeight: 44,
   alignItems: "center",
   justifyContent: "center",
@@ -229,26 +231,26 @@ const secondaryButton = {
 } as const;
 
 const dangerButton = {
-  backgroundColor: "#2a1420",
+  backgroundColor: installerTheme.dangerSoft,
   borderRadius: 12,
   borderWidth: 1,
-  borderColor: "#7f334d",
+  borderColor: "#F4C7C7",
   minHeight: 44,
   alignItems: "center",
   justifyContent: "center",
 } as const;
 
 const primaryButtonText = {
-  color: "#04111f",
+  color: "#FFFFFF",
   fontWeight: "700",
 } as const;
 
 const secondaryButtonText = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontWeight: "600",
 } as const;
 
 const dangerButtonText = {
-  color: "#ffd7e1",
+  color: installerTheme.danger,
   fontWeight: "700",
 } as const;

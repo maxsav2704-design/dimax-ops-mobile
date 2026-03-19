@@ -1,6 +1,7 @@
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
+import { InstallerBottomNav, installerTheme } from "@/components/installer-ui";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { translateEnum } from "@/lib/i18n";
 import { loadInstallerCalendar } from "@/modules/calendar/service";
@@ -176,22 +177,22 @@ export default function ProjectsScreen() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
-      <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: installerTheme.background }}>
+      <ScrollView contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 120 }}>
         <View style={cardStyle}>
           <View style={{ alignSelf: isRTL ? "flex-end" : "flex-start", marginBottom: 8 }}>
             <LocaleSwitcher />
           </View>
-          <Text style={{ color: "#f8fbff", fontSize: 22, fontWeight: "700", textAlign: isRTL ? "right" : "left" }}>{t("workspace.title")}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 6, textAlign: isRTL ? "right" : "left" }}>{user?.full_name}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 4, textAlign: isRTL ? "right" : "left" }}>{t("workspace.lastSync")}: {lastSyncAt || t("workspace.never")}</Text>
-          <Text style={{ color: pendingCount > 0 ? "#ffb86b" : "#63d297", marginTop: 4 }}>
+          <Text style={{ color: installerTheme.text, fontSize: 22, fontWeight: "700", textAlign: isRTL ? "right" : "left" }}>{t("workspace.title")}</Text>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 6, textAlign: isRTL ? "right" : "left" }}>{user?.full_name}</Text>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 4, textAlign: isRTL ? "right" : "left" }}>{t("workspace.lastSync")}: {lastSyncAt || t("workspace.never")}</Text>
+          <Text style={{ color: pendingCount > 0 ? installerTheme.warning : installerTheme.success, marginTop: 4 }}>
             {t("workspace.pendingOffline")}: {pendingCount}
           </Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 4 }}>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 4 }}>
             {t("workspace.queueHealth")}: {t("sync.pending")} {queueSummary?.pending || 0} / {t("sync.failed")} {queueSummary?.failed || 0} / {t("sync.blocked")} {queueSummary?.blocked || 0}
           </Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 4 }}>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 4 }}>
             {t("workspace.readyNow")}: {queueSummary?.ready_to_send || 0}
             {queueSummary?.next_retry_at ? ` | ${t("sync.nextRetry")} ${queueSummary.next_retry_at}` : ""}
           </Text>
@@ -217,7 +218,7 @@ export default function ProjectsScreen() {
 
         <View style={cardStyle}>
           <Text style={sectionTitle}>{lt("Readiness summary", "Сводка готовности", "סיכום מוכנות")}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 6 }}>
             {lt(
               "Operational snapshot for today before entering detailed flow.",
               "Операционная сводка дня перед входом в детальный сценарий.",
@@ -254,7 +255,7 @@ export default function ProjectsScreen() {
 
         <View style={cardStyle}>
           <Text style={sectionTitle}>{lt("Service lane", "Сервисная линия", "מסלול שירות")}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 6 }}>
             {lt(
               "Today service items that require issue-focused follow-up.",
               "Сервисные задачи дня, требующие перехода в контекст проблемы.",
@@ -303,7 +304,7 @@ export default function ProjectsScreen() {
               ))}
             </View>
           ) : (
-            <Text style={{ color: "#8fa7c2", marginTop: 12 }}>
+            <Text style={{ color: installerTheme.textMuted, marginTop: 12 }}>
               {lt("No service items in today execution lane.", "В линии дня нет сервисных задач.", "אין פריטי שירות במסלול היום.")}
             </Text>
           )}
@@ -311,7 +312,7 @@ export default function ProjectsScreen() {
 
         <View style={cardStyle}>
           <Text style={sectionTitle}>Earnings by install type</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 6 }}>
             Read-only breakdown from the current earnings snapshot.
           </Text>
           {earningsInstallTypeSummary.length ? (
@@ -325,7 +326,7 @@ export default function ProjectsScreen() {
               ))}
             </View>
           ) : (
-            <Text style={{ color: "#8fa7c2", marginTop: 12 }}>
+            <Text style={{ color: installerTheme.textMuted, marginTop: 12 }}>
               No install type earnings breakdown in the current snapshot.
             </Text>
           )}
@@ -333,7 +334,7 @@ export default function ProjectsScreen() {
 
         <View style={cardStyle}>
           <Text style={sectionTitle}>{lt("Today earnings lane", "Линия заработка дня", "מסלול הכנסות יומי")}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 6 }}>
             {lt(
               "Today money rows from the current read-only earnings snapshot.",
               "Строки денег за день из текущего read-only earnings snapshot.",
@@ -345,19 +346,19 @@ export default function ProjectsScreen() {
               onPress={() => setWorkspaceEarningsFocus("TODAY")}
               style={[chipStyle, workspaceEarningsFocus === "TODAY" && chipStyleActive]}
             >
-              <Text style={{ color: workspaceEarningsFocus === "TODAY" ? "#04111f" : "#d9e7f7" }}>{lt("Today total", "Итог за сегодня", "סה\"כ היום")}</Text>
+              <Text style={{ color: workspaceEarningsFocus === "TODAY" ? "#FFFFFF" : installerTheme.textMuted }}>{lt("Today total", "Итог за сегодня", "סה\"כ היום")}</Text>
             </Pressable>
             <Pressable
               onPress={() => setWorkspaceEarningsFocus("DAY")}
               style={[chipStyle, workspaceEarningsFocus === "DAY" && chipStyleActive]}
             >
-              <Text style={{ color: workspaceEarningsFocus === "DAY" ? "#04111f" : "#d9e7f7" }}>{lt("Today rows", "Строки дня", "שורות היום")}</Text>
+              <Text style={{ color: workspaceEarningsFocus === "DAY" ? "#FFFFFF" : installerTheme.textMuted }}>{lt("Today rows", "Строки дня", "שורות היום")}</Text>
             </Pressable>
             <Pressable
               onPress={() => setWorkspaceEarningsFocus("MONTH")}
               style={[chipStyle, workspaceEarningsFocus === "MONTH" && chipStyleActive]}
             >
-              <Text style={{ color: workspaceEarningsFocus === "MONTH" ? "#04111f" : "#d9e7f7" }}>{lt("Month", "Месяц", "חודש")}</Text>
+              <Text style={{ color: workspaceEarningsFocus === "MONTH" ? "#FFFFFF" : installerTheme.textMuted }}>{lt("Month", "Месяц", "חודש")}</Text>
             </Pressable>
           </View>
           <View style={{ gap: 8, marginTop: 14 }}>
@@ -400,7 +401,7 @@ export default function ProjectsScreen() {
               ))}
             </View>
           ) : (
-            <Text style={{ color: "#8fa7c2", marginTop: 12 }}>
+            <Text style={{ color: installerTheme.textMuted, marginTop: 12 }}>
               {lt(
                 "No earnings rows for the current workspace focus.",
                 "Для текущего фокуса на workspace нет строк заработка.",
@@ -412,7 +413,7 @@ export default function ProjectsScreen() {
 
         <View style={cardStyle}>
           <Text style={sectionTitle}>{lt("Today execution lane", "Линия исполнения дня", "מסלול ביצוע יומי")}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 6 }}>
             {lt(
               "Tasks, money and next actions for the current day.",
               "Задачи, деньги и следующие действия на текущий день.",
@@ -467,7 +468,7 @@ export default function ProjectsScreen() {
               ))}
             </View>
           ) : (
-            <Text style={{ color: "#8fa7c2", marginTop: 12 }}>
+            <Text style={{ color: installerTheme.textMuted, marginTop: 12 }}>
               {lt(
                 "No same-day execution events in the current calendar snapshot.",
                 "В текущем calendar snapshot нет событий этого дня.",
@@ -504,7 +505,7 @@ export default function ProjectsScreen() {
           </Pressable>
         </View>
 
-        {error ? <Text style={{ color: "#ff8b8b" }}>{error}</Text> : null}
+        {error ? <Text style={{ color: installerTheme.danger }}>{error}</Text> : null}
 
         <View style={cardStyle}>
           <Text style={sectionTitle}>{lt("Today priorities", "Приоритеты дня", "עדיפויות היום")}</Text>
@@ -524,7 +525,7 @@ export default function ProjectsScreen() {
               </Pressable>
             ))
           ) : (
-            <Text style={{ color: "#8fa7c2", marginTop: 8 }}>
+            <Text style={{ color: installerTheme.textMuted, marginTop: 8 }}>
               {lt(
                 "No priority events in the current calendar snapshot.",
                 "В текущем calendar snapshot нет приоритетных событий.",
@@ -537,7 +538,7 @@ export default function ProjectsScreen() {
         {problemProjects.length ? (
           <View style={cardStyle}>
             <Text style={sectionTitle}>{lt("Problem projects lane", "Линия проблемных проектов", "מסלול פרויקטים בעייתיים")}</Text>
-            <Text style={{ color: "#8fa7c2", marginTop: 6 }}>
+            <Text style={{ color: installerTheme.textMuted, marginTop: 6 }}>
               {lt(
                 "Fast recovery entry for projects that need attention now.",
                 "Быстрый вход в восстановление для проектов, которым нужно внимание прямо сейчас.",
@@ -549,7 +550,7 @@ export default function ProjectsScreen() {
                 <Pressable onPress={() => router.push(buildProblemProjectRoute(item) as never)}>
                   <Text style={priorityTitleStyle}>{item.name}</Text>
                   <Text style={priorityMetaStyle}>{item.address || t("project.noAddress")}</Text>
-                  <Text style={[priorityMetaStyle, { color: "#ffb86b" }]}>{lt("Open issues context", "Открыть контекст проблем", "פתח הקשר תקלות")}</Text>
+                  <Text style={[priorityMetaStyle, { color: installerTheme.warning }]}>{lt("Open issues context", "Открыть контекст проблем", "פתח הקשר תקלות")}</Text>
                 </Pressable>
                 <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
                   <Pressable
@@ -574,9 +575,9 @@ export default function ProjectsScreen() {
           {items.map((item) => (
             <View key={item.id} style={cardStyle}>
               <Pressable onPress={() => router.push(buildProjectRoute(item.id) as never)}>
-                <Text style={{ color: "#f8fbff", fontSize: 18, fontWeight: "600" }}>{item.name}</Text>
-                <Text style={{ color: "#8fa7c2", marginTop: 6 }}>{item.address || lt("No address", "Нет адреса", "אין כתובת")}</Text>
-                <Text style={{ color: item.status === "PROBLEM" ? "#ffb86b" : "#63d297", marginTop: 8 }}>{translateEnum(locale, item.status)}</Text>
+                <Text style={{ color: installerTheme.text, fontSize: 18, fontWeight: "600" }}>{item.name}</Text>
+                <Text style={{ color: installerTheme.textMuted, marginTop: 6 }}>{item.address || lt("No address", "Нет адреса", "אין כתובת")}</Text>
+                <Text style={{ color: item.status === "PROBLEM" ? installerTheme.warning : installerTheme.success, marginTop: 8 }}>{translateEnum(locale, item.status)}</Text>
               </Pressable>
               <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
                 <Pressable onPress={() => router.push(buildProjectRoute(item.id) as never)} style={[secondaryButton, { flex: 1 }]}>
@@ -595,7 +596,7 @@ export default function ProjectsScreen() {
           ))}
           {!items.length ? (
             <View style={cardStyle}>
-              <Text style={{ color: "#8fa7c2" }}>
+              <Text style={{ color: installerTheme.textMuted }}>
                 {lt(
                   "No local projects yet. Use Bootstrap to pull assigned projects and seed offline storage.",
                   "Локальных проектов пока нет. Используй Bootstrap, чтобы подтянуть назначенные проекты и заполнить offline-хранилище.",
@@ -606,21 +607,22 @@ export default function ProjectsScreen() {
           ) : null}
         </View>
       </ScrollView>
+      <InstallerBottomNav />
     </SafeAreaView>
   );
 }
 
 const cardStyle = {
-  backgroundColor: "#0a1a2b",
+  backgroundColor: installerTheme.card,
   borderRadius: 18,
   borderWidth: 1,
-  borderColor: "#17314f",
+  borderColor: installerTheme.border,
   padding: 18,
 } as const;
 
 const primaryButton = {
   flex: 1,
-  backgroundColor: "#5aa8ff",
+  backgroundColor: installerTheme.primary,
   borderRadius: 14,
   alignItems: "center",
   justifyContent: "center",
@@ -629,22 +631,22 @@ const primaryButton = {
 
 const secondaryButton = {
   flex: 1,
-  backgroundColor: "#0c1d30",
+  backgroundColor: installerTheme.cardMuted,
   borderRadius: 14,
   borderWidth: 1,
-  borderColor: "#17314f",
+  borderColor: installerTheme.border,
   alignItems: "center",
   justifyContent: "center",
   minHeight: 48,
 } as const;
 
 const primaryButtonText = {
-  color: "#04111f",
+  color: "#FFFFFF",
   fontWeight: "700",
 } as const;
 
 const secondaryButtonText = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontWeight: "600",
 } as const;
 
@@ -653,54 +655,54 @@ const summaryGridStyle = {
 } as const;
 
 const summaryCardStyle = {
-  backgroundColor: "#0d2034",
+  backgroundColor: installerTheme.cardMuted,
   borderRadius: 16,
   borderWidth: 1,
-  borderColor: "#183653",
+  borderColor: installerTheme.border,
   padding: 16,
 } as const;
 
 const summaryEyebrowStyle = {
-  color: "#8fa7c2",
+  color: installerTheme.textMuted,
   fontSize: 12,
   textTransform: "uppercase",
 } as const;
 
 const summaryValueStyle = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontSize: 24,
   fontWeight: "700",
   marginTop: 8,
 } as const;
 
 const summaryMetaStyle = {
-  color: "#8fa7c2",
+  color: installerTheme.textMuted,
   marginTop: 6,
 } as const;
 
 const sectionTitle = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontSize: 18,
   fontWeight: "700",
 } as const;
 
 const priorityCardStyle = {
-  backgroundColor: "#0d2034",
+  backgroundColor: installerTheme.cardMuted,
   borderRadius: 14,
   borderWidth: 1,
-  borderColor: "#183653",
+  borderColor: installerTheme.border,
   padding: 14,
   marginTop: 10,
 } as const;
 
 const priorityTitleStyle = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontSize: 15,
   fontWeight: "700",
 } as const;
 
 const priorityMetaStyle = {
-  color: "#8fa7c2",
+  color: installerTheme.textMuted,
   marginTop: 6,
 } as const;
 
@@ -709,13 +711,13 @@ const chipStyle = {
   paddingVertical: 8,
   borderRadius: 999,
   borderWidth: 1,
-  borderColor: "#17314f",
-  backgroundColor: "#0c1d30",
+  borderColor: installerTheme.border,
+  backgroundColor: installerTheme.cardMuted,
 } as const;
 
 const chipStyleActive = {
-  backgroundColor: "#5aa8ff",
-  borderColor: "#5aa8ff",
+  backgroundColor: installerTheme.primary,
+  borderColor: installerTheme.primary,
 } as const;
 
 const summaryRowStyle = {
@@ -725,10 +727,10 @@ const summaryRowStyle = {
 } as const;
 
 const summaryLabelStyle = {
-  color: "#8fa7c2",
+  color: installerTheme.textMuted,
 } as const;
 
 const summaryValueInlineStyle = {
-  color: "#f8fbff",
+  color: "#FFFFFF",
   fontWeight: "700",
 } as const;

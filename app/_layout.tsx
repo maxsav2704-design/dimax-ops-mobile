@@ -1,5 +1,6 @@
 import { Stack } from "expo-router";
 import React from "react";
+import { installerTheme } from "@/components/installer-ui";
 import { AppProviders, useI18n } from "@/providers/AppProviders";
 
 export default function RootLayout() {
@@ -16,9 +17,10 @@ function RootNavigator() {
   return (
     <Stack
       screenOptions={{
-        headerStyle: { backgroundColor: "#071523" },
-        headerTintColor: "#f8fbff",
-        contentStyle: { backgroundColor: "#04111f" },
+        headerStyle: { backgroundColor: installerTheme.card },
+        headerTintColor: installerTheme.text,
+        headerTitleStyle: { color: installerTheme.text, fontWeight: "700" },
+        contentStyle: { backgroundColor: installerTheme.background },
       }}
     >
       <Stack.Screen name="index" options={{ headerShown: false }} />

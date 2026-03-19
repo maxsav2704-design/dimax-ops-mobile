@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, TextInput, View } from "react-native";
+import { InstallerBottomNav, installerTheme } from "@/components/installer-ui";
 import { translateEnum } from "@/lib/i18n";
 import { addAddonFact, markDoorInstalled, markDoorNotInstalled } from "@/modules/doors/actions";
 import { loadInstallerEarnings } from "@/modules/earnings/service";
@@ -318,22 +319,22 @@ export default function ProjectDetailsScreen() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
-      <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: installerTheme.background }}>
+      <ScrollView contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 120 }}>
         <View style={cardStyle}>
-          <Text style={{ color: "#f8fbff", fontSize: 22, fontWeight: "700", textAlign: isRTL ? "right" : "left" }}>{project?.name || t("title.project")}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 6, textAlign: isRTL ? "right" : "left" }}>{project?.address || t("project.noAddress")}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 6 }}>{t("project.openIssues")}: {issues.length}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 2 }}>{t("project.problemDoors")}: {problemDoorsCount}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 2 }}>{t("project.doors")}: {doors.length}</Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 2 }}>{t("project.visibleAfterFilters")}: {filteredDoors.length}</Text>
-          <Text style={{ color: pendingEvents.length > 0 ? "#ffb86b" : "#63d297", marginTop: 2 }}>
+          <Text style={{ color: installerTheme.text, fontSize: 22, fontWeight: "700", textAlign: isRTL ? "right" : "left" }}>{project?.name || t("title.project")}</Text>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 6, textAlign: isRTL ? "right" : "left" }}>{project?.address || t("project.noAddress")}</Text>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 6 }}>{t("project.openIssues")}: {issues.length}</Text>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 2 }}>{t("project.problemDoors")}: {problemDoorsCount}</Text>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 2 }}>{t("project.doors")}: {doors.length}</Text>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 2 }}>{t("project.visibleAfterFilters")}: {filteredDoors.length}</Text>
+          <Text style={{ color: pendingEvents.length > 0 ? installerTheme.warning : installerTheme.success, marginTop: 2 }}>
             {t("project.pendingProjectEvents")}: {pendingEvents.length}
           </Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 2 }}>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 2 }}>
             {t("workspace.queueHealth")}: {t("sync.pending")} {queueSummary?.pending || 0} / {t("sync.failed")} {queueSummary?.failed || 0} / {t("sync.blocked")} {queueSummary?.blocked || 0}
           </Text>
-          <Text style={{ color: "#8fa7c2", marginTop: 2 }}>
+          <Text style={{ color: installerTheme.textMuted, marginTop: 2 }}>
             {t("workspace.readyNow")}: {queueSummary?.ready_to_send || 0}
             {queueSummary?.next_retry_at ? ` | ${t("sync.nextRetry")} ${queueSummary.next_retry_at}` : ""}
           </Text>
@@ -428,19 +429,19 @@ export default function ProjectDetailsScreen() {
         <View style={cardStyle}>
           <Text style={sectionTitle}>{t("project.earningsContext")}</Text>
           <Text style={metaStyle}>{t("common.source")}: {translateEnum(locale, earningsState.source)}</Text>
-          {earningsState.message ? <Text style={[metaStyle, { color: "#ffb86b" }]}>{earningsState.message}</Text> : null}
+          {earningsState.message ? <Text style={[metaStyle, { color: installerTheme.warning }]}>{earningsState.message}</Text> : null}
           <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
             <Pressable
               onPress={() => setProjectEarningsScope("TODAY")}
               style={[chipStyle, projectEarningsScope === "TODAY" && chipStyleActive]}
             >
-              <Text style={{ color: projectEarningsScope === "TODAY" ? "#04111f" : "#d9e7f7" }}>{t("common.today")}</Text>
+              <Text style={{ color: projectEarningsScope === "TODAY" ? "#FFFFFF" : installerTheme.textMuted }}>{t("common.today")}</Text>
             </Pressable>
             <Pressable
               onPress={() => setProjectEarningsScope("MONTH")}
               style={[chipStyle, projectEarningsScope === "MONTH" && chipStyleActive]}
             >
-              <Text style={{ color: projectEarningsScope === "MONTH" ? "#04111f" : "#d9e7f7" }}>{t("common.month")}</Text>
+              <Text style={{ color: projectEarningsScope === "MONTH" ? "#FFFFFF" : installerTheme.textMuted }}>{t("common.month")}</Text>
             </Pressable>
           </View>
           <View style={{ gap: 10, marginTop: 12 }}>
@@ -462,7 +463,7 @@ export default function ProjectDetailsScreen() {
               <Text style={fieldLabel}>{t("project.byInstallType")}</Text>
               {scopedProjectInstallTypes.slice(0, 3).map((item) => (
                 <View key={item.code} style={doorCardStyle}>
-                  <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{item.label}</Text>
+                  <Text style={{ color: installerTheme.text, fontWeight: "700" }}>{item.label}</Text>
                   <Text style={metaStyle}>{t("common.amount")}: {item.amount.toFixed(2)} {projectEarnings?.currency || ""}</Text>
                   <Text style={metaStyle}>{t("common.quantity")}: {item.quantity}</Text>
                 </View>
@@ -476,7 +477,7 @@ export default function ProjectDetailsScreen() {
               <Text style={fieldLabel}>{t("project.workRows")}</Text>
               {scopedProjectEarningsRows.slice(0, 4).map((row) => (
                 <View key={row.id} style={doorCardStyle}>
-                  <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{row.install_type_label}</Text>
+                  <Text style={{ color: installerTheme.text, fontWeight: "700" }}>{row.install_type_label}</Text>
                   <Text style={metaStyle}>{t("common.date")}: {row.work_date}</Text>
                   <Text style={metaStyle}>{t("earnings.door")}: {row.door_label || "-"}</Text>
                   <Text style={metaStyle}>{t("common.amount")}: {row.amount} {projectEarnings?.currency}</Text>
@@ -494,7 +495,7 @@ export default function ProjectDetailsScreen() {
           <Text style={secondaryButtonText}>{t("project.openSyncQueue")}</Text>
         </Pressable>
 
-        {error ? <Text style={{ color: "#ff8b8b" }}>{error}</Text> : null}
+        {error ? <Text style={{ color: installerTheme.danger }}>{error}</Text> : null}
 
         <View style={cardStyle}>
           <Text style={sectionTitle}>{t("project.doorFilters")}</Text>
@@ -513,7 +514,7 @@ export default function ProjectDetailsScreen() {
                 onPress={() => setDoorStatusFilter(status)}
                 style={[chipStyle, doorStatusFilter === status && chipStyleActive]}
               >
-                <Text style={{ color: doorStatusFilter === status ? "#04111f" : "#d9e7f7" }}>
+                <Text style={{ color: doorStatusFilter === status ? "#FFFFFF" : installerTheme.textMuted }}>
                   {status === "ALL" ? t("project.allDoors") : translateEnum(locale, status)}
                 </Text>
               </Pressable>
@@ -522,11 +523,11 @@ export default function ProjectDetailsScreen() {
           <Text style={fieldLabel}>{t("project.orderNumber")}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
             <Pressable onPress={() => setSelectedOrderNumber("ALL")} style={[chipStyle, selectedOrderNumber === "ALL" && chipStyleActive]}>
-              <Text style={{ color: selectedOrderNumber === "ALL" ? "#04111f" : "#d9e7f7" }}>{t("project.allOrders")}</Text>
+              <Text style={{ color: selectedOrderNumber === "ALL" ? "#FFFFFF" : installerTheme.textMuted }}>{t("project.allOrders")}</Text>
             </Pressable>
             {orderNumbers.map((orderNumber) => (
               <Pressable key={orderNumber} onPress={() => setSelectedOrderNumber(orderNumber)} style={[chipStyle, selectedOrderNumber === orderNumber && chipStyleActive]}>
-                <Text style={{ color: selectedOrderNumber === orderNumber ? "#04111f" : "#d9e7f7" }}>{orderNumber}</Text>
+                <Text style={{ color: selectedOrderNumber === orderNumber ? "#FFFFFF" : installerTheme.textMuted }}>{orderNumber}</Text>
               </Pressable>
             ))}
           </ScrollView>
@@ -534,11 +535,11 @@ export default function ProjectDetailsScreen() {
           <Text style={fieldLabel}>{t("project.locationCode")}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
             <Pressable onPress={() => setSelectedLocationCode("ALL")} style={[chipStyle, selectedLocationCode === "ALL" && chipStyleActive]}>
-              <Text style={{ color: selectedLocationCode === "ALL" ? "#04111f" : "#d9e7f7" }}>{t("project.allLocations")}</Text>
+              <Text style={{ color: selectedLocationCode === "ALL" ? "#FFFFFF" : installerTheme.textMuted }}>{t("project.allLocations")}</Text>
             </Pressable>
             {locationCodes.map((locationCode) => (
               <Pressable key={locationCode} onPress={() => setSelectedLocationCode(locationCode)} style={[chipStyle, selectedLocationCode === locationCode && chipStyleActive]}>
-                <Text style={{ color: selectedLocationCode === locationCode ? "#04111f" : "#d9e7f7" }}>{locationCode}</Text>
+                <Text style={{ color: selectedLocationCode === locationCode ? "#FFFFFF" : installerTheme.textMuted }}>{locationCode}</Text>
               </Pressable>
             ))}
           </ScrollView>
@@ -558,7 +559,7 @@ export default function ProjectDetailsScreen() {
                 }}
                 style={[warningChipStyle, issueStatusFilter === "ALL" && !issueDoorFocus && warningChipStyleActive]}
               >
-                <Text style={{ color: issueStatusFilter === "ALL" && !issueDoorFocus ? "#3a2a12" : "#fff3d6" }}>
+                <Text style={{ color: issueStatusFilter === "ALL" && !issueDoorFocus ? installerTheme.warningSoft : "#7C4700" }}>
                   {t("common.all")} ({issueSummary.all})
                 </Text>
               </Pressable>
@@ -569,7 +570,7 @@ export default function ProjectDetailsScreen() {
                 }}
                 style={[warningChipStyle, issueStatusFilter === "OPEN" && !issueDoorFocus && warningChipStyleActive]}
               >
-                <Text style={{ color: issueStatusFilter === "OPEN" && !issueDoorFocus ? "#3a2a12" : "#fff3d6" }}>
+                <Text style={{ color: issueStatusFilter === "OPEN" && !issueDoorFocus ? installerTheme.warningSoft : "#7C4700" }}>
                   {t("common.open")} ({issueSummary.open})
                 </Text>
               </Pressable>
@@ -580,7 +581,7 @@ export default function ProjectDetailsScreen() {
                 }}
                 style={[warningChipStyle, issueStatusFilter === "CLOSED" && !issueDoorFocus && warningChipStyleActive]}
               >
-                <Text style={{ color: issueStatusFilter === "CLOSED" && !issueDoorFocus ? "#3a2a12" : "#fff3d6" }}>
+                <Text style={{ color: issueStatusFilter === "CLOSED" && !issueDoorFocus ? installerTheme.warningSoft : "#7C4700" }}>
                   {t("common.closed")} ({issueSummary.closed})
                 </Text>
               </Pressable>
@@ -591,7 +592,7 @@ export default function ProjectDetailsScreen() {
                 }}
                 style={[warningChipStyle, issueDoorFocus && warningChipStyleActive]}
               >
-                <Text style={{ color: issueDoorFocus ? "#3a2a12" : "#fff3d6" }}>
+                <Text style={{ color: issueDoorFocus ? installerTheme.warningSoft : "#7C4700" }}>
                   {t("project.issueDoors")} ({issueSummary.issueDoors})
                 </Text>
               </Pressable>
@@ -603,7 +604,7 @@ export default function ProjectDetailsScreen() {
                   onPress={() => setIssueStatusFilter(status)}
                   style={[warningChipStyle, issueStatusFilter === status && warningChipStyleActive]}
                 >
-                  <Text style={{ color: issueStatusFilter === status ? "#3a2a12" : "#fff3d6" }}>
+                  <Text style={{ color: issueStatusFilter === status ? installerTheme.warningSoft : "#7C4700" }}>
                     {status === "ALL" ? t("project.allIssues") : translateEnum(locale, status)}
                   </Text>
                 </Pressable>
@@ -612,9 +613,9 @@ export default function ProjectDetailsScreen() {
             <View style={{ gap: 10, marginTop: 10 }}>
               {visibleIssues.map((issue) => (
                 <View key={issue.id} style={warningRowStyle}>
-                  <Text style={{ color: "#fff3d6", fontWeight: "700" }}>{issue.title || t("project.openIssues")}</Text>
-                  <Text style={{ color: "#f2cf8b", marginTop: 4 }}>{t("common.status")}: {translateEnum(locale, issue.status)}</Text>
-                  <Text style={{ color: "#f2cf8b", marginTop: 4 }}>{issue.details || t("project.requiresAttention")}</Text>
+                  <Text style={{ color: "#7C4700", fontWeight: "700" }}>{issue.title || t("project.openIssues")}</Text>
+                  <Text style={{ color: "#F59E0B", marginTop: 4 }}>{t("common.status")}: {translateEnum(locale, issue.status)}</Text>
+                  <Text style={{ color: "#F59E0B", marginTop: 4 }}>{issue.details || t("project.requiresAttention")}</Text>
                   <Pressable onPress={() => focusIssueDoor(issue)} style={[secondaryButton, { marginTop: 10 }]}>
                     <Text style={secondaryButtonText}>{t("project.onlyThisDoor")}</Text>
                   </Pressable>
@@ -631,7 +632,7 @@ export default function ProjectDetailsScreen() {
             <View style={{ gap: 10, marginTop: 12 }}>
               {priorityDoors.map((door) => (
                 <View key={door.id} style={doorCardStyle}>
-                  <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{door.unit_label}</Text>
+                  <Text style={{ color: installerTheme.text, fontWeight: "700" }}>{door.unit_label}</Text>
                   <Text style={metaStyle}>{t("common.status")}: {translateEnum(locale, door.status)}</Text>
                   <Text style={metaStyle}>{t("project.order")}: {door.order_number || "-"}</Text>
                   <Text style={metaStyle}>{t("common.location")}: {door.location_code || "-"}</Text>
@@ -681,7 +682,7 @@ export default function ProjectDetailsScreen() {
             <View style={{ gap: 10, marginTop: 12 }}>
               {floorLaneSummary.map((lane) => (
                 <View key={lane.floor} style={doorCardStyle}>
-                  <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{t("project.floor")} {lane.floor}</Text>
+                  <Text style={{ color: installerTheme.text, fontWeight: "700" }}>{t("project.floor")} {lane.floor}</Text>
                   <Text style={metaStyle}>{t("project.doors")}: {lane.doorsCount}</Text>
                   <Text style={metaStyle}>{t("project.issueDoors")}: {lane.issueCount}</Text>
                   <Text style={metaStyle}>{t("common.notInstalled")}: {lane.notInstalledCount}</Text>
@@ -724,7 +725,7 @@ export default function ProjectDetailsScreen() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
             {reasons.map((reason) => (
               <Pressable key={reason.id} onPress={() => setSelectedReasonId(reason.id)} style={[chipStyle, selectedReasonId === reason.id && chipStyleActive]}>
-                <Text style={{ color: selectedReasonId === reason.id ? "#04111f" : "#d9e7f7" }}>{reason.code}</Text>
+                <Text style={{ color: selectedReasonId === reason.id ? "#FFFFFF" : installerTheme.textMuted }}>{reason.code}</Text>
               </Pressable>
             ))}
           </ScrollView>
@@ -733,7 +734,7 @@ export default function ProjectDetailsScreen() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
             {addonTypes.map((addon) => (
               <Pressable key={addon.id} onPress={() => setAddonTypeId(addon.id)} style={[chipStyle, addonTypeId === addon.id && chipStyleActive]}>
-                <Text style={{ color: addonTypeId === addon.id ? "#04111f" : "#d9e7f7" }}>
+                <Text style={{ color: addonTypeId === addon.id ? "#FFFFFF" : installerTheme.textMuted }}>
                   {addon.name}{addon.qty_planned ? ` | ${addon.qty_planned} ${addon.unit}` : ""}
                 </Text>
               </Pressable>
@@ -751,13 +752,13 @@ export default function ProjectDetailsScreen() {
             <View style={{ gap: 10, marginTop: 12 }}>
               {pendingEvents.map((event) => (
                 <View key={event.client_event_id} style={doorCardStyle}>
-                  <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{translateEnum(locale, event.type)}</Text>
+                  <Text style={{ color: installerTheme.text, fontWeight: "700" }}>{translateEnum(locale, event.type)}</Text>
                   <Text style={metaStyle}>{t("project.queued")}: {event.created_at}</Text>
                   <Text style={metaStyle}>{t("common.status")}: {translateEnum(locale, event.status)}</Text>
                   <Text style={metaStyle}>{t("project.attempts")}: {event.attempts}</Text>
                   {event.last_attempt_at ? <Text style={metaStyle}>{t("project.lastAttempt")}: {event.last_attempt_at}</Text> : null}
                   {event.next_retry_at ? <Text style={metaStyle}>{t("project.nextRetry")}: {event.next_retry_at}</Text> : null}
-                  {event.error ? <Text style={{ color: "#ff8b8b", marginTop: 4 }}>{event.error}</Text> : null}
+                  {event.error ? <Text style={{ color: installerTheme.danger, marginTop: 4 }}>{event.error}</Text> : null}
                 </View>
               ))}
             </View>
@@ -770,14 +771,14 @@ export default function ProjectDetailsScreen() {
             <View style={{ gap: 12, marginTop: 12 }}>
               {floorDoors.map((door) => (
                 <View key={door.id} style={doorCardStyle}>
-                  <Text style={{ color: "#f8fbff", fontWeight: "700" }}>{door.unit_label}</Text>
+                  <Text style={{ color: installerTheme.text, fontWeight: "700" }}>{door.unit_label}</Text>
                   <Text style={metaStyle}>{t("project.order")}: {door.order_number || "-"}</Text>
                   <Text style={metaStyle}>{t("project.house")}: {door.house_number || "-"}</Text>
                   <Text style={metaStyle}>{t("project.floor")}: {door.floor_label || "-"}</Text>
                   <Text style={metaStyle}>{t("project.apartment")}: {door.apartment_number || "-"}</Text>
                   <Text style={metaStyle}>{t("common.location")}: {door.location_code || "-"}</Text>
                   <Text style={metaStyle}>{t("project.marking")}: {door.door_marking || "-"}</Text>
-                  <Text style={[metaStyle, { color: door.status === "INSTALLED" ? "#63d297" : "#ffb86b" }]}>{translateEnum(locale, door.status)}</Text>
+                  <Text style={[metaStyle, { color: door.status === "INSTALLED" ? installerTheme.success : installerTheme.warning }]}>{translateEnum(locale, door.status)}</Text>
                   <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
                     <Pressable onPress={() => handleInstall(door.id)} style={[primaryButton, { flex: 1 }]} disabled={busy || door.is_locked}>
                       <Text style={primaryButtonText}>{t("common.installed")}</Text>
@@ -792,38 +793,39 @@ export default function ProjectDetailsScreen() {
           </View>
         ))}
       </ScrollView>
+      <InstallerBottomNav />
     </SafeAreaView>
   );
 }
 
 const cardStyle = {
-  backgroundColor: "#0a1a2b",
+  backgroundColor: installerTheme.card,
   borderRadius: 18,
   borderWidth: 1,
-  borderColor: "#17314f",
+  borderColor: installerTheme.border,
   padding: 18,
 } as const;
 
 const doorCardStyle = {
-  backgroundColor: "#0d2034",
+  backgroundColor: installerTheme.cardMuted,
   borderRadius: 14,
   padding: 14,
   borderWidth: 1,
-  borderColor: "#183653",
+  borderColor: installerTheme.border,
 } as const;
 
 const inputStyle = {
-  backgroundColor: "#0c1d30",
+  backgroundColor: installerTheme.cardMuted,
   borderRadius: 14,
   borderWidth: 1,
-  borderColor: "#17314f",
-  color: "#f8fbff",
+  borderColor: installerTheme.border,
+  color: installerTheme.text,
   paddingHorizontal: 14,
   paddingVertical: 12,
 } as const;
 
 const primaryButton = {
-  backgroundColor: "#5aa8ff",
+  backgroundColor: installerTheme.primary,
   borderRadius: 12,
   minHeight: 44,
   alignItems: "center",
@@ -831,38 +833,38 @@ const primaryButton = {
 } as const;
 
 const secondaryButton = {
-  backgroundColor: "#0c1d30",
+  backgroundColor: installerTheme.cardMuted,
   borderRadius: 12,
   borderWidth: 1,
-  borderColor: "#17314f",
+  borderColor: installerTheme.border,
   minHeight: 44,
   alignItems: "center",
   justifyContent: "center",
 } as const;
 
 const primaryButtonText = {
-  color: "#04111f",
+  color: "#FFFFFF",
   fontWeight: "700",
 } as const;
 
 const secondaryButtonText = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontWeight: "600",
 } as const;
 
 const sectionTitle = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontSize: 18,
   fontWeight: "700",
 } as const;
 
 const fieldLabel = {
-  color: "#8fa7c2",
+  color: installerTheme.textMuted,
   marginTop: 10,
 } as const;
 
 const metaStyle = {
-  color: "#8fa7c2",
+  color: installerTheme.textMuted,
   marginTop: 4,
 } as const;
 
@@ -873,11 +875,11 @@ const summaryRowStyle = {
 } as const;
 
 const summaryLabelStyle = {
-  color: "#8fa7c2",
+  color: installerTheme.textMuted,
 } as const;
 
 const summaryValueInlineStyle = {
-  color: "#f8fbff",
+  color: "#FFFFFF",
   fontWeight: "700",
 } as const;
 
@@ -886,31 +888,31 @@ const chipStyle = {
   paddingVertical: 8,
   borderRadius: 999,
   borderWidth: 1,
-  borderColor: "#17314f",
-  backgroundColor: "#0c1d30",
+  borderColor: installerTheme.border,
+  backgroundColor: installerTheme.cardMuted,
 } as const;
 
 const chipStyleActive = {
-  backgroundColor: "#5aa8ff",
-  borderColor: "#5aa8ff",
+  backgroundColor: installerTheme.primary,
+  borderColor: installerTheme.primary,
 } as const;
 
 const warningCardStyle = {
-  backgroundColor: "#3a2a12",
+  backgroundColor: installerTheme.warningSoft,
   borderRadius: 18,
   borderWidth: 1,
-  borderColor: "#6f4c1e",
+  borderColor: "#F0D2A8",
   padding: 18,
 } as const;
 
 const warningTitleStyle = {
-  color: "#fff3d6",
+  color: "#7C4700",
   fontSize: 18,
   fontWeight: "700",
 } as const;
 
 const warningRowStyle = {
-  backgroundColor: "#503617",
+  backgroundColor: "#FFF7ED",
   borderRadius: 14,
   padding: 14,
 } as const;
@@ -920,13 +922,13 @@ const warningChipStyle = {
   paddingVertical: 8,
   borderRadius: 999,
   borderWidth: 1,
-  borderColor: "#8a6429",
-  backgroundColor: "#503617",
+  borderColor: "#F0D2A8",
+  backgroundColor: "#FFF7ED",
 } as const;
 
 const warningChipStyleActive = {
-  backgroundColor: "#f2cf8b",
-  borderColor: "#f2cf8b",
+  backgroundColor: "#F59E0B",
+  borderColor: "#F59E0B",
 } as const;
 
 

@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
+import { InstallerBottomNav, installerTheme } from "@/components/installer-ui";
 import { translateEnum } from "@/lib/i18n";
 import {
   buildEarningsFocusContext,
@@ -141,8 +142,8 @@ export default function EarningsScreen() {
   }, [params.day, params.focus]);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
-      <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: installerTheme.background }}>
+      <ScrollView contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 120 }}>
         <View style={cardStyle}>
           <Text style={[titleStyle, { textAlign: isRTL ? "right" : "left" }]}>{t("earnings.title")}</Text>
           <Text style={[bodyStyle, { textAlign: isRTL ? "right" : "left" }]}>{t("earnings.subtitle")}</Text>
@@ -172,7 +173,7 @@ export default function EarningsScreen() {
                 onPress={() => setFocus(value)}
                 style={[chipStyle, focus === value && chipStyleActive]}
               >
-                <Text style={{ color: focus === value ? "#04111f" : "#d9e7f7", fontWeight: "600" }}>{label}</Text>
+                <Text style={{ color: focus === value ? "#FFFFFF" : installerTheme.textMuted, fontWeight: "600" }}>{label}</Text>
               </Pressable>
             ))}
           </View>
@@ -189,7 +190,7 @@ export default function EarningsScreen() {
                     }}
                     style={[chipStyle, selectedDay === item.date && chipStyleActive]}
                   >
-                    <Text style={{ color: selectedDay === item.date ? "#04111f" : "#d9e7f7", fontWeight: "600" }}>
+                    <Text style={{ color: selectedDay === item.date ? "#FFFFFF" : installerTheme.textMuted, fontWeight: "600" }}>
                       {item.date}
                     </Text>
                   </Pressable>
@@ -252,7 +253,7 @@ export default function EarningsScreen() {
                       onPress={() => setSelectedInstallType("ALL")}
                       style={[chipStyle, selectedInstallType === "ALL" && chipStyleActive]}
                     >
-                      <Text style={{ color: selectedInstallType === "ALL" ? "#04111f" : "#d9e7f7", fontWeight: "600" }}>
+                      <Text style={{ color: selectedInstallType === "ALL" ? "#FFFFFF" : installerTheme.textMuted, fontWeight: "600" }}>
                         {t("earnings.allTypes")}
                       </Text>
                     </Pressable>
@@ -264,7 +265,7 @@ export default function EarningsScreen() {
                       >
                         <Text
                           style={{
-                            color: selectedInstallType === item.code ? "#04111f" : "#d9e7f7",
+                            color: selectedInstallType === item.code ? "#FFFFFF" : installerTheme.textMuted,
                             fontWeight: "600",
                           }}
                         >
@@ -278,7 +279,7 @@ export default function EarningsScreen() {
                       key={item.code}
                       style={[
                         rowCardStyle,
-                        selectedInstallType === item.code && { borderColor: "#5aa8ff", backgroundColor: "#11283f" },
+                        selectedInstallType === item.code && { borderColor: installerTheme.primary, backgroundColor: installerTheme.primarySoft },
                       ]}
                       onPress={() => setSelectedInstallType(item.code)}
                     >
@@ -414,15 +415,16 @@ export default function EarningsScreen() {
           )}
         </View>
       </ScrollView>
+      <InstallerBottomNav />
     </SafeAreaView>
   );
 }
 
 const cardStyle = {
-  backgroundColor: "#0a1a2b",
+  backgroundColor: installerTheme.card,
   borderRadius: 18,
   borderWidth: 1,
-  borderColor: "#17314f",
+  borderColor: installerTheme.border,
   padding: 18,
 } as const;
 
@@ -433,18 +435,18 @@ const summaryGridStyle = {
 
 const summaryCardStyle = {
   flex: 1,
-  backgroundColor: "#0d2034",
+  backgroundColor: installerTheme.cardMuted,
   borderRadius: 16,
   borderWidth: 1,
-  borderColor: "#183653",
+  borderColor: installerTheme.border,
   padding: 16,
 } as const;
 
 const rowCardStyle = {
-  backgroundColor: "#0d2034",
+  backgroundColor: installerTheme.cardMuted,
   borderRadius: 14,
   borderWidth: 1,
-  borderColor: "#183653",
+  borderColor: installerTheme.border,
   padding: 14,
   marginTop: 10,
 } as const;
@@ -460,42 +462,42 @@ const chipStyle = {
   paddingVertical: 8,
   borderRadius: 999,
   borderWidth: 1,
-  borderColor: "#17314f",
-  backgroundColor: "#0c1d30",
+  borderColor: installerTheme.border,
+  backgroundColor: installerTheme.cardMuted,
 } as const;
 
 const chipStyleActive = {
-  backgroundColor: "#5aa8ff",
-  borderColor: "#5aa8ff",
+  backgroundColor: installerTheme.primary,
+  borderColor: installerTheme.primary,
 } as const;
 
 const titleStyle = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontSize: 22,
   fontWeight: "700",
 } as const;
 
 const sectionTitle = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontSize: 18,
   fontWeight: "700",
 } as const;
 
 const eyebrowStyle = {
-  color: "#8fa7c2",
+  color: installerTheme.textMuted,
   fontSize: 12,
   textTransform: "uppercase",
 } as const;
 
 const valueStyle = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontSize: 24,
   fontWeight: "700",
   marginTop: 8,
 } as const;
 
 const bodyStyle = {
-  color: "#8fa7c2",
+  color: installerTheme.textMuted,
   marginTop: 6,
 } as const;
 
@@ -506,28 +508,28 @@ const summaryInlineRowStyle = {
 } as const;
 
 const inlineValueStyle = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontWeight: "700",
 } as const;
 
 const sectionTitleSpacer = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontSize: 18,
   fontWeight: "700",
   marginTop: 18,
 } as const;
 
 const rowTitleStyle = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontSize: 15,
   fontWeight: "700",
 } as const;
 
 const secondaryButton = {
-  backgroundColor: "#0c1d30",
+  backgroundColor: installerTheme.cardMuted,
   borderRadius: 12,
   borderWidth: 1,
-  borderColor: "#17314f",
+  borderColor: installerTheme.border,
   minHeight: 40,
   minWidth: 92,
   paddingHorizontal: 14,
@@ -536,10 +538,10 @@ const secondaryButton = {
 } as const;
 
 const secondaryButtonText = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontWeight: "600",
 } as const;
 
 const errorStyle = {
-  color: "#ffb86b",
+  color: installerTheme.warning,
 } as const;

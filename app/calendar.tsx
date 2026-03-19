@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
+import { InstallerBottomNav, installerTheme } from "@/components/installer-ui";
 import { translateEnum } from "@/lib/i18n";
 import { loadInstallerCalendar } from "@/modules/calendar/service";
 import type { InstallerCalendarViewModel } from "@/modules/calendar/types";
@@ -105,8 +106,8 @@ export default function CalendarScreen() {
   }, [params.day]);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#04111f" }}>
-      <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: installerTheme.background }}>
+      <ScrollView contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 120 }}>
         <View style={cardStyle}>
           <Text style={[titleStyle, { textAlign: isRTL ? "right" : "left" }]}>{t("calendar.title")}</Text>
           <Text style={[bodyStyle, { textAlign: isRTL ? "right" : "left" }]}>{t("calendar.subtitle")}</Text>
@@ -127,11 +128,11 @@ export default function CalendarScreen() {
           <Text style={sectionTitle}>{t("calendar.dayFocus")}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={chipRowStyle}>
             <Pressable onPress={() => setSelectedDay("ALL")} style={[chipStyle, selectedDay === "ALL" && chipStyleActive]}>
-              <Text style={{ color: selectedDay === "ALL" ? "#04111f" : "#d9e7f7", fontWeight: "600" }}>{t("calendar.all7Days")}</Text>
+              <Text style={{ color: selectedDay === "ALL" ? "#FFFFFF" : installerTheme.textMuted, fontWeight: "600" }}>{t("calendar.all7Days")}</Text>
             </Pressable>
             {dayOptions.map((day) => (
               <Pressable key={day} onPress={() => setSelectedDay(day)} style={[chipStyle, selectedDay === day && chipStyleActive]}>
-                <Text style={{ color: selectedDay === day ? "#04111f" : "#d9e7f7", fontWeight: "600" }}>{day}</Text>
+                <Text style={{ color: selectedDay === day ? "#FFFFFF" : installerTheme.textMuted, fontWeight: "600" }}>{day}</Text>
               </Pressable>
             ))}
           </ScrollView>
@@ -302,55 +303,56 @@ export default function CalendarScreen() {
           )}
         </View>
       </ScrollView>
+      <InstallerBottomNav />
     </SafeAreaView>
   );
 }
 
 const cardStyle = {
-  backgroundColor: "#0a1a2b",
+  backgroundColor: installerTheme.card,
   borderRadius: 18,
   borderWidth: 1,
-  borderColor: "#17314f",
+  borderColor: installerTheme.border,
   padding: 18,
 } as const;
 
 const titleStyle = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontSize: 22,
   fontWeight: "700",
 } as const;
 
 const sectionTitle = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontSize: 18,
   fontWeight: "700",
 } as const;
 
 const bodyStyle = {
-  color: "#8fa7c2",
+  color: installerTheme.textMuted,
   marginTop: 6,
 } as const;
 
 const eventCardStyle = {
-  backgroundColor: "#0d2034",
+  backgroundColor: installerTheme.cardMuted,
   borderRadius: 14,
   borderWidth: 1,
-  borderColor: "#183653",
+  borderColor: installerTheme.border,
   padding: 14,
   marginTop: 10,
 } as const;
 
 const eventTitleStyle = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontSize: 15,
   fontWeight: "700",
 } as const;
 
 const secondaryButton = {
-  backgroundColor: "#0c1d30",
+  backgroundColor: installerTheme.cardMuted,
   borderRadius: 12,
   borderWidth: 1,
-  borderColor: "#17314f",
+  borderColor: installerTheme.border,
   minHeight: 40,
   minWidth: 92,
   paddingHorizontal: 14,
@@ -359,12 +361,12 @@ const secondaryButton = {
 } as const;
 
 const secondaryButtonText = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontWeight: "600",
 } as const;
 
 const errorStyle = {
-  color: "#ffb86b",
+  color: installerTheme.warning,
 } as const;
 
 const chipRowStyle = {
@@ -378,13 +380,13 @@ const chipStyle = {
   paddingVertical: 8,
   borderRadius: 999,
   borderWidth: 1,
-  borderColor: "#17314f",
-  backgroundColor: "#0c1d30",
+  borderColor: installerTheme.border,
+  backgroundColor: installerTheme.cardMuted,
 } as const;
 
 const chipStyleActive = {
-  backgroundColor: "#5aa8ff",
-  borderColor: "#5aa8ff",
+  backgroundColor: installerTheme.primary,
+  borderColor: installerTheme.primary,
 } as const;
 
 const summaryRowStyle = {
@@ -394,6 +396,6 @@ const summaryRowStyle = {
 } as const;
 
 const summaryValueStyle = {
-  color: "#f8fbff",
+  color: installerTheme.text,
   fontWeight: "700",
 } as const;
