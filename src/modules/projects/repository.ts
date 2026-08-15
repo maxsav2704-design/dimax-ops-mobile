@@ -1,5 +1,8 @@
 import { getDb } from "@/lib/db";
+import { deriveProjectExternalLinks } from "@/modules/projects/external-actions";
 import type {
+  DoorTypeOption,
+  ProjectAddonFact,
   InstallerDoor,
   ProjectAddonTypeOption,
   ProjectDetailsResponse,
@@ -12,15 +15,32 @@ export async function replaceProjects(items: ProjectListItem[]): Promise<void> {
   await db.withTransactionAsync(async () => {
     for (const item of items) {
       await db.runAsync(
-        `INSERT INTO projects(id, name, address, status, waze_url, updated_at)
-         VALUES(?, ?, ?, ?, ?, datetime('now'))
+        `INSERT INTO projects(
+           id, name, address, status, lifecycle_status, health_status,
+           waze_url, whatsapp_url, call_url, updated_at
+         )
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
            address = excluded.address,
            status = excluded.status,
+           lifecycle_status = excluded.lifecycle_status,
+           health_status = excluded.health_status,
            waze_url = excluded.waze_url,
+           whatsapp_url = COALESCE(excluded.whatsapp_url, projects.whatsapp_url),
+           call_url = COALESCE(excluded.call_url, projects.call_url),
            updated_at = excluded.updated_at`,
-        [item.id, item.name, item.address, item.status, item.waze_url]
+        [
+          item.id,
+          item.name,
+          item.address,
+          item.status,
+          item.lifecycle_status,
+          item.health_status,
+          item.waze_url,
+          item.whatsapp_url ?? null,
+          item.call_url ?? null,
+        ]
       );
     }
   });
@@ -28,17 +48,36 @@ export async function replaceProjects(items: ProjectListItem[]): Promise<void> {
 
 export async function hydrateProjectDetails(payload: ProjectDetailsResponse): Promise<void> {
   const db = await getDb();
+  const externalLinks = deriveProjectExternalLinks(payload);
   await db.withTransactionAsync(async () => {
     await db.runAsync(
-      `INSERT INTO projects(id, name, address, status, waze_url, updated_at)
-       VALUES(?, ?, ?, ?, ?, ?)
+      `INSERT INTO projects(
+         id, name, address, status, lifecycle_status, health_status,
+         waze_url, whatsapp_url, call_url, updated_at
+       )
+       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          address = excluded.address,
          status = excluded.status,
+         lifecycle_status = excluded.lifecycle_status,
+         health_status = excluded.health_status,
          waze_url = excluded.waze_url,
+         whatsapp_url = excluded.whatsapp_url,
+         call_url = excluded.call_url,
          updated_at = excluded.updated_at`,
-      [payload.id, payload.name, payload.address, payload.status, payload.waze_url, payload.server_time]
+      [
+        payload.id,
+        payload.name,
+        payload.address,
+        payload.status,
+        payload.lifecycle_status,
+        payload.health_status,
+        externalLinks.waze_url,
+        externalLinks.whatsapp_url,
+        externalLinks.call_url,
+        payload.server_time,
+      ]
     );
 
     await db.runAsync("DELETE FROM doors WHERE project_id = ?", [payload.id]);
@@ -71,13 +110,11 @@ export async function hydrateProjectDetails(payload: ProjectDetailsResponse): Pr
 
     for (const plan of payload.addons.plan) {
       await db.runAsync(
-        `INSERT INTO addon_plans(project_id, addon_type_id, qty_planned, client_price, installer_price)
-         VALUES(?, ?, ?, ?, ?)
+        `INSERT INTO addon_plans(project_id, addon_type_id, qty_planned)
+         VALUES(?, ?, ?)
          ON CONFLICT(project_id, addon_type_id) DO UPDATE SET
-           qty_planned = excluded.qty_planned,
-           client_price = excluded.client_price,
-           installer_price = excluded.installer_price`,
-        [payload.id, plan.addon_type_id, plan.qty_planned, plan.client_price, plan.installer_price]
+           qty_planned = excluded.qty_planned`,
+        [payload.id, plan.addon_type_id, plan.qty_planned]
       );
     }
 
@@ -106,8 +143,8 @@ export async function hydrateProjectDetails(payload: ProjectDetailsResponse): Pr
 
     for (const door of payload.doors) {
       await db.runAsync(
-        `INSERT INTO doors(id, project_id, door_type_id, unit_label, order_number, house_number, floor_label, apartment_number, location_code, door_marking, status, reason_id, comment, is_locked, updated_at)
-         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO doors(id, project_id, door_type_id, unit_label, order_number, house_number, floor_label, apartment_number, location_code, door_marking, status, reason_id, comment, is_locked, version, updated_at)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            project_id = excluded.project_id,
            door_type_id = excluded.door_type_id,
@@ -122,6 +159,7 @@ export async function hydrateProjectDetails(payload: ProjectDetailsResponse): Pr
            reason_id = excluded.reason_id,
            comment = excluded.comment,
            is_locked = excluded.is_locked,
+           version = excluded.version,
            updated_at = excluded.updated_at`,
         [
           door.id,
@@ -138,6 +176,7 @@ export async function hydrateProjectDetails(payload: ProjectDetailsResponse): Pr
           door.reason_id,
           door.comment,
           door.is_locked ? 1 : 0,
+          Number(door.version ?? 0),
           payload.server_time,
         ]
       );
@@ -148,7 +187,7 @@ export async function hydrateProjectDetails(payload: ProjectDetailsResponse): Pr
 export async function listProjects(): Promise<ProjectListItem[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<ProjectListItem>(
-    "SELECT id, name, address, status, waze_url FROM projects ORDER BY name ASC"
+    "SELECT id, name, address, status, waze_url, whatsapp_url, call_url FROM projects ORDER BY name ASC"
   );
   return rows;
 }
@@ -156,7 +195,7 @@ export async function listProjects(): Promise<ProjectListItem[]> {
 export async function getProject(projectId: string): Promise<ProjectListItem | null> {
   const db = await getDb();
   return (await db.getFirstAsync<ProjectListItem>(
-    "SELECT id, name, address, status, waze_url FROM projects WHERE id = ?",
+    "SELECT id, name, address, status, waze_url, whatsapp_url, call_url FROM projects WHERE id = ?",
     [projectId]
   )) ?? null;
 }
@@ -165,12 +204,16 @@ export async function listProjectDoors(projectId: string): Promise<InstallerDoor
   const db = await getDb();
   const rows = await db.getAllAsync<any>(
     `SELECT id, project_id, door_type_id, unit_label, order_number, house_number, floor_label,
-            apartment_number, location_code, door_marking, status, reason_id, comment, is_locked, updated_at
+            apartment_number, location_code, door_marking, status, reason_id, comment, is_locked, version, updated_at
      FROM doors WHERE project_id = ?
      ORDER BY floor_label ASC, apartment_number ASC, unit_label ASC`,
     [projectId]
   );
-  return rows.map((row) => ({ ...row, is_locked: Boolean(row.is_locked) })) as InstallerDoor[];
+  return rows.map((row) => ({
+    ...row,
+    is_locked: Boolean(row.is_locked),
+    version: Number(row.version ?? 0),
+  })) as InstallerDoor[];
 }
 
 export async function listProjectIssues(projectId: string): Promise<ProjectIssue[]> {
@@ -186,6 +229,13 @@ export async function listReasons(): Promise<Array<{ id: string; code: string; n
   return db.getAllAsync("SELECT id, code, name FROM reasons ORDER BY code ASC");
 }
 
+export async function listDoorTypes(): Promise<DoorTypeOption[]> {
+  const db = await getDb();
+  return db.getAllAsync<DoorTypeOption>(
+    "SELECT id, code, name FROM door_types ORDER BY name ASC"
+  );
+}
+
 export async function listProjectAddonTypes(projectId: string): Promise<ProjectAddonTypeOption[]> {
   const db = await getDb();
   return db.getAllAsync<ProjectAddonTypeOption>(
@@ -193,9 +243,7 @@ export async function listProjectAddonTypes(projectId: string): Promise<ProjectA
        addon_types.id,
        addon_types.name,
        addon_types.unit,
-       addon_plans.qty_planned,
-       addon_plans.client_price,
-       addon_plans.installer_price
+       addon_plans.qty_planned
      FROM addon_types
      LEFT JOIN addon_plans
        ON addon_plans.addon_type_id = addon_types.id
@@ -203,6 +251,28 @@ export async function listProjectAddonTypes(projectId: string): Promise<ProjectA
      ORDER BY
        CASE WHEN addon_plans.project_id IS NULL THEN 1 ELSE 0 END ASC,
        addon_types.name ASC`,
+    [projectId]
+  );
+}
+
+export async function listProjectAddonFacts(projectId: string): Promise<ProjectAddonFact[]> {
+  const db = await getDb();
+  return db.getAllAsync<ProjectAddonFact>(
+    `SELECT
+       addon_facts.id,
+       addon_facts.project_id,
+       addon_facts.addon_type_id,
+       COALESCE(addon_types.name, addon_facts.addon_type_id) AS addon_name,
+       COALESCE(addon_types.unit, '') AS unit,
+       addon_facts.qty_done,
+       addon_facts.done_at,
+       addon_facts.comment,
+       addon_facts.source,
+       addon_facts.updated_at
+     FROM addon_facts
+     LEFT JOIN addon_types ON addon_types.id = addon_facts.addon_type_id
+     WHERE addon_facts.project_id = ?
+     ORDER BY addon_facts.done_at DESC, addon_facts.updated_at DESC`,
     [projectId]
   );
 }

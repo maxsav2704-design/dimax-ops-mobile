@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildEarningsFocusContext, buildProjectEarningsContext } from "@/modules/earnings/presentation";
+import {
+  buildEarningsFocusContext,
+  buildProjectEarningsContext,
+  buildScopedEarningsFocusContext,
+} from "@/modules/earnings/presentation";
 
 describe("buildProjectEarningsContext", () => {
   it("builds project-scoped totals and install type summary", () => {
@@ -156,5 +160,150 @@ describe("buildProjectEarningsContext", () => {
       amount: 80,
       quantity: 1,
     });
+  });
+
+  it("keeps an explicit selected day even when it has no earnings rows", () => {
+    const context = buildEarningsFocusContext(
+      {
+        period_key: "2026-03",
+        currency: "ILS",
+        today_total: "100.00",
+        month_total: "120.00",
+        days: [],
+        install_types: [],
+        rows: [
+          {
+            id: "row-1",
+            work_date: "2026-03-11",
+            project_id: "project-1",
+            project_name: "Alpha",
+            door_label: "A-1",
+            install_type_code: "INSTALL",
+            install_type_label: "Install",
+            quantity: 1,
+            rate: "120.00",
+            amount: "120.00",
+          },
+        ],
+        generated_at: "2026-03-11T10:00:00Z",
+      },
+      "2026-03-11",
+      "DAY",
+      "2026-03-09"
+    );
+
+    expect(context?.selectedDay).toBe("2026-03-09");
+    expect(context?.total).toBe("0.00");
+    expect(context?.rows).toHaveLength(0);
+    expect(context?.installTypeSummary).toEqual([]);
+  });
+
+  it("filters the focused period by project_id without changing the selected period", () => {
+    const context = buildScopedEarningsFocusContext(
+      {
+        period_key: "2026-03",
+        currency: "ILS",
+        today_total: "100.00",
+        month_total: "440.00",
+        days: [],
+        install_types: [],
+        rows: [
+          {
+            id: "row-1",
+            work_date: "2026-03-11",
+            project_id: "project-1",
+            project_name: "Alpha",
+            door_label: "A-1",
+            install_type_code: "INSTALL",
+            install_type_label: "Install",
+            quantity: 1,
+            rate: "120.00",
+            amount: "120.00",
+          },
+          {
+            id: "row-2",
+            work_date: "2026-03-10",
+            project_id: "project-2",
+            project_name: "Beta",
+            door_label: "B-1",
+            install_type_code: "SERVICE",
+            install_type_label: "Service",
+            quantity: 1,
+            rate: "80.00",
+            amount: "80.00",
+          },
+          {
+            id: "row-3",
+            work_date: "2026-03-10",
+            project_id: "project-1",
+            project_name: "Alpha",
+            door_label: "A-2",
+            install_type_code: "INSTALL",
+            install_type_label: "Install",
+            quantity: 2,
+            rate: "120.00",
+            amount: "240.00",
+          },
+        ],
+        generated_at: "2026-03-11T10:00:00Z",
+      },
+      "2026-03-11",
+      "DAY",
+      "2026-03-10",
+      "project-1"
+    );
+
+    expect(context?.projectId).toBe("project-1");
+    expect(context?.projectMissing).toBe(false);
+    expect(context?.selectedDay).toBe("2026-03-10");
+    expect(context?.total).toBe("240.00");
+    expect(context?.rows.map((row) => row.id)).toEqual(["row-3"]);
+    expect(context?.installTypeSummary).toEqual([
+      {
+        code: "INSTALL",
+        label: "Install",
+        amount: 240,
+        quantity: 2,
+      },
+    ]);
+  });
+
+  it("does not fall back to another project when project_id is unavailable", () => {
+    const context = buildScopedEarningsFocusContext(
+      {
+        period_key: "2026-03",
+        currency: "ILS",
+        today_total: "100.00",
+        month_total: "120.00",
+        days: [],
+        install_types: [],
+        rows: [
+          {
+            id: "row-1",
+            work_date: "2026-03-11",
+            project_id: "project-1",
+            project_name: "Alpha",
+            door_label: "A-1",
+            install_type_code: "INSTALL",
+            install_type_label: "Install",
+            quantity: 1,
+            rate: "120.00",
+            amount: "120.00",
+          },
+        ],
+        generated_at: "2026-03-11T10:00:00Z",
+      },
+      "2026-03-11",
+      "MONTH",
+      null,
+      "missing-project"
+    );
+
+    expect(context?.projectId).toBe("missing-project");
+    expect(context?.projectMissing).toBe(true);
+    expect(context?.availableProjectIds).toEqual(["project-1"]);
+    expect(context?.total).toBe("0.00");
+    expect(context?.rows).toEqual([]);
+    expect(context?.installTypeSummary).toEqual([]);
   });
 });

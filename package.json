@@ -3,22 +3,32 @@
   "version": "0.1.0",
   "private": true,
   "main": "expo-router/entry",
+  "engines": {
+    "node": ">=20.18 <21"
+  },
   "scripts": {
     "dev": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
+    "postinstall": "node scripts/patch-image-size.mjs --apply",
+    "security:verify-image-size": "node scripts/patch-image-size.mjs --self-test",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "config-check": "npx expo config --json > NUL",
+    "config-check": "npx expo config --json",
+    "production-config-contract": "node scripts/validate-production-config.mjs --self-test",
+    "production-config-check": "node scripts/validate-production-config.mjs",
     "doctor": "npx expo-doctor",
-    "quality-gate": "npm run test && npm run config-check && npm run typecheck"
+    "audit:high": "npm audit --audit-level=high",
+    "test:coverage-contract": "node scripts/validate-test-discovery.mjs",
+    "quality-gate": "npm run security:verify-image-size && npm run test:coverage-contract && npm run test && npm run production-config-contract && npm run config-check && npm run typecheck"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.83.0",
     "expo": "^52.0.0",
     "expo-asset": "~11.0.5",
     "expo-constants": "~17.0.8",
+    "expo-font": "~13.0.4",
     "expo-linking": "~7.0.5",
     "expo-router": "^4.0.0",
     "expo-secure-store": "~14.0.1",
@@ -32,7 +42,26 @@
     "@babel/core": "^7.26.0",
     "@types/node": "^25.3.3",
     "@types/react": "^18.3.23",
+    "expo-doctor": "1.20.2",
     "typescript": "^5.8.3",
     "vitest": "^4.0.18"
+  },
+  "overrides": {
+    "@xmldom/xmldom": "0.8.13",
+    "brace-expansion": "5.0.9",
+    "fast-uri": "3.1.5",
+    "js-yaml@3.0.0 - 3.15.0": "3.15.1",
+    "js-yaml@4.0.0 - 4.3.0": "4.3.1",
+    "nanoid": "3.3.18",
+    "postcss": "8.5.25",
+    "tar": "7.5.21",
+    "undici": "6.28.0"
+  },
+  "expo": {
+    "doctor": {
+      "appConfigFieldsNotSyncedCheck": {
+        "enabled": false
+      }
+    }
   }
 }

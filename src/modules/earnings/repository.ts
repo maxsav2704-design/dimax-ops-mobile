@@ -10,6 +10,18 @@ type EarningsSnapshotRow = {
   updated_at: string;
 };
 
+function parseSnapshot(row: EarningsSnapshotRow | null): InstallerEarningsSummary | null {
+  if (!row) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(row.payload_json) as InstallerEarningsSummary;
+  } catch {
+    return null;
+  }
+}
+
 export async function saveEarningsSnapshot(payload: InstallerEarningsSummary): Promise<void> {
   const db = await getDb();
   await db.runAsync(
@@ -33,6 +45,20 @@ export async function saveEarningsSnapshot(payload: InstallerEarningsSummary): P
   );
 }
 
+export async function getEarningsSnapshot(periodKey: string): Promise<InstallerEarningsSummary | null> {
+  const db = await getDb();
+  const row =
+    (await db.getFirstAsync<EarningsSnapshotRow>(
+      `SELECT period_key, currency, today_total, month_total, payload_json, updated_at
+       FROM installer_earnings_snapshots
+       WHERE period_key = ?
+       LIMIT 1`,
+      [periodKey]
+    )) ?? null;
+
+  return parseSnapshot(row);
+}
+
 export async function getLatestEarningsSnapshot(): Promise<InstallerEarningsSummary | null> {
   const db = await getDb();
   const row =
@@ -43,13 +69,5 @@ export async function getLatestEarningsSnapshot(): Promise<InstallerEarningsSumm
        LIMIT 1`
     )) ?? null;
 
-  if (!row) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(row.payload_json) as InstallerEarningsSummary;
-  } catch {
-    return null;
-  }
+  return parseSnapshot(row);
 }

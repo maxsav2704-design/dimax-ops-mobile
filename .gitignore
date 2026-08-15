@@ -13,4 +13,11 @@ node_modules/
 *.log
 *.err.log
 *.out.log
+*.pid
 *.png
+
+# Local release/device evidence is retained outside the source snapshot.
+/artifacts/
+
+# Expo/Android debug signing material must never be promoted to release signing.
+/android/app/debug.keystore

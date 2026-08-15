@@ -15,8 +15,8 @@
     "experiments": {
       "typedRoutes": true
     },
-    "extra": {
-      "apiBaseUrl": "http://localhost:8000"
+    "android": {
+      "package": "com.dimax.operations.installer"
     }
   }
 }

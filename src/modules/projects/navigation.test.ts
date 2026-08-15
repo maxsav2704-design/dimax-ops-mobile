@@ -47,6 +47,8 @@ describe("project navigation continuity", () => {
         name: "Tower A",
         address: null,
         status: "PROBLEM",
+        lifecycle_status: "ACTIVE",
+        health_status: "BLOCKED",
         waze_url: null,
       })
     ).toBe("/project/project-4?issueStatus=OPEN&doorStatus=ALL&doorSearch=Tower+A");

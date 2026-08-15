@@ -1,6 +1,14 @@
 import { API_BASE_URL } from "@/lib/config";
+import { getOrCreateDeviceId } from "@/lib/device-id";
 import { ApiError, NetworkError } from "@/lib/errors";
-import { clearSession, getStoredSession, persistSession, type SessionSnapshot } from "@/modules/auth/session";
+import {
+  clearSession,
+  getStoredSession,
+  persistSession,
+  persistStoredUser,
+  type CachedAuthUser,
+  type SessionSnapshot,
+} from "@/modules/auth/session";
 
 export type LoginBody = {
   companyId: string;
@@ -8,14 +16,7 @@ export type LoginBody = {
   password: string;
 };
 
-export type AuthMe = {
-  id: string;
-  company_id: string;
-  email: string;
-  full_name: string;
-  role: string;
-  is_active: boolean;
-};
+export type AuthMe = CachedAuthUser;
 
 type TokenPair = {
   access_token: string;
@@ -23,18 +24,56 @@ type TokenPair = {
   token_type: string;
 };
 
+let refreshInFlight: Promise<SessionSnapshot> | null = null;
+
+function shouldRefreshSession(error: unknown): error is ApiError {
+  if (!(error instanceof ApiError)) {
+    return false;
+  }
+  if (error.status === 401) {
+    return true;
+  }
+  if (error.status !== 403) {
+    return false;
+  }
+  const text = `${error.message}\n${error.body}`;
+  return /token expired/i.test(text);
+}
+
+function isRejectedRefresh(error: unknown): error is ApiError {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
 async function rawFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  const abortFromCaller = () => controller.abort();
+  if (init?.signal) {
+    if (init.signal.aborted) {
+      controller.abort();
+    } else {
+      init.signal.addEventListener("abort", abortFromCaller, { once: true });
+    }
+  }
+
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
+      signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
         ...(init?.headers || {}),
       },
     });
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new NetworkError("Request timed out");
+    }
     throw new NetworkError(error instanceof Error ? error.message : "Network request failed");
+  } finally {
+    clearTimeout(timeout);
+    init?.signal?.removeEventListener("abort", abortFromCaller);
   }
 
   if (!response.ok) {
@@ -50,12 +89,14 @@ async function rawFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function login(body: LoginBody): Promise<AuthMe> {
+  const deviceId = await getOrCreateDeviceId();
   const tokenPair = await rawFetch<TokenPair>("/api/v1/auth/login", {
     method: "POST",
     body: JSON.stringify({
       company_id: body.companyId,
       email: body.email,
       password: body.password,
+      device_id: deviceId,
     }),
   });
 
@@ -66,19 +107,36 @@ export async function login(body: LoginBody): Promise<AuthMe> {
     email: body.email,
   };
   await persistSession(session);
-  return authMe(session.accessToken);
+  const me = await authMe(session.accessToken);
+  await persistStoredUser(me);
+  return me;
 }
 
 export async function authMe(accessToken?: string): Promise<AuthMe> {
-  const stored = accessToken ? null : await getStoredSession();
-  const token = accessToken || stored?.accessToken;
-  if (!token) {
-    throw new Error("Missing access token");
+  if (!accessToken) {
+    return apiFetch<AuthMe>("/api/v1/auth/me");
   }
 
   return rawFetch<AuthMe>("/api/v1/auth/me", {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${accessToken}` },
   });
+}
+
+async function refreshSessionForRetry(previous: SessionSnapshot): Promise<SessionSnapshot> {
+  if (refreshInFlight) {
+    return refreshInFlight;
+  }
+
+  refreshInFlight = (async () => {
+    const latest = await getStoredSession();
+    if (latest && latest.accessToken !== previous.accessToken) {
+      return latest;
+    }
+    return refreshSession(latest?.refreshToken || previous.refreshToken);
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -100,10 +158,18 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   try {
     return await doRequest(stored.accessToken);
   } catch (error) {
-    if (!(error instanceof ApiError) || error.status !== 401) {
+    if (!shouldRefreshSession(error)) {
       throw error;
     }
-    const refreshed = await refreshSession(stored.refreshToken);
+    let refreshed: SessionSnapshot;
+    try {
+      refreshed = await refreshSessionForRetry(stored);
+    } catch (refreshError) {
+      if (isRejectedRefresh(refreshError)) {
+        await clearSession();
+      }
+      throw refreshError;
+    }
     return doRequest(refreshed.accessToken);
   }
 }
@@ -114,10 +180,11 @@ export async function refreshSession(refreshToken?: string): Promise<SessionSnap
   if (!token || !stored) {
     throw new Error("Missing refresh token");
   }
+  const deviceId = await getOrCreateDeviceId();
 
   const next = await rawFetch<TokenPair>("/api/v1/auth/refresh", {
     method: "POST",
-    body: JSON.stringify({ refresh_token: token }),
+    body: JSON.stringify({ refresh_token: token, device_id: deviceId }),
   });
 
   const session: SessionSnapshot = {

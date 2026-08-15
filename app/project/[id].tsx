@@ -1,21 +1,47 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, SafeAreaView, ScrollView, Text, TextInput, View } from "react-native";
-import { InstallerBottomNav, installerTheme } from "@/components/installer-ui";
+import { Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { InstallerBottomNav } from "@/components/installer-ui";
+import {
+  ActionButton,
+  EmptyState,
+  IconButton,
+  MetricTile,
+  ScreenHero,
+  SectionCard,
+  SectionHeader,
+  SegmentedControl,
+  StatusPill,
+} from "@/components/mobile-ui";
+import { currentLocalDateKey } from "@/lib/date-key";
 import { translateEnum } from "@/lib/i18n";
+import { installerTheme, toneColors, type InstallerTone } from "@/lib/theme";
 import { addAddonFact, markDoorInstalled, markDoorNotInstalled } from "@/modules/doors/actions";
+import { buildProjectEarningsContext } from "@/modules/earnings/presentation";
 import { loadInstallerEarnings } from "@/modules/earnings/service";
 import type { InstallerEarningsViewModel } from "@/modules/earnings/types";
-import { buildProjectEarningsContext } from "@/modules/earnings/presentation";
+import {
+  buildProjectExternalActions,
+  openProjectExternalAction,
+  type ProjectExternalAction,
+} from "@/modules/projects/external-actions";
+import { buildAddonFactActionState, buildDoorActionState } from "@/modules/projects/door-action-state";
 import {
   getProject,
+  listDoorTypes,
+  listProjectAddonFacts,
   listProjectAddonTypes,
   listProjectDoors,
   listProjectIssues,
   listReasons,
 } from "@/modules/projects/repository";
+import { refreshProjectDetails } from "@/modules/projects/service";
 import type {
+  DoorTypeOption,
   InstallerDoor,
+  ProjectAddonFact,
   ProjectAddonTypeOption,
   ProjectIssue,
   ProjectListItem,
@@ -24,8 +50,10 @@ import { getSyncQueueSummary, listPendingEvents, runSync } from "@/modules/sync/
 import type { PendingSyncEvent, SyncQueueSummary } from "@/modules/sync/types";
 import { useI18n } from "@/providers/AppProviders";
 
+type IssueFilter = "OPEN" | "ALL";
+
 export default function ProjectDetailsScreen() {
-  const { t, isRTL, locale } = useI18n();
+  const { locale } = useI18n();
   const params = useLocalSearchParams<{
     id: string;
     issueStatus?: string;
@@ -34,12 +62,17 @@ export default function ProjectDetailsScreen() {
     orderNumber?: string;
     locationCode?: string;
   }>();
-  const { id } = params;
-  const projectId = id || "";
+  const projectId = typeof params.id === "string" ? params.id : "";
+  const lt = (en: string, ru: string, he: string) => (locale === "ru" ? ru : locale === "he" ? he : en);
+  const intlLocale = locale === "ru" ? "ru-RU" : locale === "he" ? "he-IL" : "en-GB";
+
   const [project, setProject] = useState<ProjectListItem | null>(null);
   const [doors, setDoors] = useState<InstallerDoor[]>([]);
+  const [doorTypes, setDoorTypes] = useState<DoorTypeOption[]>([]);
   const [issues, setIssues] = useState<ProjectIssue[]>([]);
+  const [reasons, setReasons] = useState<Array<{ id: string; code: string; name: string }>>([]);
   const [addonTypes, setAddonTypes] = useState<ProjectAddonTypeOption[]>([]);
+  const [addonFacts, setAddonFacts] = useState<ProjectAddonFact[]>([]);
   const [pendingEvents, setPendingEvents] = useState<PendingSyncEvent[]>([]);
   const [queueSummary, setQueueSummary] = useState<SyncQueueSummary | null>(null);
   const [earningsState, setEarningsState] = useState<InstallerEarningsViewModel>({
@@ -47,60 +80,82 @@ export default function ProjectDetailsScreen() {
     source: "unavailable",
     message: null,
   });
-  const [projectEarningsScope, setProjectEarningsScope] = useState<"TODAY" | "MONTH">("TODAY");
-  const [reasons, setReasons] = useState<Array<{ id: string; code: string; name: string }>>([]);
-  const [selectedReasonId, setSelectedReasonId] = useState<string>("");
-  const [comment, setComment] = useState("");
+  const [selectedDoorId, setSelectedDoorId] = useState("");
+  const [doorSearch, setDoorSearch] = useState("");
+  const [doorStatusFilter, setDoorStatusFilter] = useState("ALL");
+  const [selectedOrderNumber, setSelectedOrderNumber] = useState("ALL");
+  const [selectedLocationCode, setSelectedLocationCode] = useState("ALL");
+  const [issueFilter, setIssueFilter] = useState<IssueFilter>("OPEN");
+  const [selectedReasonId, setSelectedReasonId] = useState("");
+  const [doorComment, setDoorComment] = useState("");
   const [addonTypeId, setAddonTypeId] = useState("");
   const [addonQty, setAddonQty] = useState("1");
-  const [selectedOrderNumber, setSelectedOrderNumber] = useState<string>("ALL");
-  const [selectedLocationCode, setSelectedLocationCode] = useState<string>("ALL");
-  const [doorSearch, setDoorSearch] = useState("");
-  const [doorStatusFilter, setDoorStatusFilter] = useState<string>("ALL");
-  const [issueStatusFilter, setIssueStatusFilter] = useState<string>("ALL");
-  const [issueDoorFocus, setIssueDoorFocus] = useState(false);
+  const [addonComment, setAddonComment] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const reload = async () => {
     if (!projectId) return;
-    const [projectRow, doorRows, issueRows, reasonRows, addonTypeRows, pendingRows, queueSummaryRow, earnings] = await Promise.all([
+    try {
+      await refreshProjectDetails(projectId);
+    } catch {
+      // Cached project data remains usable offline.
+    }
+    const [
+      projectRow,
+      doorRows,
+      doorTypeRows,
+      issueRows,
+      reasonRows,
+      addonTypeRows,
+      addonFactRows,
+      pendingRows,
+      queueRow,
+      earnings,
+    ] = await Promise.all([
       getProject(projectId),
       listProjectDoors(projectId),
+      listDoorTypes(),
       listProjectIssues(projectId),
       listReasons(),
       listProjectAddonTypes(projectId),
+      listProjectAddonFacts(projectId),
       listPendingEvents(projectId),
       getSyncQueueSummary(projectId),
-      loadInstallerEarnings(),
+      loadInstallerEarnings("month", currentLocalDateKey()),
     ]);
     setProject(projectRow);
     setDoors(doorRows);
+    setDoorTypes(doorTypeRows);
     setIssues(issueRows);
-    setAddonTypes(addonTypeRows);
-    setPendingEvents(pendingRows);
-    setQueueSummary(queueSummaryRow);
-    setEarningsState(earnings);
     setReasons(reasonRows);
-    if (!selectedReasonId && reasonRows[0]?.id) {
-      setSelectedReasonId(reasonRows[0].id);
-    }
-    if (!addonTypeId && addonTypeRows[0]?.id) {
-      setAddonTypeId(addonTypeRows[0].id);
-    }
+    setAddonTypes(addonTypeRows);
+    setAddonFacts(addonFactRows);
+    setPendingEvents(pendingRows);
+    setQueueSummary(queueRow);
+    setEarningsState(earnings);
+    setSelectedReasonId((current) =>
+      reasonRows.some((reason) => reason.id === current) ? current : reasonRows[0]?.id || ""
+    );
+    setAddonTypeId((current) =>
+      addonTypeRows.some((addon) => addon.id === current) ? current : addonTypeRows[0]?.id || ""
+    );
+    setSelectedDoorId((current) => {
+      if (doorRows.some((door) => door.id === current)) return current;
+      const search = typeof params.doorSearch === "string" ? params.doorSearch.trim().toLowerCase() : "";
+      const matched = search
+        ? doorRows.find((door) => door.unit_label.toLowerCase().includes(search))
+        : null;
+      return matched?.id || issueRows[0]?.door_id || doorRows[0]?.id || "";
+    });
   };
 
   useEffect(() => {
-    reload();
+    void reload();
   }, [projectId]);
 
   useEffect(() => {
-    if (typeof params.issueStatus === "string" && params.issueStatus.trim()) {
-      setIssueStatusFilter(params.issueStatus.trim().toUpperCase());
-    }
-    if (typeof params.doorSearch === "string" && params.doorSearch.trim()) {
-      setDoorSearch(params.doorSearch.trim());
-    }
+    if (typeof params.doorSearch === "string") setDoorSearch(params.doorSearch.trim());
     if (typeof params.doorStatus === "string" && params.doorStatus.trim()) {
       setDoorStatusFilter(params.doorStatus.trim().toUpperCase());
     }
@@ -110,28 +165,32 @@ export default function ProjectDetailsScreen() {
     if (typeof params.locationCode === "string" && params.locationCode.trim()) {
       setSelectedLocationCode(params.locationCode.trim());
     }
+    if (params.issueStatus === "OPEN") setIssueFilter("OPEN");
   }, [params.doorSearch, params.doorStatus, params.issueStatus, params.locationCode, params.orderNumber]);
 
+  const issueDoorIds = useMemo(() => new Set(issues.map((issue) => issue.door_id)), [issues]);
+  const selectedDoor = doors.find((door) => door.id === selectedDoorId) || null;
+  const selectedDoorIssues = issues.filter((issue) => issue.door_id === selectedDoorId);
+  const selectedDoorType = selectedDoor
+    ? doorTypes.find((doorType) => doorType.id === selectedDoor.door_type_id) || null
+    : null;
+  const selectedReason = reasons.find((reason) => reason.id === selectedReasonId) || null;
+  const doorActionState = selectedDoor
+    ? buildDoorActionState({ door: selectedDoor, busy, selectedReasonId })
+    : null;
   const orderNumbers = useMemo(
     () => Array.from(new Set(doors.map((door) => door.order_number).filter(Boolean) as string[])).sort(),
     [doors]
   );
-
   const locationCodes = useMemo(
     () => Array.from(new Set(doors.map((door) => door.location_code).filter(Boolean) as string[])).sort(),
     [doors]
   );
-  const issueDoorIds = useMemo(() => new Set(issues.map((issue) => issue.door_id)), [issues]);
-
   const filteredDoors = useMemo(() => {
+    const needle = doorSearch.trim().toLowerCase();
     return doors.filter((door) => {
-      const orderMatch = selectedOrderNumber === "ALL" || door.order_number === selectedOrderNumber;
-      const locationMatch = selectedLocationCode === "ALL" || door.location_code === selectedLocationCode;
-      const statusMatch = doorStatusFilter === "ALL" || door.status === doorStatusFilter;
-      const issueDoorMatch = !issueDoorFocus || issueDoorIds.has(door.id);
-      const searchNeedle = doorSearch.trim().toLowerCase();
       const searchMatch =
-        !searchNeedle ||
+        !needle ||
         [
           door.unit_label,
           door.order_number,
@@ -142,143 +201,99 @@ export default function ProjectDetailsScreen() {
           door.door_marking,
         ]
           .filter(Boolean)
-          .some((value) => String(value).toLowerCase().includes(searchNeedle));
-      return orderMatch && locationMatch && statusMatch && issueDoorMatch && searchMatch;
+          .some((value) => String(value).toLowerCase().includes(needle));
+      const statusMatch =
+        doorStatusFilter === "ALL" ||
+        (doorStatusFilter === "ISSUES" ? issueDoorIds.has(door.id) : door.status === doorStatusFilter);
+      return (
+        searchMatch &&
+        statusMatch &&
+        (selectedOrderNumber === "ALL" || door.order_number === selectedOrderNumber) &&
+        (selectedLocationCode === "ALL" || door.location_code === selectedLocationCode)
+      );
     });
-  }, [doorSearch, doorStatusFilter, doors, issueDoorFocus, issueDoorIds, selectedLocationCode, selectedOrderNumber]);
-
-  const visibleIssues = useMemo(() => {
-    return issues.filter((issue) => issueStatusFilter === "ALL" || issue.status === issueStatusFilter);
-  }, [issueStatusFilter, issues]);
-  const problemDoorsCount = useMemo(
-    () => doors.filter((door) => issueDoorIds.has(door.id)).length,
-    [doors, issueDoorIds]
-  );
-  const priorityDoors = useMemo(() => {
-    const withIssues = doors.filter((door) => issueDoorIds.has(door.id));
-    const notInstalled = doors.filter((door) => door.status === "NOT_INSTALLED" && !issueDoorIds.has(door.id));
-    return [...withIssues, ...notInstalled].slice(0, 5);
-  }, [doors, issueDoorIds]);
-
+  }, [doorSearch, doorStatusFilter, doors, issueDoorIds, selectedLocationCode, selectedOrderNumber]);
   const groupedDoors = useMemo(() => {
-    return filteredDoors.reduce<Record<string, InstallerDoor[]>>((acc, door) => {
-      const key = `${door.floor_label || "No floor"}`;
-      if (!acc[key]) acc[key] = [];
-      acc[key].push(door);
-      return acc;
-    }, {});
-  }, [filteredDoors]);
-  const floorLaneSummary = useMemo(() => {
-    return Object.entries(groupedDoors)
-      .map(([floor, floorDoors]) => {
-        const issueCount = floorDoors.filter((door) => issueDoorIds.has(door.id)).length;
-        const notInstalledCount = floorDoors.filter((door) => door.status === "NOT_INSTALLED").length;
-        return {
-          floor,
-          doorsCount: floorDoors.length,
-          issueCount,
-          notInstalledCount,
-          firstDoor: floorDoors[0] || null,
-        };
-      })
-      .sort((a, b) => {
-        if (b.issueCount !== a.issueCount) return b.issueCount - a.issueCount;
-        if (b.notInstalledCount !== a.notInstalledCount) return b.notInstalledCount - a.notInstalledCount;
-        return a.floor.localeCompare(b.floor);
-      });
-  }, [groupedDoors, issueDoorIds]);
-  const issueSummary = useMemo(() => {
-    const open = issues.filter((issue) => issue.status === "OPEN").length;
-    const closed = issues.filter((issue) => issue.status === "CLOSED").length;
-    return {
-      all: issues.length,
-      open,
-      closed,
-      issueDoors: problemDoorsCount,
-    };
-  }, [issues, problemDoorsCount]);
-  const completionSummary = useMemo(() => {
+    const groups = new Map<string, InstallerDoor[]>();
+    for (const door of filteredDoors) {
+      const floor = door.floor_label || lt("No floor", "Без этажа", "ללא קומה");
+      groups.set(floor, [...(groups.get(floor) || []), door]);
+    }
+    return Array.from(groups.entries()).sort(([left], [right]) =>
+      left.localeCompare(right, intlLocale, { numeric: true })
+    );
+  }, [filteredDoors, intlLocale]);
+  const visibleIssues = issues.filter((issue) => issueFilter === "ALL" || issue.status !== "CLOSED");
+  const completion = useMemo(() => {
     const installed = doors.filter((door) => door.status === "INSTALLED").length;
     const notInstalled = doors.filter((door) => door.status === "NOT_INSTALLED").length;
     const locked = doors.filter((door) => door.is_locked || door.status === "LOCKED").length;
+    const problem = doors.filter((door) => issueDoorIds.has(door.id)).length;
+    const total = doors.length;
     return {
       installed,
       notInstalled,
       locked,
-      issueDoors: problemDoorsCount,
-      total: doors.length,
+      problem,
+      total,
+      percent: total ? Math.round((installed / total) * 100) : 0,
     };
-  }, [doors, problemDoorsCount]);
-
-  const todayDate = new Date().toISOString().slice(0, 10);
+  }, [doors, issueDoorIds]);
   const projectEarnings = useMemo(
-    () => buildProjectEarningsContext(earningsState.snapshot, projectId, todayDate),
-    [earningsState.snapshot, projectId, todayDate]
+    () => buildProjectEarningsContext(earningsState.snapshot, projectId, currentLocalDateKey()),
+    [earningsState.snapshot, projectId]
   );
-  const scopedProjectEarningsRows = useMemo(() => {
-    if (!projectEarnings) {
-      return [];
-    }
-    return projectEarningsScope === "TODAY" ? projectEarnings.todayRows : projectEarnings.rows;
-  }, [projectEarnings, projectEarningsScope]);
-  const scopedProjectEarningsTotal = useMemo(() => {
-    if (!projectEarnings) {
-      return "--";
-    }
-    return projectEarningsScope === "TODAY" ? projectEarnings.todayTotal : projectEarnings.monthTotal;
-  }, [projectEarnings, projectEarningsScope]);
-  const scopedProjectInstallTypes = useMemo(() => {
-    const map = new Map<string, { code: string; label: string; amount: number; quantity: number }>();
-    for (const row of scopedProjectEarningsRows) {
-      const current = map.get(row.install_type_code) || {
-        code: row.install_type_code,
-        label: row.install_type_label,
-        amount: 0,
-        quantity: 0,
-      };
-      current.amount += Number.parseFloat(row.amount) || 0;
-      current.quantity += row.quantity;
-      map.set(row.install_type_code, current);
-    }
-    return Array.from(map.values()).sort((a, b) => b.amount - a.amount);
-  }, [scopedProjectEarningsRows]);
+  const externalActions = useMemo(() => buildProjectExternalActions(project), [project]);
+  const addonActionState = useMemo(
+    () =>
+      buildAddonFactActionState({
+        addonTypes,
+        selectedAddonTypeId: addonTypeId,
+        qtyDone: addonQty,
+        busy,
+      }),
+    [addonQty, addonTypeId, addonTypes, busy]
+  );
 
-  const handleInstall = async (doorId: string) => {
+  const handleInstall = async () => {
+    if (!selectedDoor) return;
     setBusy(true);
     setError(null);
     try {
-      await markDoorInstalled(projectId, doorId);
+      await markDoorInstalled(projectId, selectedDoor.id);
       await reload();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Door update failed");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : lt("Door update failed", "Не удалось обновить дверь", "עדכון הדלת נכשל"));
     } finally {
       setBusy(false);
     }
   };
 
-  const handleNotInstalled = async (doorId: string) => {
-    if (!selectedReasonId) return;
+  const handleNotInstalled = async () => {
+    if (!selectedDoor || !selectedReasonId) return;
     setBusy(true);
     setError(null);
     try {
-      await markDoorNotInstalled(projectId, doorId, selectedReasonId, comment);
+      await markDoorNotInstalled(projectId, selectedDoor.id, selectedReasonId, doorComment);
       await reload();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Door update failed");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : lt("Door update failed", "Не удалось обновить дверь", "עדכון הדלת נכשל"));
     } finally {
       setBusy(false);
     }
   };
 
   const handleAddonFact = async () => {
-    if (!addonTypeId || !addonQty) return;
+    if (!addonActionState.canQueueAddonFact || !addonActionState.normalizedQtyDone) return;
     setBusy(true);
     setError(null);
     try {
-      await addAddonFact(projectId, addonTypeId, addonQty, comment);
+      await addAddonFact(projectId, addonTypeId, addonActionState.normalizedQtyDone, addonComment);
       setAddonQty("1");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Add-on queue failed");
+      setAddonComment("");
+      await reload();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : lt("Unable to save add-on", "Не удалось сохранить допработу", "שמירת העבודה הנוספת נכשלה"));
     } finally {
       setBusy(false);
     }
@@ -290,645 +305,734 @@ export default function ProjectDetailsScreen() {
     try {
       await runSync({ forceRetry: true });
       await reload();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Sync failed");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : lt("Sync failed", "Синхронизация не выполнена", "הסנכרון נכשל"));
     } finally {
       setBusy(false);
     }
   };
 
-  const focusIssueDoor = (issue: ProjectIssue) => {
-    const matchingDoor = doors.find((door) => door.id === issue.door_id);
-    if (!matchingDoor) {
-      return;
+  const openExternal = async (action: ProjectExternalAction) => {
+    setError(null);
+    try {
+      await openProjectExternalAction(action);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : lt("Unable to open action", "Не удалось открыть действие", "לא ניתן לפתוח את הפעולה"));
     }
-    setIssueStatusFilter("OPEN");
-    setIssueDoorFocus(true);
-    setDoorStatusFilter("ALL");
-    setSelectedOrderNumber(matchingDoor.order_number || "ALL");
-    setSelectedLocationCode(matchingDoor.location_code || "ALL");
-    setDoorSearch(matchingDoor.unit_label);
   };
 
-  const resetDoorFilters = () => {
-    setSelectedOrderNumber("ALL");
-    setSelectedLocationCode("ALL");
+  const resetFilters = () => {
     setDoorSearch("");
     setDoorStatusFilter("ALL");
-    setIssueDoorFocus(false);
+    setSelectedOrderNumber("ALL");
+    setSelectedLocationCode("ALL");
+  };
+
+  const formatDateTime = (value: string | null) => {
+    if (!value) return "—";
+    return new Intl.DateTimeFormat(intlLocale, {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(value));
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: installerTheme.background }}>
-      <ScrollView contentContainerStyle={{ padding: 20, gap: 16, paddingBottom: 120 }}>
-        <View style={cardStyle}>
-          <Text style={{ color: installerTheme.text, fontSize: 22, fontWeight: "700", textAlign: isRTL ? "right" : "left" }}>{project?.name || t("title.project")}</Text>
-          <Text style={{ color: installerTheme.textMuted, marginTop: 6, textAlign: isRTL ? "right" : "left" }}>{project?.address || t("project.noAddress")}</Text>
-          <Text style={{ color: installerTheme.textMuted, marginTop: 6 }}>{t("project.openIssues")}: {issues.length}</Text>
-          <Text style={{ color: installerTheme.textMuted, marginTop: 2 }}>{t("project.problemDoors")}: {problemDoorsCount}</Text>
-          <Text style={{ color: installerTheme.textMuted, marginTop: 2 }}>{t("project.doors")}: {doors.length}</Text>
-          <Text style={{ color: installerTheme.textMuted, marginTop: 2 }}>{t("project.visibleAfterFilters")}: {filteredDoors.length}</Text>
-          <Text style={{ color: pendingEvents.length > 0 ? installerTheme.warning : installerTheme.success, marginTop: 2 }}>
-            {t("project.pendingProjectEvents")}: {pendingEvents.length}
-          </Text>
-          <Text style={{ color: installerTheme.textMuted, marginTop: 2 }}>
-            {t("workspace.queueHealth")}: {t("sync.pending")} {queueSummary?.pending || 0} / {t("sync.failed")} {queueSummary?.failed || 0} / {t("sync.blocked")} {queueSummary?.blocked || 0}
-          </Text>
-          <Text style={{ color: installerTheme.textMuted, marginTop: 2 }}>
-            {t("workspace.readyNow")}: {queueSummary?.ready_to_send || 0}
-            {queueSummary?.next_retry_at ? ` | ${t("sync.nextRetry")} ${queueSummary.next_retry_at}` : ""}
-          </Text>
-        </View>
+    <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
+      <StatusBar barStyle="light-content" backgroundColor={installerTheme.shell} />
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <ScreenHero
+          eyebrow={`${lt("JOB", "ОБЪЕКТ", "פרויקט")} · ${projectId.slice(0, 8)}`}
+          title={project?.name || lt("Project", "Объект", "פרויקט")}
+          subtitle={project?.address || lt("No address", "Адрес не указан", "לא הוגדרה כתובת")}
+          right={
+            <View style={styles.heroActions}>
+              <IconButton icon="arrow-back" label={lt("Back", "Назад", "חזרה")} tone="dark" onPress={() => router.back()} />
+              <IconButton icon="sync" label={lt("Sync now", "Синхронизировать", "סנכרון")} tone="dark" disabled={busy} onPress={() => void handleSync()} />
+            </View>
+          }
+        >
+          <View style={styles.heroBadges}>
+            <StatusPill label={translateEnum(locale, project?.status || "ACTIVE")} tone="accent" />
+            <StatusPill
+              label={`${pendingEvents.length} ${lt("queued", "в очереди", "בתור")}`}
+              tone={queueSummary?.blocked ? "danger" : pendingEvents.length ? "warning" : "success"}
+              icon={pendingEvents.length ? "cloud-upload-outline" : "cloud-done-outline"}
+            />
+          </View>
+        </ScreenHero>
 
-        <View style={cardStyle}>
-          <Text style={sectionTitle}>{t("project.completionLane")}</Text>
-          <Text style={metaStyle}>{t("project.executionStatus")}</Text>
-          <View style={{ gap: 8, marginTop: 12 }}>
-            <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>{t("common.installed")}</Text>
-              <Text style={summaryValueInlineStyle}>{completionSummary.installed}</Text>
-            </View>
-            <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>{t("common.notInstalled")}</Text>
-              <Text style={summaryValueInlineStyle}>{completionSummary.notInstalled}</Text>
-            </View>
-            <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>{t("project.issueDoors")}</Text>
-              <Text style={summaryValueInlineStyle}>{completionSummary.issueDoors}</Text>
-            </View>
-            <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>{t("common.locked")}</Text>
-              <Text style={summaryValueInlineStyle}>{completionSummary.locked}</Text>
-            </View>
-            <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>{t("project.totalDoors")}</Text>
-              <Text style={summaryValueInlineStyle}>{completionSummary.total}</Text>
-            </View>
-          </View>
-          <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
-            <Pressable
-              onPress={() => {
-                setDoorStatusFilter("NOT_INSTALLED");
-                setIssueDoorFocus(false);
-              }}
-              style={[secondaryButton, { flex: 1 }]}
-            >
-              <Text style={secondaryButtonText}>{t("project.notInstalledLane")}</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                setIssueStatusFilter("OPEN");
-                setIssueDoorFocus(true);
-                setDoorStatusFilter("ALL");
-              }}
-              style={[secondaryButton, { flex: 1 }]}
-            >
-              <Text style={secondaryButtonText}>{t("project.issueLane")}</Text>
-            </Pressable>
-          </View>
-        </View>
-
-        <View style={cardStyle}>
-          <Text style={sectionTitle}>{t("project.actionHub")}</Text>
-          <View style={{ gap: 10, marginTop: 12 }}>
-            <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>{t("project.quickLinks")}</Text>
-              <Text style={summaryValueInlineStyle}>{t("project.execution")}</Text>
-            </View>
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <Pressable onPress={() => router.push("/calendar" as never)} style={[secondaryButton, { flex: 1 }]}>
-                <Text style={secondaryButtonText}>{t("title.calendar")}</Text>
-              </Pressable>
-              <Pressable onPress={() => router.push("/earnings" as never)} style={[secondaryButton, { flex: 1 }]}>
-                <Text style={secondaryButtonText}>{t("title.earnings")}</Text>
-              </Pressable>
-            </View>
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <Pressable onPress={() => router.push("/sync-queue" as never)} style={[secondaryButton, { flex: 1 }]}>
-                <Text style={secondaryButtonText}>{t("project.syncQueue")}</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  setIssueStatusFilter("OPEN");
-                  setDoorStatusFilter("ALL");
-                }}
-                style={[secondaryButton, { flex: 1 }]}
-              >
-                <Text style={secondaryButtonText}>{t("calendar.openIssues")}</Text>
-              </Pressable>
-            </View>
-            <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>{t("project.projectContext")}</Text>
-              <Text style={summaryValueInlineStyle}>
-                {projectEarnings ? `${projectEarnings.monthTotal} ${projectEarnings.currency}` : "--"}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={cardStyle}>
-          <Text style={sectionTitle}>{t("project.earningsContext")}</Text>
-          <Text style={metaStyle}>{t("common.source")}: {translateEnum(locale, earningsState.source)}</Text>
-          {earningsState.message ? <Text style={[metaStyle, { color: installerTheme.warning }]}>{earningsState.message}</Text> : null}
-          <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
-            <Pressable
-              onPress={() => setProjectEarningsScope("TODAY")}
-              style={[chipStyle, projectEarningsScope === "TODAY" && chipStyleActive]}
-            >
-              <Text style={{ color: projectEarningsScope === "TODAY" ? "#FFFFFF" : installerTheme.textMuted }}>{t("common.today")}</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setProjectEarningsScope("MONTH")}
-              style={[chipStyle, projectEarningsScope === "MONTH" && chipStyleActive]}
-            >
-              <Text style={{ color: projectEarningsScope === "MONTH" ? "#FFFFFF" : installerTheme.textMuted }}>{t("common.month")}</Text>
-            </Pressable>
-          </View>
-          <View style={{ gap: 10, marginTop: 12 }}>
-            <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>
-                {projectEarningsScope === "TODAY" ? t("project.todayOnProject") : t("project.monthOnProject")}
-              </Text>
-              <Text style={summaryValueInlineStyle}>
-                {projectEarnings ? `${scopedProjectEarningsTotal} ${projectEarnings.currency}` : "--"}
-              </Text>
-            </View>
-            <View style={summaryRowStyle}>
-              <Text style={summaryLabelStyle}>{t("earnings.rowsInFocus")}</Text>
-              <Text style={summaryValueInlineStyle}>{scopedProjectEarningsRows.length}</Text>
-            </View>
-          </View>
-          {scopedProjectInstallTypes.length ? (
-            <View style={{ gap: 10, marginTop: 14 }}>
-              <Text style={fieldLabel}>{t("project.byInstallType")}</Text>
-              {scopedProjectInstallTypes.slice(0, 3).map((item) => (
-                <View key={item.code} style={doorCardStyle}>
-                  <Text style={{ color: installerTheme.text, fontWeight: "700" }}>{item.label}</Text>
-                  <Text style={metaStyle}>{t("common.amount")}: {item.amount.toFixed(2)} {projectEarnings?.currency || ""}</Text>
-                  <Text style={metaStyle}>{t("common.quantity")}: {item.quantity}</Text>
-                </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={metaStyle}>{t("earnings.noRows")}</Text>
-          )}
-          {scopedProjectEarningsRows.length ? (
-            <View style={{ gap: 10, marginTop: 14 }}>
-              <Text style={fieldLabel}>{t("project.workRows")}</Text>
-              {scopedProjectEarningsRows.slice(0, 4).map((row) => (
-                <View key={row.id} style={doorCardStyle}>
-                  <Text style={{ color: installerTheme.text, fontWeight: "700" }}>{row.install_type_label}</Text>
-                  <Text style={metaStyle}>{t("common.date")}: {row.work_date}</Text>
-                  <Text style={metaStyle}>{t("earnings.door")}: {row.door_label || "-"}</Text>
-                  <Text style={metaStyle}>{t("common.amount")}: {row.amount} {projectEarnings?.currency}</Text>
-                </View>
-              ))}
+        <View style={styles.body}>
+          {error ? (
+            <View style={styles.errorBox}>
+              <Ionicons name="alert-circle-outline" size={18} color={installerTheme.danger} />
+              <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : null}
-        </View>
 
-        <Pressable onPress={handleSync} style={secondaryButton}>
-          <Text style={secondaryButtonText}>{busy ? t("common.working") : t("project.syncQueuedWork")}</Text>
-        </Pressable>
-
-        <Pressable onPress={() => router.push("/sync-queue" as never)} style={secondaryButton}>
-          <Text style={secondaryButtonText}>{t("project.openSyncQueue")}</Text>
-        </Pressable>
-
-        {error ? <Text style={{ color: installerTheme.danger }}>{error}</Text> : null}
-
-        <View style={cardStyle}>
-          <Text style={sectionTitle}>{t("project.doorFilters")}</Text>
-          <TextInput
-            value={doorSearch}
-            onChangeText={setDoorSearch}
-            placeholder={t("project.searchDoor")}
-            placeholderTextColor="#6b85a4"
-            style={[inputStyle, { marginTop: 12 }]}
-          />
-          <Text style={fieldLabel}>{t("project.doorStatus")}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
-            {["ALL", "NOT_INSTALLED", "INSTALLED", "LOCKED"].map((status) => (
-              <Pressable
-                key={status}
-                onPress={() => setDoorStatusFilter(status)}
-                style={[chipStyle, doorStatusFilter === status && chipStyleActive]}
-              >
-                <Text style={{ color: doorStatusFilter === status ? "#FFFFFF" : installerTheme.textMuted }}>
-                  {status === "ALL" ? t("project.allDoors") : translateEnum(locale, status)}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-          <Text style={fieldLabel}>{t("project.orderNumber")}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
-            <Pressable onPress={() => setSelectedOrderNumber("ALL")} style={[chipStyle, selectedOrderNumber === "ALL" && chipStyleActive]}>
-              <Text style={{ color: selectedOrderNumber === "ALL" ? "#FFFFFF" : installerTheme.textMuted }}>{t("project.allOrders")}</Text>
-            </Pressable>
-            {orderNumbers.map((orderNumber) => (
-              <Pressable key={orderNumber} onPress={() => setSelectedOrderNumber(orderNumber)} style={[chipStyle, selectedOrderNumber === orderNumber && chipStyleActive]}>
-                <Text style={{ color: selectedOrderNumber === orderNumber ? "#FFFFFF" : installerTheme.textMuted }}>{orderNumber}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-
-          <Text style={fieldLabel}>{t("project.locationCode")}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
-            <Pressable onPress={() => setSelectedLocationCode("ALL")} style={[chipStyle, selectedLocationCode === "ALL" && chipStyleActive]}>
-              <Text style={{ color: selectedLocationCode === "ALL" ? "#FFFFFF" : installerTheme.textMuted }}>{t("project.allLocations")}</Text>
-            </Pressable>
-            {locationCodes.map((locationCode) => (
-              <Pressable key={locationCode} onPress={() => setSelectedLocationCode(locationCode)} style={[chipStyle, selectedLocationCode === locationCode && chipStyleActive]}>
-                <Text style={{ color: selectedLocationCode === locationCode ? "#FFFFFF" : installerTheme.textMuted }}>{locationCode}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-          <Pressable onPress={resetDoorFilters} style={[secondaryButton, { marginTop: 12 }]}>
-            <Text style={secondaryButtonText}>{t("project.resetDoorFilters")}</Text>
-          </Pressable>
-        </View>
-
-        {issues.length ? (
-          <View style={warningCardStyle}>
-            <Text style={warningTitleStyle}>{t("project.openIssueQueue")}</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
-              <Pressable
-                onPress={() => {
-                  setIssueStatusFilter("ALL");
-                  setIssueDoorFocus(false);
-                }}
-                style={[warningChipStyle, issueStatusFilter === "ALL" && !issueDoorFocus && warningChipStyleActive]}
-              >
-                <Text style={{ color: issueStatusFilter === "ALL" && !issueDoorFocus ? installerTheme.warningSoft : "#7C4700" }}>
-                  {t("common.all")} ({issueSummary.all})
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  setIssueStatusFilter("OPEN");
-                  setIssueDoorFocus(false);
-                }}
-                style={[warningChipStyle, issueStatusFilter === "OPEN" && !issueDoorFocus && warningChipStyleActive]}
-              >
-                <Text style={{ color: issueStatusFilter === "OPEN" && !issueDoorFocus ? installerTheme.warningSoft : "#7C4700" }}>
-                  {t("common.open")} ({issueSummary.open})
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  setIssueStatusFilter("CLOSED");
-                  setIssueDoorFocus(false);
-                }}
-                style={[warningChipStyle, issueStatusFilter === "CLOSED" && !issueDoorFocus && warningChipStyleActive]}
-              >
-                <Text style={{ color: issueStatusFilter === "CLOSED" && !issueDoorFocus ? installerTheme.warningSoft : "#7C4700" }}>
-                  {t("common.closed")} ({issueSummary.closed})
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  setIssueStatusFilter("OPEN");
-                  setIssueDoorFocus(true);
-                }}
-                style={[warningChipStyle, issueDoorFocus && warningChipStyleActive]}
-              >
-                <Text style={{ color: issueDoorFocus ? installerTheme.warningSoft : "#7C4700" }}>
-                  {t("project.issueDoors")} ({issueSummary.issueDoors})
-                </Text>
-              </Pressable>
-            </ScrollView>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
-              {["ALL", "OPEN", "CLOSED"].map((status) => (
-                <Pressable
-                  key={status}
-                  onPress={() => setIssueStatusFilter(status)}
-                  style={[warningChipStyle, issueStatusFilter === status && warningChipStyleActive]}
-                >
-                  <Text style={{ color: issueStatusFilter === status ? installerTheme.warningSoft : "#7C4700" }}>
-                    {status === "ALL" ? t("project.allIssues") : translateEnum(locale, status)}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-            <View style={{ gap: 10, marginTop: 10 }}>
-              {visibleIssues.map((issue) => (
-                <View key={issue.id} style={warningRowStyle}>
-                  <Text style={{ color: "#7C4700", fontWeight: "700" }}>{issue.title || t("project.openIssues")}</Text>
-                  <Text style={{ color: "#F59E0B", marginTop: 4 }}>{t("common.status")}: {translateEnum(locale, issue.status)}</Text>
-                  <Text style={{ color: "#F59E0B", marginTop: 4 }}>{issue.details || t("project.requiresAttention")}</Text>
-                  <Pressable onPress={() => focusIssueDoor(issue)} style={[secondaryButton, { marginTop: 10 }]}>
-                    <Text style={secondaryButtonText}>{t("project.onlyThisDoor")}</Text>
-                  </Pressable>
-                </View>
-              ))}
+          <SectionCard style={styles.progressCard}>
+            <View style={styles.accentStrip} />
+            <View style={styles.progressHeader}>
+              <View style={styles.progressBody}>
+                <Text style={styles.progressEyebrow}>{lt("DOOR PROGRESS", "ПРОГРЕСС ДВЕРЕЙ", "התקדמות דלתות")}</Text>
+                <Text style={styles.progressValue}>{completion.installed} <Text style={styles.progressTotal}>/ {completion.total}</Text></Text>
+              </View>
+              <StatusPill label={`${completion.percent}%`} tone={completion.percent === 100 ? "success" : "accent"} />
             </View>
-          </View>
-        ) : null}
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${completion.percent}%` }]} />
+            </View>
+            <View style={styles.legend}>
+              <LegendDot color={installerTheme.successFill} label={lt("Installed", "Установлено", "הותקן")} value={completion.installed} />
+              <LegendDot color={installerTheme.warningFill} label={lt("Not installed", "Не установлено", "לא הותקן")} value={completion.notInstalled} />
+              <LegendDot color={installerTheme.dangerFill} label={lt("Issues", "Проблемы", "תקלות")} value={completion.problem} />
+              <LegendDot color={installerTheme.textFaint} label={lt("Locked", "Заблокировано", "נעול")} value={completion.locked} />
+            </View>
+          </SectionCard>
 
-        {priorityDoors.length ? (
-          <View style={cardStyle}>
-            <Text style={sectionTitle}>{t("project.priorityDoors")}</Text>
-            <Text style={metaStyle}>{t("project.prioritySubtitle")}</Text>
-            <View style={{ gap: 10, marginTop: 12 }}>
-              {priorityDoors.map((door) => (
-                <View key={door.id} style={doorCardStyle}>
-                  <Text style={{ color: installerTheme.text, fontWeight: "700" }}>{door.unit_label}</Text>
-                  <Text style={metaStyle}>{t("common.status")}: {translateEnum(locale, door.status)}</Text>
-                  <Text style={metaStyle}>{t("project.order")}: {door.order_number || "-"}</Text>
-                  <Text style={metaStyle}>{t("common.location")}: {door.location_code || "-"}</Text>
-                  <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+          <View style={styles.quickActions}>
+            {externalActions.map((action) => (
+              <QuickAction
+                key={action.kind}
+                icon={action.kind === "waze" ? "navigate-outline" : action.kind === "whatsapp" ? "logo-whatsapp" : "call-outline"}
+                label={action.kind === "waze" ? "Waze" : action.kind === "whatsapp" ? "WhatsApp" : lt("Call", "Позвонить", "שיחה")}
+                tone={action.kind === "whatsapp" ? "success" : action.kind === "waze" ? "info" : "accent"}
+                onPress={() => void openExternal(action)}
+              />
+            ))}
+            <QuickAction
+              icon="alert-circle-outline"
+              label={lt("Flag issue", "Проблема", "דיווח תקלה")}
+              tone="danger"
+              onPress={() =>
+                router.push(
+                  `/issues?projectId=${encodeURIComponent(projectId)}${selectedDoor ? `&doorId=${encodeURIComponent(selectedDoor.id)}` : ""}&compose=1` as never
+                )
+              }
+            />
+          </View>
+
+          {issues.length ? (
+            <SectionCard style={styles.issueSection}>
+              <SectionHeader
+                title={lt("Project issues", "Проблемы объекта", "תקלות בפרויקט")}
+                meta={visibleIssues.length}
+                action={
+                  <SegmentedControl
+                    value={issueFilter}
+                    onChange={setIssueFilter}
+                    options={[
+                      { value: "OPEN", label: lt("Open", "Открытые", "פתוחות") },
+                      { value: "ALL", label: lt("All", "Все", "הכול") },
+                    ]}
+                  />
+                }
+              />
+              <View style={styles.issueList}>
+                {visibleIssues.slice(0, 5).map((issue) => {
+                  const issueDoor = doors.find((door) => door.id === issue.door_id);
+                  return (
                     <Pressable
+                      key={issue.id}
                       onPress={() => {
-                        setDoorSearch(door.unit_label);
-                        setDoorStatusFilter("ALL");
-                        setSelectedOrderNumber(door.order_number || "ALL");
-                        setSelectedLocationCode(door.location_code || "ALL");
+                        setSelectedDoorId(issue.door_id);
+                        setDoorSearch(issueDoor?.unit_label || "");
                       }}
-                      style={[secondaryButton, { flex: 1 }]}
+                      style={({ pressed }) => [styles.issueRow, pressed && styles.pressed]}
                     >
-                      <Text style={secondaryButtonText}>{t("project.onlyThisDoor")}</Text>
+                      <View style={styles.issueIcon}>
+                        <Ionicons name="alert-circle-outline" size={18} color={installerTheme.danger} />
+                      </View>
+                      <View style={styles.issueBody}>
+                        <Text style={styles.issueTitle} numberOfLines={1}>{issue.title || lt("Reported issue", "Заявленная проблема", "תקלה שדווחה")}</Text>
+                        <Text style={styles.issueMeta} numberOfLines={2}>
+                          {issueDoor?.unit_label || lt("Door", "Дверь", "דלת")} · {issue.details || lt("No details", "Без описания", "ללא תיאור")}
+                        </Text>
+                      </View>
+                      <StatusPill label={translateEnum(locale, issue.status)} tone={issue.status === "CLOSED" ? "success" : "danger"} />
                     </Pressable>
-                    {issueDoorIds.has(door.id) ? (
-                      <Pressable
-                        onPress={() => {
-                          setIssueStatusFilter("OPEN");
-                          setDoorSearch(door.unit_label);
-                          setDoorStatusFilter("ALL");
-                        }}
-                        style={[secondaryButton, { flex: 1 }]}
-                      >
-                        <Text style={secondaryButtonText}>{t("project.issueFocus")}</Text>
-                      </Pressable>
-                    ) : (
-                      <Pressable
-                        onPress={() => handleInstall(door.id)}
-                        style={[primaryButton, { flex: 1 }]}
-                        disabled={busy || door.is_locked}
-                      >
-                        <Text style={primaryButtonText}>{t("common.installed")}</Text>
-                      </Pressable>
-                    )}
-                  </View>
-                </View>
-              ))}
-            </View>
-          </View>
-        ) : null}
+                  );
+                })}
+              </View>
+            </SectionCard>
+          ) : null}
 
-        {floorLaneSummary.length ? (
-          <View style={cardStyle}>
-            <Text style={sectionTitle}>{t("project.floorLanes")}</Text>
-            <Text style={metaStyle}>{t("project.floorSubtitle")}</Text>
-            <View style={{ gap: 10, marginTop: 12 }}>
-              {floorLaneSummary.map((lane) => (
-                <View key={lane.floor} style={doorCardStyle}>
-                  <Text style={{ color: installerTheme.text, fontWeight: "700" }}>{t("project.floor")} {lane.floor}</Text>
-                  <Text style={metaStyle}>{t("project.doors")}: {lane.doorsCount}</Text>
-                  <Text style={metaStyle}>{t("project.issueDoors")}: {lane.issueCount}</Text>
-                  <Text style={metaStyle}>{t("common.notInstalled")}: {lane.notInstalledCount}</Text>
-                  {lane.firstDoor ? (
-                    <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
-                      <Pressable
-                        onPress={() => {
-                          setDoorSearch(lane.firstDoor?.unit_label || "");
-                          setSelectedOrderNumber(lane.firstDoor?.order_number || "ALL");
-                          setSelectedLocationCode(lane.firstDoor?.location_code || "ALL");
-                          setDoorStatusFilter("ALL");
-                        }}
-                        style={[secondaryButton, { flex: 1 }]}
-                      >
-                        <Text style={secondaryButtonText}>{t("project.openFloorLane")}</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => {
-                          setDoorSearch("");
-                          setSelectedOrderNumber("ALL");
-                          setSelectedLocationCode("ALL");
-                          setDoorStatusFilter("ALL");
-                          setIssueDoorFocus(lane.issueCount > 0);
-                        }}
-                        style={[secondaryButton, { flex: 1 }]}
-                      >
-                        <Text style={secondaryButtonText}>{lane.issueCount > 0 ? t("project.issueDoors") : t("project.viewFloor")}</Text>
-                      </Pressable>
+          <SectionCard>
+            <SectionHeader title={lt("Door filters", "Фильтры дверей", "סינון דלתות")} meta={`${filteredDoors.length}/${doors.length}`} />
+            <TextInput
+              value={doorSearch}
+              onChangeText={setDoorSearch}
+              accessibilityLabel={lt("Search doors", "Поиск дверей", "חיפוש דלתות")}
+              placeholder={lt("Door, order, apartment…", "Дверь, заказ, квартира…", "דלת, הזמנה, דירה…")}
+              placeholderTextColor={installerTheme.textFaint}
+              style={styles.input}
+            />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+              {["ALL", "NOT_INSTALLED", "INSTALLED", "ISSUES", "LOCKED"].map((status) => (
+                <FilterChip
+                  key={status}
+                  active={doorStatusFilter === status}
+                  label={
+                    status === "ALL"
+                      ? lt("All", "Все", "הכול")
+                      : status === "ISSUES"
+                        ? lt("Issues", "Проблемы", "תקלות")
+                        : translateEnum(locale, status)
+                  }
+                  onPress={() => setDoorStatusFilter(status)}
+                />
+              ))}
+            </ScrollView>
+            {orderNumbers.length > 1 ? (
+              <>
+                <Text style={styles.fieldLabel}>{lt("Order", "Заказ", "הזמנה")}</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+                  <FilterChip active={selectedOrderNumber === "ALL"} label={lt("All orders", "Все заказы", "כל ההזמנות")} onPress={() => setSelectedOrderNumber("ALL")} />
+                  {orderNumbers.map((order) => (
+                    <FilterChip key={order} active={selectedOrderNumber === order} label={order} onPress={() => setSelectedOrderNumber(order)} />
+                  ))}
+                </ScrollView>
+              </>
+            ) : null}
+            {locationCodes.length > 1 ? (
+              <>
+                <Text style={styles.fieldLabel}>{lt("Location", "Локация", "מיקום")}</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+                  <FilterChip active={selectedLocationCode === "ALL"} label={lt("All locations", "Все локации", "כל המיקומים")} onPress={() => setSelectedLocationCode("ALL")} />
+                  {locationCodes.map((location) => (
+                    <FilterChip key={location} active={selectedLocationCode === location} label={location} onPress={() => setSelectedLocationCode(location)} />
+                  ))}
+                </ScrollView>
+              </>
+            ) : null}
+            {(doorSearch || doorStatusFilter !== "ALL" || selectedOrderNumber !== "ALL" || selectedLocationCode !== "ALL") ? (
+              <ActionButton
+                label={lt("Reset filters", "Сбросить фильтры", "איפוס מסננים")}
+                icon="close"
+                variant="secondary"
+                style={styles.resetButton}
+                onPress={resetFilters}
+              />
+            ) : null}
+          </SectionCard>
+
+          <View style={styles.floorSection}>
+            <SectionHeader title={lt("Doors by floor", "Двери по этажам", "דלתות לפי קומה")} meta={filteredDoors.length} />
+            {groupedDoors.length ? groupedDoors.map(([floor, floorDoors]) => {
+              const floorInstalled = floorDoors.filter((door) => door.status === "INSTALLED").length;
+              return (
+                <SectionCard key={floor} style={styles.floorCard}>
+                  <View style={styles.floorHeader}>
+                    <View>
+                      <Text style={styles.floorTitle}>{lt("Floor", "Этаж", "קומה")} {floor}</Text>
+                      <Text style={styles.floorMeta}>
+                        {floorInstalled}/{floorDoors.length} {lt("installed", "установлено", "הותקנו")}
+                      </Text>
                     </View>
-                  ) : null}
-                </View>
-              ))}
-            </View>
+                    <StatusPill
+                      label={`${Math.round((floorInstalled / floorDoors.length) * 100)}%`}
+                      tone={floorInstalled === floorDoors.length ? "success" : "neutral"}
+                    />
+                  </View>
+                  <View style={styles.doorGrid}>
+                    {floorDoors.map((door) => (
+                      <DoorTile
+                        key={door.id}
+                        door={door}
+                        selected={door.id === selectedDoorId}
+                        hasIssue={issueDoorIds.has(door.id)}
+                        locale={locale}
+                        onPress={() => setSelectedDoorId(door.id)}
+                      />
+                    ))}
+                  </View>
+                </SectionCard>
+              );
+            }) : (
+              <SectionCard>
+                <EmptyState
+                  icon="search-outline"
+                  title={lt("No matching doors", "Двери не найдены", "לא נמצאו דלתות")}
+                  action={<ActionButton label={lt("Reset filters", "Сбросить фильтры", "איפוס מסננים")} variant="secondary" onPress={resetFilters} />}
+                />
+              </SectionCard>
+            )}
           </View>
-        ) : null}
 
-        <View style={cardStyle}>
-          <Text style={sectionTitle}>{t("project.offlineActions")}</Text>
-          <Text style={fieldLabel}>{t("project.reasonNotInstalled")}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
-            {reasons.map((reason) => (
-              <Pressable key={reason.id} onPress={() => setSelectedReasonId(reason.id)} style={[chipStyle, selectedReasonId === reason.id && chipStyleActive]}>
-                <Text style={{ color: selectedReasonId === reason.id ? "#FFFFFF" : installerTheme.textMuted }}>{reason.code}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-          <TextInput value={comment} onChangeText={setComment} placeholder={t("project.comment")} placeholderTextColor="#6b85a4" multiline style={[inputStyle, { marginTop: 12, minHeight: 90 }]} />
-          <Text style={fieldLabel}>{t("project.addonType")}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, marginTop: 10 }}>
-            {addonTypes.map((addon) => (
-              <Pressable key={addon.id} onPress={() => setAddonTypeId(addon.id)} style={[chipStyle, addonTypeId === addon.id && chipStyleActive]}>
-                <Text style={{ color: addonTypeId === addon.id ? "#FFFFFF" : installerTheme.textMuted }}>
-                  {addon.name}{addon.qty_planned ? ` | ${addon.qty_planned} ${addon.unit}` : ""}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-          <TextInput value={addonQty} onChangeText={setAddonQty} placeholder={t("project.qtyDone")} placeholderTextColor="#6b85a4" style={[inputStyle, { marginTop: 12 }]} keyboardType="numeric" />
-          <Pressable onPress={handleAddonFact} style={[primaryButton, { marginTop: 12 }]}>
-            <Text style={primaryButtonText}>{t("project.queueAddonFact")}</Text>
-          </Pressable>
-        </View>
-
-        {pendingEvents.length ? (
-          <View style={cardStyle}>
-            <Text style={sectionTitle}>{t("project.pendingSyncQueue")}</Text>
-            <View style={{ gap: 10, marginTop: 12 }}>
-              {pendingEvents.map((event) => (
-                <View key={event.client_event_id} style={doorCardStyle}>
-                  <Text style={{ color: installerTheme.text, fontWeight: "700" }}>{translateEnum(locale, event.type)}</Text>
-                  <Text style={metaStyle}>{t("project.queued")}: {event.created_at}</Text>
-                  <Text style={metaStyle}>{t("common.status")}: {translateEnum(locale, event.status)}</Text>
-                  <Text style={metaStyle}>{t("project.attempts")}: {event.attempts}</Text>
-                  {event.last_attempt_at ? <Text style={metaStyle}>{t("project.lastAttempt")}: {event.last_attempt_at}</Text> : null}
-                  {event.next_retry_at ? <Text style={metaStyle}>{t("project.nextRetry")}: {event.next_retry_at}</Text> : null}
-                  {event.error ? <Text style={{ color: installerTheme.danger, marginTop: 4 }}>{event.error}</Text> : null}
+          {selectedDoor ? (
+            <SectionCard style={styles.doorDetail}>
+              <View style={[styles.doorDetailStrip, { backgroundColor: doorStatusColors(selectedDoor, selectedDoorIssues.length > 0).text }]} />
+              <View style={styles.doorHero}>
+                <View style={[styles.doorGlyph, { borderColor: doorStatusColors(selectedDoor, selectedDoorIssues.length > 0).text }]}>
+                  <View style={styles.doorGlyphInset} />
+                  <View style={styles.doorHandle} />
                 </View>
-              ))}
-            </View>
-          </View>
-        ) : null}
+                <View style={styles.doorHeroBody}>
+                  <Text style={styles.doorNumber}>{selectedDoor.unit_label}</Text>
+                  <Text style={styles.doorType} numberOfLines={2}>
+                    {selectedDoorType?.name || selectedDoorType?.code || selectedDoor.door_type_id}
+                  </Text>
+                  <View style={styles.doorBadges}>
+                    <StatusPill
+                      label={translateEnum(locale, selectedDoor.status)}
+                      tone={doorStatusTone(selectedDoor, selectedDoorIssues.length > 0)}
+                    />
+                    {selectedDoorIssues.length ? <StatusPill label={`${selectedDoorIssues.length} ${lt("issues", "проблем", "תקלות")}`} tone="danger" /> : null}
+                  </View>
+                </View>
+              </View>
 
-        {Object.entries(groupedDoors).map(([floor, floorDoors]) => (
-          <View key={floor} style={cardStyle}>
-            <Text style={sectionTitle}>{t("project.floor")} {floor}</Text>
-            <View style={{ gap: 12, marginTop: 12 }}>
-              {floorDoors.map((door) => (
-                <View key={door.id} style={doorCardStyle}>
-                  <Text style={{ color: installerTheme.text, fontWeight: "700" }}>{door.unit_label}</Text>
-                  <Text style={metaStyle}>{t("project.order")}: {door.order_number || "-"}</Text>
-                  <Text style={metaStyle}>{t("project.house")}: {door.house_number || "-"}</Text>
-                  <Text style={metaStyle}>{t("project.floor")}: {door.floor_label || "-"}</Text>
-                  <Text style={metaStyle}>{t("project.apartment")}: {door.apartment_number || "-"}</Text>
-                  <Text style={metaStyle}>{t("common.location")}: {door.location_code || "-"}</Text>
-                  <Text style={metaStyle}>{t("project.marking")}: {door.door_marking || "-"}</Text>
-                  <Text style={[metaStyle, { color: door.status === "INSTALLED" ? installerTheme.success : installerTheme.warning }]}>{translateEnum(locale, door.status)}</Text>
-                  <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
-                    <Pressable onPress={() => handleInstall(door.id)} style={[primaryButton, { flex: 1 }]} disabled={busy || door.is_locked}>
-                      <Text style={primaryButtonText}>{t("common.installed")}</Text>
-                    </Pressable>
-                    <Pressable onPress={() => handleNotInstalled(door.id)} style={[secondaryButton, { flex: 1 }]} disabled={busy}>
-                      <Text style={secondaryButtonText}>{t("common.notInstalled")}</Text>
-                    </Pressable>
+              <View style={styles.doorFacts}>
+                <DoorFact label={lt("Order", "Заказ", "הזמנה")} value={selectedDoor.order_number} />
+                <DoorFact label={lt("Floor", "Этаж", "קומה")} value={selectedDoor.floor_label} />
+                <DoorFact label={lt("Apartment", "Квартира", "דירה")} value={selectedDoor.apartment_number} />
+                <DoorFact label={lt("Marking", "Маркировка", "סימון")} value={selectedDoor.door_marking} />
+                <DoorFact label={lt("Location", "Локация", "מיקום")} value={selectedDoor.location_code} />
+                <DoorFact label={lt("Version", "Версия", "גרסה")} value={String(selectedDoor.version)} />
+              </View>
+
+              {selectedDoorIssues.map((issue) => (
+                <View key={issue.id} style={styles.selectedIssue}>
+                  <Ionicons name="alert-circle-outline" size={18} color={installerTheme.danger} />
+                  <View style={styles.selectedIssueBody}>
+                    <Text style={styles.selectedIssueTitle}>{issue.title || lt("Door issue", "Проблема двери", "תקלה בדלת")}</Text>
+                    {issue.details ? <Text style={styles.selectedIssueText}>{issue.details}</Text> : null}
                   </View>
                 </View>
               ))}
-            </View>
+
+              {doorActionState?.isLocked ? (
+                <View style={styles.lockedBox}>
+                  <Ionicons name="lock-closed-outline" size={18} color={installerTheme.textMuted} />
+                  <Text style={styles.lockedText}>
+                    {lt("This door is locked after completion.", "Дверь заблокирована после завершения.", "הדלת נעולה לאחר השלמה.")}
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.fieldLabel}>{lt("Reason if not installed", "Причина, если не установлена", "סיבה אם לא הותקנה")}</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+                    {reasons.map((reason) => (
+                      <FilterChip
+                        key={reason.id}
+                        active={selectedReasonId === reason.id}
+                        label={reason.name || reason.code}
+                        onPress={() => setSelectedReasonId(reason.id)}
+                      />
+                    ))}
+                  </ScrollView>
+                  {selectedReason ? <Text style={styles.reasonCode}>{selectedReason.code}</Text> : null}
+                  <TextInput
+                    value={doorComment}
+                    onChangeText={setDoorComment}
+                    accessibilityLabel={lt("Door comment", "Комментарий по двери", "הערה לדלת")}
+                    placeholder={lt("Comment for the office…", "Комментарий для офиса…", "הערה למשרד…")}
+                    placeholderTextColor={installerTheme.textFaint}
+                    multiline
+                    maxLength={1000}
+                    style={[styles.input, styles.textarea]}
+                  />
+                  <View style={styles.doorActions}>
+                    <ActionButton
+                      label={lt("Installed", "Установлено", "הותקנה")}
+                      icon="checkmark"
+                      loading={busy}
+                      disabled={!doorActionState?.canMarkInstalled}
+                      style={styles.flex}
+                      onPress={() => void handleInstall()}
+                    />
+                    <ActionButton
+                      label={lt("Not installed", "Не установлено", "לא הותקנה")}
+                      icon="close"
+                      variant="secondary"
+                      disabled={!doorActionState?.canMarkNotInstalled}
+                      style={styles.flex}
+                      onPress={() => void handleNotInstalled()}
+                    />
+                  </View>
+                </>
+              )}
+              <ActionButton
+                label={lt("Report issue for this door", "Сообщить о проблеме двери", "דיווח תקלה בדלת")}
+                icon="alert-circle-outline"
+                variant="danger"
+                style={styles.reportButton}
+                onPress={() =>
+                  router.push(`/issues?projectId=${encodeURIComponent(projectId)}&doorId=${encodeURIComponent(selectedDoor.id)}&compose=1` as never)
+                }
+              />
+              <Text style={styles.updatedText}>
+                {lt("Last local update", "Последнее локальное обновление", "עדכון מקומי אחרון")}: {formatDateTime(selectedDoor.updated_at)}
+              </Text>
+            </SectionCard>
+          ) : null}
+
+          <SectionCard>
+            <SectionHeader title={lt("Completed add-on work", "Выполненные допработы", "עבודות נוספות שבוצעו")} meta={addonFacts.length} />
+            {addonTypes.length ? (
+              <>
+                <Text style={styles.fieldLabel}>{lt("Add-on type", "Тип допработы", "סוג עבודה נוספת")}</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+                  {addonTypes.map((addon) => (
+                    <FilterChip
+                      key={addon.id}
+                      active={addonTypeId === addon.id}
+                      label={`${addon.name}${addon.qty_planned ? ` · ${addon.qty_planned} ${addon.unit}` : ""}`}
+                      onPress={() => setAddonTypeId(addon.id)}
+                    />
+                  ))}
+                </ScrollView>
+                <View style={styles.addonInputs}>
+                  <TextInput
+                    value={addonQty}
+                    onChangeText={setAddonQty}
+                    accessibilityLabel={lt("Completed quantity", "Выполненное количество", "כמות שבוצעה")}
+                    placeholder={lt("Quantity…", "Количество…", "כמות…")}
+                    placeholderTextColor={installerTheme.textFaint}
+                    keyboardType="decimal-pad"
+                    style={[styles.input, styles.qtyInput]}
+                  />
+                  <TextInput
+                    value={addonComment}
+                    onChangeText={setAddonComment}
+                    accessibilityLabel={lt("Add-on comment", "Комментарий к допработе", "הערה לעבודה נוספת")}
+                    placeholder={lt("Comment…", "Комментарий…", "הערה…")}
+                    placeholderTextColor={installerTheme.textFaint}
+                    style={[styles.input, styles.flex]}
+                  />
+                </View>
+                <ActionButton
+                  label={lt("Save completed add-on", "Сохранить допработу", "שמירת עבודה נוספת")}
+                  icon="add"
+                  disabled={!addonActionState.canQueueAddonFact}
+                  onPress={() => void handleAddonFact()}
+                />
+              </>
+            ) : (
+              <Text style={styles.emptyCopy}>{lt("No add-on catalog is assigned to this project.", "Для объекта не назначен каталог допработ.", "לא הוגדר קטלוג עבודות נוספות לפרויקט.")}</Text>
+            )}
+            {addonFacts.length ? (
+              <View style={styles.factList}>
+                {addonFacts.slice(0, 6).map((fact) => (
+                  <View key={fact.id} style={styles.factRow}>
+                    <View style={styles.factIcon}>
+                      <Ionicons name="add-circle-outline" size={17} color={installerTheme.purple} />
+                    </View>
+                    <View style={styles.factBody}>
+                      <Text style={styles.factTitle}>{fact.addon_name}</Text>
+                      <Text style={styles.factMeta}>
+                        {fact.qty_done}{fact.unit ? ` ${fact.unit}` : ""} · {formatDateTime(fact.done_at)}
+                      </Text>
+                      {fact.comment ? <Text style={styles.factComment}>{fact.comment}</Text> : null}
+                    </View>
+                    <StatusPill label={translateEnum(locale, fact.source)} tone={fact.source === "OFFLINE" ? "warning" : "success"} />
+                  </View>
+                ))}
+              </View>
+            ) : null}
+          </SectionCard>
+
+          <View style={styles.metrics}>
+            <MetricTile
+              label={lt("Today pay", "Заработок сегодня", "שכר היום")}
+              value={projectEarnings ? `${projectEarnings.todayTotal} ${projectEarnings.currency}` : "—"}
+              meta={lt("read-only backend calculation", "расчёт backend", "חישוב שרת")}
+              tone="success"
+            />
+            <MetricTile
+              label={lt("Month pay", "Заработок за месяц", "שכר חודשי")}
+              value={projectEarnings ? `${projectEarnings.monthTotal} ${projectEarnings.currency}` : "—"}
+              meta={`${projectEarnings?.rows.length || 0} ${lt("work rows", "строк работ", "שורות עבודה")}`}
+              tone="accent"
+            />
           </View>
-        ))}
+          <ActionButton
+            label={lt("Open full earnings", "Открыть полный заработок", "פתיחת פירוט שכר")}
+            icon="cash-outline"
+            variant="secondary"
+            onPress={() => router.push("/earnings" as never)}
+          />
+
+          <SectionCard>
+            <SectionHeader title={lt("Project sync queue", "Очередь синхронизации объекта", "תור סנכרון הפרויקט")} meta={pendingEvents.length} />
+            <View style={styles.queueSummary}>
+              <StatusPill label={`${queueSummary?.pending || 0} ${lt("pending", "ожидают", "ממתינות")}`} tone="neutral" />
+              <StatusPill label={`${queueSummary?.failed || 0} ${lt("failed", "ошибок", "נכשלו")}`} tone="warning" />
+              <StatusPill label={`${queueSummary?.blocked || 0} ${lt("blocked", "заблокировано", "חסומות")}`} tone="danger" />
+            </View>
+            {pendingEvents.slice(0, 3).map((event) => (
+              <View key={event.client_event_id} style={styles.pendingRow}>
+                <Ionicons name="cloud-upload-outline" size={17} color={installerTheme.textMuted} />
+                <View style={styles.pendingBody}>
+                  <Text style={styles.pendingTitle}>{translateEnum(locale, event.type)}</Text>
+                  <Text style={styles.pendingMeta}>{formatDateTime(event.created_at)} · {translateEnum(locale, event.status)}</Text>
+                </View>
+              </View>
+            ))}
+            <View style={styles.syncActions}>
+              <ActionButton
+                label={lt("Sync now", "Синхронизировать", "סנכרון עכשיו")}
+                icon="sync"
+                loading={busy}
+                disabled={busy || !pendingEvents.length}
+                style={styles.flex}
+                onPress={() => void handleSync()}
+              />
+              <ActionButton
+                label={lt("Open queue", "Открыть очередь", "פתיחת התור")}
+                icon="list-outline"
+                variant="secondary"
+                style={styles.flex}
+                onPress={() => router.push("/sync-queue" as never)}
+              />
+            </View>
+          </SectionCard>
+        </View>
       </ScrollView>
       <InstallerBottomNav />
     </SafeAreaView>
   );
 }
 
-const cardStyle = {
-  backgroundColor: installerTheme.card,
-  borderRadius: 18,
-  borderWidth: 1,
-  borderColor: installerTheme.border,
-  padding: 18,
-} as const;
+function LegendDot({ color, label, value }: { color: string; label: string; value: number }) {
+  return (
+    <View style={styles.legendItem}>
+      <View style={[styles.legendDot, { backgroundColor: color }]} />
+      <Text style={styles.legendText}><Text style={styles.legendValue}>{value}</Text> {label}</Text>
+    </View>
+  );
+}
 
-const doorCardStyle = {
-  backgroundColor: installerTheme.cardMuted,
-  borderRadius: 14,
-  padding: 14,
-  borderWidth: 1,
-  borderColor: installerTheme.border,
-} as const;
+function QuickAction({
+  icon,
+  label,
+  tone,
+  onPress,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  label: string;
+  tone: InstallerTone;
+  onPress: () => void;
+}) {
+  const colors = toneColors(tone);
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.quickAction, pressed && styles.pressed]}>
+      <View style={[styles.quickIcon, { backgroundColor: colors.background }]}>
+        <Ionicons name={icon} size={19} color={colors.text} />
+      </View>
+      <Text style={styles.quickLabel} numberOfLines={2}>{label}</Text>
+    </Pressable>
+  );
+}
 
-const inputStyle = {
-  backgroundColor: installerTheme.cardMuted,
-  borderRadius: 14,
-  borderWidth: 1,
-  borderColor: installerTheme.border,
-  color: installerTheme.text,
-  paddingHorizontal: 14,
-  paddingVertical: 12,
-} as const;
+function FilterChip({ active, label, onPress }: { active: boolean; label: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
+      <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>{label}</Text>
+    </Pressable>
+  );
+}
 
-const primaryButton = {
-  backgroundColor: installerTheme.primary,
-  borderRadius: 12,
-  minHeight: 44,
-  alignItems: "center",
-  justifyContent: "center",
-} as const;
+function DoorTile({
+  door,
+  selected,
+  hasIssue,
+  locale,
+  onPress,
+}: {
+  door: InstallerDoor;
+  selected: boolean;
+  hasIssue: boolean;
+  locale: "en" | "ru" | "he";
+  onPress: () => void;
+}) {
+  const colors = doorStatusColors(door, hasIssue);
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityLabel={`${door.unit_label}, ${translateEnum(locale, door.status)}`}
+      style={({ pressed }) => [
+        styles.doorTile,
+        { backgroundColor: colors.background, borderColor: colors.border },
+        selected && styles.doorTileSelected,
+        pressed && styles.pressed,
+      ]}
+    >
+      {hasIssue ? <View style={styles.issueFlag} /> : null}
+      <Text style={[styles.doorTileNumber, { color: colors.text }]} numberOfLines={1}>{door.unit_label}</Text>
+      <Text style={[styles.doorTileStatus, { color: colors.text }]} numberOfLines={1}>
+        {door.status === "INSTALLED" ? "OK" : door.status === "NOT_INSTALLED" ? "NI" : door.status.slice(0, 2)}
+      </Text>
+    </Pressable>
+  );
+}
 
-const secondaryButton = {
-  backgroundColor: installerTheme.cardMuted,
-  borderRadius: 12,
-  borderWidth: 1,
-  borderColor: installerTheme.border,
-  minHeight: 44,
-  alignItems: "center",
-  justifyContent: "center",
-} as const;
+function DoorFact({ label, value }: { label: string; value: string | null }) {
+  return (
+    <View style={styles.doorFact}>
+      <Text style={styles.doorFactLabel}>{label}</Text>
+      <Text style={styles.doorFactValue} numberOfLines={1}>{value || "—"}</Text>
+    </View>
+  );
+}
 
-const primaryButtonText = {
-  color: "#FFFFFF",
-  fontWeight: "700",
-} as const;
+function doorStatusTone(door: InstallerDoor, hasIssue: boolean): InstallerTone {
+  if (hasIssue) return "danger";
+  if (door.status === "INSTALLED") return "success";
+  if (door.status === "NOT_INSTALLED") return "warning";
+  if (door.status === "LOCKED" || door.is_locked) return "neutral";
+  return "info";
+}
 
-const secondaryButtonText = {
-  color: installerTheme.text,
-  fontWeight: "600",
-} as const;
+function doorStatusColors(door: InstallerDoor, hasIssue: boolean) {
+  return toneColors(doorStatusTone(door, hasIssue));
+}
 
-const sectionTitle = {
-  color: installerTheme.text,
-  fontSize: 18,
-  fontWeight: "700",
-} as const;
-
-const fieldLabel = {
-  color: installerTheme.textMuted,
-  marginTop: 10,
-} as const;
-
-const metaStyle = {
-  color: installerTheme.textMuted,
-  marginTop: 4,
-} as const;
-
-const summaryRowStyle = {
-  flexDirection: "row",
-  justifyContent: "space-between",
-  alignItems: "center",
-} as const;
-
-const summaryLabelStyle = {
-  color: installerTheme.textMuted,
-} as const;
-
-const summaryValueInlineStyle = {
-  color: "#FFFFFF",
-  fontWeight: "700",
-} as const;
-
-const chipStyle = {
-  paddingHorizontal: 12,
-  paddingVertical: 8,
-  borderRadius: 999,
-  borderWidth: 1,
-  borderColor: installerTheme.border,
-  backgroundColor: installerTheme.cardMuted,
-} as const;
-
-const chipStyleActive = {
-  backgroundColor: installerTheme.primary,
-  borderColor: installerTheme.primary,
-} as const;
-
-const warningCardStyle = {
-  backgroundColor: installerTheme.warningSoft,
-  borderRadius: 18,
-  borderWidth: 1,
-  borderColor: "#F0D2A8",
-  padding: 18,
-} as const;
-
-const warningTitleStyle = {
-  color: "#7C4700",
-  fontSize: 18,
-  fontWeight: "700",
-} as const;
-
-const warningRowStyle = {
-  backgroundColor: "#FFF7ED",
-  borderRadius: 14,
-  padding: 14,
-} as const;
-
-const warningChipStyle = {
-  paddingHorizontal: 12,
-  paddingVertical: 8,
-  borderRadius: 999,
-  borderWidth: 1,
-  borderColor: "#F0D2A8",
-  backgroundColor: "#FFF7ED",
-} as const;
-
-const warningChipStyleActive = {
-  backgroundColor: "#F59E0B",
-  borderColor: "#F59E0B",
-} as const;
-
-
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: installerTheme.background },
+  scroll: { paddingBottom: installerTheme.layout.bottomNavClearance },
+  heroActions: { flexDirection: "row", gap: 7 },
+  heroBadges: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 14 },
+  body: { gap: 12, padding: 12 },
+  errorBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: installerTheme.radius.card,
+    borderWidth: 1,
+    borderColor: "#F5C2BC",
+    backgroundColor: installerTheme.dangerSoft,
+    padding: 11,
+  },
+  errorText: { flex: 1, color: installerTheme.danger, fontSize: 11, lineHeight: 16 },
+  progressCard: { position: "relative", overflow: "hidden", paddingLeft: 18 },
+  accentStrip: { position: "absolute", top: 0, bottom: 0, left: 0, width: 4, backgroundColor: installerTheme.accent },
+  progressHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  progressBody: { flex: 1 },
+  progressEyebrow: { color: installerTheme.textMuted, fontSize: 9, fontWeight: "800" },
+  progressValue: { color: installerTheme.text, fontSize: 22, fontWeight: "900", marginTop: 3, fontVariant: ["tabular-nums"] },
+  progressTotal: { color: installerTheme.textFaint, fontSize: 15, fontWeight: "600" },
+  progressTrack: { height: 8, overflow: "hidden", borderRadius: 999, backgroundColor: installerTheme.border, marginTop: 12 },
+  progressFill: { height: "100%", borderRadius: 999, backgroundColor: installerTheme.successFill },
+  legend: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 10 },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 4 },
+  legendDot: { width: 7, height: 7, borderRadius: 2 },
+  legendText: { color: installerTheme.textMuted, fontSize: 9 },
+  legendValue: { color: installerTheme.text, fontWeight: "800" },
+  quickActions: { flexDirection: "row", gap: 7 },
+  quickAction: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 76,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: installerTheme.radius.card,
+    borderWidth: 1,
+    borderColor: installerTheme.border,
+    backgroundColor: installerTheme.card,
+    padding: 7,
+  },
+  quickIcon: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 999 },
+  quickLabel: { color: installerTheme.text, fontSize: 9, lineHeight: 12, fontWeight: "800", textAlign: "center" },
+  issueSection: { borderColor: "#F5C2BC" },
+  issueList: { marginTop: 8 },
+  issueRow: { minHeight: 65, flexDirection: "row", alignItems: "center", gap: 9, borderTopWidth: 1, borderTopColor: installerTheme.border, paddingVertical: 9 },
+  issueIcon: { width: 32, height: 32, alignItems: "center", justifyContent: "center", borderRadius: installerTheme.radius.md, backgroundColor: installerTheme.dangerSoft },
+  issueBody: { flex: 1, minWidth: 0 },
+  issueTitle: { color: installerTheme.text, fontSize: 11, fontWeight: "800" },
+  issueMeta: { color: installerTheme.textMuted, fontSize: 9, lineHeight: 13, marginTop: 3 },
+  input: {
+    minHeight: 44,
+    borderRadius: installerTheme.radius.card,
+    borderWidth: 1,
+    borderColor: installerTheme.border,
+    backgroundColor: installerTheme.cardMuted,
+    color: installerTheme.text,
+    fontSize: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 10,
+  },
+  textarea: { minHeight: 86, textAlignVertical: "top" },
+  chips: { gap: 7, paddingRight: 12, marginTop: 9 },
+  chip: {
+    maxWidth: 240,
+    minHeight: 36,
+    justifyContent: "center",
+    borderRadius: installerTheme.radius.pill,
+    borderWidth: 1,
+    borderColor: installerTheme.border,
+    backgroundColor: installerTheme.card,
+    paddingHorizontal: 12,
+  },
+  chipActive: { borderColor: installerTheme.primary, backgroundColor: installerTheme.primary },
+  chipText: { color: installerTheme.textMuted, fontSize: 10, fontWeight: "700" },
+  chipTextActive: { color: installerTheme.textOnDark },
+  fieldLabel: { color: installerTheme.textMuted, fontSize: 9, fontWeight: "800", textTransform: "uppercase", marginTop: 13 },
+  resetButton: { marginTop: 11 },
+  floorSection: { gap: 8 },
+  floorCard: { padding: 0, overflow: "hidden" },
+  floorHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, borderBottomWidth: 1, borderBottomColor: installerTheme.border, backgroundColor: installerTheme.cardMuted, padding: 12 },
+  floorTitle: { color: installerTheme.text, fontSize: 13, fontWeight: "800" },
+  floorMeta: { color: installerTheme.textMuted, fontSize: 9, marginTop: 3 },
+  doorGrid: { flexDirection: "row", flexWrap: "wrap", gap: 7, padding: 11 },
+  doorTile: {
+    width: 57,
+    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: installerTheme.radius.card,
+    borderWidth: 1,
+    padding: 4,
+    position: "relative",
+  },
+  doorTileSelected: { borderWidth: 2, borderColor: installerTheme.primary, transform: [{ scale: 1.04 }] },
+  doorTileNumber: { maxWidth: "100%", fontSize: 10, fontWeight: "900" },
+  doorTileStatus: { fontSize: 7, fontWeight: "800", marginTop: 3 },
+  issueFlag: { position: "absolute", top: -3, right: -3, width: 11, height: 11, borderRadius: 999, borderWidth: 2, borderColor: installerTheme.card, backgroundColor: installerTheme.dangerFill },
+  doorDetail: { position: "relative", overflow: "hidden", paddingLeft: 18 },
+  doorDetailStrip: { position: "absolute", top: 0, bottom: 0, left: 0, width: 4 },
+  doorHero: { flexDirection: "row", alignItems: "center", gap: 12 },
+  doorGlyph: { width: 50, height: 65, borderRadius: 5, borderWidth: 2, backgroundColor: "#6E6258", padding: 5 },
+  doorGlyphInset: { flex: 1, borderRadius: 2, borderWidth: 1, borderColor: "rgba(255,255,255,0.25)" },
+  doorHandle: { position: "absolute", right: 8, top: 34, width: 4, height: 4, borderRadius: 999, backgroundColor: installerTheme.accent },
+  doorHeroBody: { flex: 1, minWidth: 0 },
+  doorNumber: { color: installerTheme.text, fontSize: 22, fontWeight: "900" },
+  doorType: { color: installerTheme.textMuted, fontSize: 11, lineHeight: 15, marginTop: 4 },
+  doorBadges: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 7 },
+  doorFacts: { flexDirection: "row", flexWrap: "wrap", gap: 1, overflow: "hidden", borderRadius: installerTheme.radius.card, backgroundColor: installerTheme.border, marginTop: 13 },
+  doorFact: { width: "33%", flexGrow: 1, minWidth: 90, backgroundColor: installerTheme.cardMuted, padding: 9 },
+  doorFactLabel: { color: installerTheme.textMuted, fontSize: 8, fontWeight: "700", textTransform: "uppercase" },
+  doorFactValue: { color: installerTheme.text, fontSize: 10, fontWeight: "800", marginTop: 3 },
+  selectedIssue: { flexDirection: "row", gap: 9, borderRadius: installerTheme.radius.card, borderWidth: 1, borderColor: "#F5C2BC", backgroundColor: installerTheme.dangerSoft, padding: 10, marginTop: 11 },
+  selectedIssueBody: { flex: 1, minWidth: 0 },
+  selectedIssueTitle: { color: installerTheme.danger, fontSize: 11, fontWeight: "800" },
+  selectedIssueText: { color: installerTheme.text, fontSize: 10, lineHeight: 15, marginTop: 3 },
+  lockedBox: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: installerTheme.radius.card, backgroundColor: installerTheme.background, padding: 11, marginTop: 12 },
+  lockedText: { flex: 1, color: installerTheme.textMuted, fontSize: 10, lineHeight: 15 },
+  reasonCode: { color: installerTheme.textFaint, fontSize: 9, marginTop: 6 },
+  doorActions: { flexDirection: "row", gap: 7, marginTop: 11 },
+  reportButton: { marginTop: 9 },
+  updatedText: { color: installerTheme.textFaint, fontSize: 9, textAlign: "center", marginTop: 9 },
+  addonInputs: { flexDirection: "row", gap: 8, marginBottom: 10 },
+  qtyInput: { width: 105 },
+  emptyCopy: { color: installerTheme.textMuted, fontSize: 11, lineHeight: 16, marginTop: 10 },
+  factList: { marginTop: 10 },
+  factRow: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 9, borderTopWidth: 1, borderTopColor: installerTheme.border, paddingVertical: 9 },
+  factIcon: { width: 32, height: 32, alignItems: "center", justifyContent: "center", borderRadius: installerTheme.radius.md, backgroundColor: installerTheme.purpleSoft },
+  factBody: { flex: 1, minWidth: 0 },
+  factTitle: { color: installerTheme.text, fontSize: 11, fontWeight: "800" },
+  factMeta: { color: installerTheme.textMuted, fontSize: 9, marginTop: 3 },
+  factComment: { color: installerTheme.textMuted, fontSize: 9, lineHeight: 13, marginTop: 3 },
+  metrics: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  queueSummary: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 9 },
+  pendingRow: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 9, borderTopWidth: 1, borderTopColor: installerTheme.border, paddingVertical: 8 },
+  pendingBody: { flex: 1, minWidth: 0 },
+  pendingTitle: { color: installerTheme.text, fontSize: 11, fontWeight: "800" },
+  pendingMeta: { color: installerTheme.textMuted, fontSize: 9, marginTop: 3 },
+  syncActions: { flexDirection: "row", gap: 7, marginTop: 10 },
+  flex: { flex: 1 },
+  pressed: { opacity: 0.68 },
+});

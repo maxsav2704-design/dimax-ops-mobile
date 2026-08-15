@@ -1,9 +1,22 @@
+export type ProjectLifecycleStatus =
+  | "PLANNED"
+  | "ACTIVE"
+  | "ON_HOLD"
+  | "COMPLETED"
+  | "CANCELLED";
+
+export type ProjectHealthStatus = "NORMAL" | "AT_RISK" | "BLOCKED";
+
 export type ProjectListItem = {
   id: string;
   name: string;
   address: string | null;
   status: string;
+  lifecycle_status: ProjectLifecycleStatus;
+  health_status: ProjectHealthStatus;
   waze_url: string | null;
+  whatsapp_url?: string | null;
+  call_url?: string | null;
 };
 
 export type InstallerDoor = {
@@ -21,7 +34,14 @@ export type InstallerDoor = {
   reason_id: string | null;
   comment: string | null;
   is_locked: boolean;
+  version: number;
   updated_at: string | null;
+};
+
+export type DoorTypeOption = {
+  id: string;
+  code: string;
+  name: string;
 };
 
 export type ProjectIssue = {
@@ -38,22 +58,48 @@ export type ProjectAddonTypeOption = {
   name: string;
   unit: string;
   qty_planned: string | null;
-  client_price: string | null;
-  installer_price: string | null;
+};
+
+export type ProjectAddonFact = {
+  id: string;
+  project_id: string;
+  addon_type_id: string;
+  addon_name: string;
+  unit: string;
+  qty_done: string;
+  done_at: string;
+  comment: string | null;
+  source: string;
+  updated_at: string | null;
 };
 
 export type ProjectDetailsResponse = {
   id: string;
   name: string;
   address: string | null;
+  address_details?: {
+    waze_url?: string | null;
+    waze_deep_link?: string | null;
+  } | null;
   waze_url: string | null;
+  whatsapp_url?: string | null;
+  call_url?: string | null;
+  developer?: {
+    phone?: string | null;
+    whatsapp?: string | null;
+    whatsapp_deep_link?: string | null;
+    call_deep_link?: string | null;
+  } | null;
+  contact_phone?: string | null;
+  developer_whatsapp?: string | null;
   status: string;
+  lifecycle_status: ProjectLifecycleStatus;
+  health_status: ProjectHealthStatus;
   server_time: string;
   doors: Array<{
     id: string;
     unit_label: string;
     door_type_id: string;
-    our_price: string;
     order_number: string | null;
     house_number: string | null;
     floor_label: string | null;
@@ -64,6 +110,7 @@ export type ProjectDetailsResponse = {
     reason_id: string | null;
     comment: string | null;
     is_locked: boolean;
+    version?: number | null;
   }>;
   issues_open: Array<{
     id: string;
@@ -79,8 +126,6 @@ export type ProjectDetailsResponse = {
     plan: Array<{
       addon_type_id: string;
       qty_planned: string;
-      client_price: string;
-      installer_price: string;
     }>;
     facts: Array<{
       id: string;

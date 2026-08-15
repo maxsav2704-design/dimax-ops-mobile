@@ -1,4 +1,4 @@
-export type SyncEventType = "DOOR_SET_STATUS" | "ADDON_FACT_CREATE";
+export type SyncEventType = "DOOR_SET_STATUS" | "ADDON_FACT_CREATE" | "ISSUE_CREATE";
 export type PendingSyncStatus = "PENDING" | "FAILED" | "BLOCKED";
 
 export type PendingSyncEvent = {
@@ -36,9 +36,29 @@ export type SyncSnapshot = {
     name: string;
     address: string | null;
     status: string;
+    lifecycle_status: string;
+    health_status: string;
     waze_url: string | null;
+    updated_at?: string | null;
   }>;
-  doors: Array<Record<string, any>>;
+  doors: Array<{
+    id: string;
+    project_id: string;
+    door_type_id: string;
+    unit_label: string;
+    order_number: string | null;
+    house_number: string | null;
+    floor_label: string | null;
+    apartment_number: string | null;
+    location_code: string | null;
+    door_marking: string | null;
+    status: string;
+    reason_id: string | null;
+    comment: string | null;
+    is_locked: boolean;
+    version?: number | null;
+    updated_at?: string | null;
+  }>;
   door_types: Array<{ id: string; code: string; name: string }>;
   reasons: Array<{ id: string; code: string; name: string }>;
   addon_types: Array<{ id: string; name: string; unit: string }>;
@@ -46,8 +66,6 @@ export type SyncSnapshot = {
     project_id: string;
     addon_type_id: string;
     qty_planned: string;
-    client_price: string;
-    installer_price: string;
   }>;
   addon_facts: Array<{
     id: string;
@@ -59,6 +77,14 @@ export type SyncSnapshot = {
     comment: string | null;
     source: string;
     updated_at?: string | null;
+  }>;
+  issues?: Array<{
+    id: string;
+    door_id: string;
+    project_id: string;
+    status: string;
+    title: string | null;
+    details: string | null;
   }>;
 };
 

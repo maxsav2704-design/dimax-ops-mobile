@@ -30,6 +30,12 @@ export type EarningsFocusContext = {
   }>;
 };
 
+export type ScopedEarningsFocusContext = EarningsFocusContext & {
+  projectId: string | null;
+  projectMissing: boolean;
+  availableProjectIds: string[];
+};
+
 function parseAmount(value: string) {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -59,7 +65,7 @@ function buildInstallTypeSummary(rows: InstallerEarningsRow[]) {
       quantity: 0,
     };
     current.amount += parseAmount(row.amount);
-    current.quantity += row.quantity;
+    current.quantity += Number.parseFloat(String(row.quantity)) || 0;
     installTypeMap.set(key, current);
   }
 
@@ -124,5 +130,51 @@ export function buildEarningsFocusContext(
     total: formatAmount(rows.reduce((sum, row) => sum + parseAmount(row.amount), 0)),
     rows,
     installTypeSummary: buildInstallTypeSummary(rows),
+  };
+}
+
+export function buildScopedEarningsFocusContext(
+  snapshot: InstallerEarningsSummary | null,
+  todayDate: string,
+  focus: EarningsPeriodFocus,
+  selectedDay?: string | null,
+  projectId?: string | null
+): ScopedEarningsFocusContext | null {
+  const base = buildEarningsFocusContext(snapshot, todayDate, focus, selectedDay);
+  if (!base || !snapshot) {
+    return null;
+  }
+
+  const availableProjectIds = Array.from(
+    new Set(
+      snapshot.rows
+        .map((row) => row.project_id?.trim())
+        .filter((value): value is string => Boolean(value))
+    )
+  ).sort();
+  const normalizedProjectId = projectId?.trim() || "";
+
+  if (!normalizedProjectId) {
+    return {
+      ...base,
+      projectId: null,
+      projectMissing: false,
+      availableProjectIds,
+    };
+  }
+
+  const projectMissing = !availableProjectIds.includes(normalizedProjectId);
+  const scopedRows = projectMissing
+    ? []
+    : base.rows.filter((row) => row.project_id === normalizedProjectId);
+
+  return {
+    ...base,
+    total: formatAmount(scopedRows.reduce((sum, row) => sum + parseAmount(row.amount), 0)),
+    rows: scopedRows,
+    installTypeSummary: buildInstallTypeSummary(scopedRows),
+    projectId: normalizedProjectId,
+    projectMissing,
+    availableProjectIds,
   };
 }

@@ -1,9 +1,17 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import React, { ReactNode, createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, {
+  ReactNode,
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import * as SecureStore from "expo-secure-store";
 import { ActivityIndicator, AppState, View } from "react-native";
-import { installerTheme } from "@/components/installer-ui";
 import { LOCALE_STORAGE_KEY } from "@/lib/config";
+import { installerTheme } from "@/lib/theme";
 import {
   isRtlLocale,
   t as translate,
@@ -11,13 +19,19 @@ import {
   type MobileTranslationKey,
 } from "@/lib/i18n";
 import { authMe, login as loginRequest, logout as logoutRequest, type AuthMe } from "@/lib/api";
-import { initDb } from "@/lib/db";
-import { getStoredSession } from "@/modules/auth/session";
+import { activateDbForIdentity, deactivateDb } from "@/lib/db";
+import {
+  clearSession,
+  getStoredSession,
+  getStoredUser,
+  persistStoredUser,
+} from "@/modules/auth/session";
 import { runSync } from "@/modules/sync/service";
 
 type AuthContextValue = {
   user: AuthMe | null;
   loading: boolean;
+  syncVersion: number;
   signIn: (companyId: string, email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -38,30 +52,92 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthMe | null>(null);
   const [loading, setLoading] = useState(true);
   const [locale, setLocaleState] = useState<MobileLocale>("en");
+  const [syncVersion, setSyncVersion] = useState(0);
+  const authEpoch = useRef(0);
 
-  const refreshUser = async () => {
+  const refreshUserFromServer = async (expectedEpoch = authEpoch.current) => {
     const session = await getStoredSession();
     if (!session) {
-      setUser(null);
+      if (authEpoch.current === expectedEpoch) {
+        queryClient.clear();
+        setUser(null);
+        await deactivateDb();
+      }
       return;
     }
-    const me = await authMe(session.accessToken);
+
+    const me = await authMe();
+    if (authEpoch.current !== expectedEpoch) {
+      return;
+    }
+    if (
+      !me.is_active ||
+      me.role !== "INSTALLER" ||
+      me.company_id !== session.companyId
+    ) {
+      await clearSession();
+      queryClient.clear();
+      setUser(null);
+      await deactivateDb();
+      throw new Error("The authenticated account cannot use the installer application");
+    }
+
+    await activateDbForIdentity(me.company_id, me.id);
+    if (authEpoch.current !== expectedEpoch) {
+      return;
+    }
+    await persistStoredUser(me);
     setUser(me);
   };
 
   useEffect(() => {
+    const expectedEpoch = authEpoch.current;
     (async () => {
       try {
-        await initDb();
-        const storedLocale = await SecureStore.getItemAsync(LOCALE_STORAGE_KEY);
+        const [storedLocale, session, cachedUser] = await Promise.all([
+          SecureStore.getItemAsync(LOCALE_STORAGE_KEY),
+          getStoredSession(),
+          getStoredUser(),
+        ]);
         if (storedLocale === "en" || storedLocale === "ru" || storedLocale === "he") {
           setLocaleState(storedLocale);
         }
-        await refreshUser();
+
+        const hasValidCachedIdentity =
+          session !== null &&
+          cachedUser !== null &&
+          cachedUser.is_active &&
+          cachedUser.role === "INSTALLER" &&
+          cachedUser.company_id === session.companyId;
+        if (!hasValidCachedIdentity) {
+          await clearSession();
+          await deactivateDb();
+          queryClient.clear();
+          setUser(null);
+          return;
+        }
+
+        await activateDbForIdentity(cachedUser.company_id, cachedUser.id);
+        if (authEpoch.current !== expectedEpoch) {
+          return;
+        }
+        setUser(cachedUser);
+        void refreshUserFromServer(expectedEpoch).catch(async () => {
+          // Network failures keep the verified cached identity available offline.
+          if (!(await getStoredSession()) && authEpoch.current === expectedEpoch) {
+            queryClient.clear();
+            setUser(null);
+            await deactivateDb();
+          }
+        });
       } catch {
+        queryClient.clear();
         setUser(null);
+        await deactivateDb().catch(() => undefined);
       } finally {
-        setLoading(false);
+        if (authEpoch.current === expectedEpoch) {
+          setLoading(false);
+        }
       }
     })();
   }, []);
@@ -71,9 +147,13 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return;
     }
 
+    let active = true;
     const syncSafe = async () => {
       try {
         await runSync();
+        if (active) {
+          setSyncVersion((version) => version + 1);
+        }
       } catch {
         // Ignore transient network failures; pending events remain local.
       }
@@ -92,6 +172,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }, 60000);
 
     return () => {
+      active = false;
       subscription.remove();
       clearInterval(interval);
     };
@@ -101,34 +182,65 @@ export function AppProviders({ children }: { children: ReactNode }) {
     () => ({
       user,
       loading,
+      syncVersion,
       signIn: async (companyId, email, password) => {
+        const expectedEpoch = ++authEpoch.current;
         setLoading(true);
         try {
           const me = await loginRequest({ companyId, email, password });
+          if (
+            !me.is_active ||
+            me.role !== "INSTALLER" ||
+            me.company_id !== companyId
+          ) {
+            throw new Error("The account is not an active installer in this company");
+          }
+          await activateDbForIdentity(me.company_id, me.id);
+          if (authEpoch.current !== expectedEpoch) {
+            return;
+          }
+          queryClient.clear();
+          await persistStoredUser(me);
           setUser(me);
+        } catch (error) {
+          if (authEpoch.current === expectedEpoch) {
+            await clearSession();
+            await deactivateDb().catch(() => undefined);
+            queryClient.clear();
+            setUser(null);
+          }
+          throw error;
         } finally {
-          setLoading(false);
+          if (authEpoch.current === expectedEpoch) {
+            setLoading(false);
+          }
         }
       },
       signOut: async () => {
+        const expectedEpoch = ++authEpoch.current;
         setLoading(true);
         try {
           await logoutRequest();
-          setUser(null);
         } finally {
-          setLoading(false);
+          queryClient.clear();
+          setUser(null);
+          setSyncVersion(0);
+          await deactivateDb().catch(() => undefined);
+          if (authEpoch.current === expectedEpoch) {
+            setLoading(false);
+          }
         }
       },
       refreshUser: async () => {
         setLoading(true);
         try {
-          await refreshUser();
+          await refreshUserFromServer();
         } finally {
           setLoading(false);
         }
       },
     }),
-    [user, loading]
+    [user, loading, syncVersion]
   );
 
   const i18nValue = useMemo<I18nContextValue>(

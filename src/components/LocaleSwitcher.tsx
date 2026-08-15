@@ -1,31 +1,67 @@
 import React from "react";
-import { Pressable, Text, View } from "react-native";
-import { installerTheme } from "@/components/installer-ui";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { installerTheme } from "@/lib/theme";
 import { useI18n } from "@/providers/AppProviders";
 
-export function LocaleSwitcher() {
+export function LocaleSwitcher({ dark = false }: { dark?: boolean }) {
   const { locale, setLocale, t } = useI18n();
 
   return (
-    <View style={{ flexDirection: "row", gap: 8 }}>
-      {(["en", "ru", "he"] as const).map((value) => (
-        <Pressable
-          key={value}
-          onPress={() => setLocale(value)}
-          style={{
-            paddingHorizontal: 10,
-            paddingVertical: 6,
-            borderRadius: 999,
-            borderWidth: 1,
-            borderColor: value === locale ? "#BDD0FF" : installerTheme.border,
-            backgroundColor: value === locale ? installerTheme.primarySoft : installerTheme.card,
-          }}
-        >
-          <Text style={{ color: value === locale ? installerTheme.primary : installerTheme.textMuted, fontWeight: "700" }}>
-            {t(`locale.${value}`)}
-          </Text>
-        </Pressable>
-      ))}
+    <View style={[styles.shell, dark && styles.shellDark]}>
+      {(["en", "ru", "he"] as const).map((value) => {
+        const active = value === locale;
+        return (
+          <Pressable
+            key={value}
+            onPress={() => setLocale(value)}
+            style={[styles.option, active && styles.optionActive]}
+            accessibilityState={{ selected: active }}
+          >
+            <Text style={[styles.label, dark && styles.labelDark, active && styles.labelActive]}>
+              {t(`locale.${value}`)}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  shell: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: installerTheme.radius.pill,
+    borderWidth: 1,
+    borderColor: installerTheme.border,
+    backgroundColor: installerTheme.card,
+    padding: 2,
+  },
+  shellDark: {
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+  },
+  option: {
+    minWidth: 36,
+    minHeight: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: installerTheme.radius.pill,
+    paddingHorizontal: 8,
+  },
+  optionActive: {
+    backgroundColor: installerTheme.accent,
+  },
+  label: {
+    color: installerTheme.textMuted,
+    fontFamily: installerTheme.fontFamily,
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  labelDark: {
+    color: installerTheme.textFaint,
+  },
+  labelActive: {
+    color: installerTheme.text,
+  },
+});
