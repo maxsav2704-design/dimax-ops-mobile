@@ -1,11 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StatusBar, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
 import {
   ActionButton,
+  BrandText as Text,
   EmptyState,
   IconButton,
   MetricTile,
@@ -36,6 +37,7 @@ export default function CalendarScreen() {
     message: null,
   });
   const [selectedDay, setSelectedDay] = useState(ALL_DAYS);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
   const lt = (en: string, ru: string, he: string) => (locale === "ru" ? ru : locale === "he" ? he : en);
@@ -45,6 +47,12 @@ export default function CalendarScreen() {
     setLoading(true);
     try {
       setState(await loadInstallerCalendar("7d"));
+    } catch (reason) {
+      setState({
+        snapshot: null,
+        source: "unavailable",
+        message: reason instanceof Error ? reason.message : "Calendar loading failed.",
+      });
     } finally {
       setLoading(false);
     }
@@ -74,8 +82,31 @@ export default function CalendarScreen() {
     }
     return Array.from(groups.entries());
   }, [visibleItems]);
+  const selectedEvent = useMemo(
+    () => items.find((item) => item.id === selectedEventId) || null,
+    [items, selectedEventId]
+  );
   const serviceCount = visibleItems.filter((item) => item.event_type.toUpperCase() === "SERVICE").length;
   const projectCount = new Set(visibleItems.map((item) => item.project_id).filter(Boolean)).size;
+  const stateNotice = !state.message
+    ? null
+    : state.source === "online"
+      ? lt(
+          "The plan is current, but its offline copy could not be updated.",
+          "План актуален, но его офлайн-копию не удалось обновить.",
+          "התכנית עדכנית, אך לא ניתן לעדכן את העותק הלא מקוון."
+        )
+      : state.source === "cache"
+      ? lt(
+          "The plan could not be refreshed. The latest saved copy is shown.",
+          "Не удалось обновить план. Показана последняя сохранённая копия.",
+          "לא ניתן לרענן את התכנית. מוצג העותק האחרון שנשמר."
+        )
+      : lt(
+          "The work plan is temporarily unavailable. Try refreshing it.",
+          "План работ временно недоступен. Попробуйте обновить его.",
+          "תכנית העבודה אינה זמינה כעת. נסו לרענן אותה."
+        );
 
   useEffect(() => {
     const incomingDay = typeof params.day === "string" ? params.day.trim() : "";
@@ -85,6 +116,12 @@ export default function CalendarScreen() {
   useEffect(() => {
     if (selectedDay !== ALL_DAYS && !dayOptions.includes(selectedDay)) setSelectedDay(ALL_DAYS);
   }, [dayOptions, selectedDay]);
+
+  useEffect(() => {
+    if (selectedEventId && !visibleItems.some((item) => item.id === selectedEventId)) {
+      setSelectedEventId(null);
+    }
+  }, [selectedEventId, visibleItems]);
 
   const dayLabel = (day: string, compact = false) => {
     const date = new Date(`${day}T12:00:00`);
@@ -105,11 +142,52 @@ export default function CalendarScreen() {
     }
   };
 
+  const renderEventActions = (item: InstallerCalendarEvent) => {
+    const service = item.event_type.toUpperCase() === "SERVICE";
+    return (
+      <View style={styles.actions}>
+        {item.project_id ? (
+          <ActionButton
+            label={lt("Open job", "Открыть объект", "פתיחת עבודה")}
+            icon="briefcase-outline"
+            variant="dark"
+            style={styles.flex}
+            onPress={() => {
+              const route = buildProjectRouteFromCalendarEvent(item);
+              if (route) router.push(route as never);
+            }}
+          />
+        ) : null}
+        {item.project_id ? (
+          <IconButton
+            icon={service ? "alert-circle-outline" : "grid-outline"}
+            label={service ? lt("Open issues", "Открыть проблемы", "פתיחת תקלות") : lt("Prepare doors", "Открыть двери", "פתיחת דלתות")}
+            onPress={() => {
+              const route = service
+                ? buildIssueRouteFromCalendarEvent(item)
+                : buildDoorPrepRoute(item.project_id as string);
+              if (route) router.push(route as never);
+            }}
+          />
+        ) : null}
+        {item.waze_url ? (
+          <IconButton
+            icon="navigate-outline"
+            label={lt("Open Waze", "Открыть Waze", "פתיחת Waze")}
+            tone="accent"
+            onPress={() => void openWaze(item.waze_url)}
+          />
+        ) : null}
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       <StatusBar barStyle="light-content" backgroundColor={installerTheme.shell} />
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.content} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <ScreenHero
+          showMark={false}
           eyebrow={lt("7-DAY FIELD PLAN", "ПЛАН НА 7 ДНЕЙ", "תכנית עבודה ל-7 ימים")}
           title={lt("Work plan", "План работ", "תכנית עבודה")}
           subtitle={lt(
@@ -143,17 +221,20 @@ export default function CalendarScreen() {
         </ScreenHero>
 
         <View style={styles.body}>
-          {state.message ? (
-            <View style={styles.notice}>
+          {stateNotice ? (
+            <View style={styles.notice} accessibilityLiveRegion="polite">
               <Ionicons name="information-circle-outline" size={18} color={installerTheme.info} />
-              <Text style={styles.noticeText}>{state.message}</Text>
+              <Text style={styles.noticeText}>{stateNotice}</Text>
             </View>
           ) : null}
-          {actionError ? <Text style={styles.errorText}>{actionError}</Text> : null}
+          {actionError ? <Text style={styles.errorText} accessibilityLiveRegion="assertive">{actionError}</Text> : null}
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayStrip}>
             <Pressable
               onPress={() => setSelectedDay(ALL_DAYS)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: selectedDay === ALL_DAYS }}
+              accessibilityLabel={lt("Show all week", "Показать всю неделю", "הצגת כל השבוע")}
               style={[styles.dayChip, selectedDay === ALL_DAYS && styles.dayChipActive]}
             >
               <Text style={[styles.dayChipText, selectedDay === ALL_DAYS && styles.dayChipTextActive]}>
@@ -164,6 +245,9 @@ export default function CalendarScreen() {
               <Pressable
                 key={day}
                 onPress={() => setSelectedDay(day)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: selectedDay === day }}
+                accessibilityLabel={dayLabel(day)}
                 style={[styles.dayChip, selectedDay === day && styles.dayChipActive]}
               >
                 <Text style={[styles.dayChipText, selectedDay === day && styles.dayChipTextActive]}>
@@ -178,6 +262,47 @@ export default function CalendarScreen() {
             <MetricTile label={lt("Projects", "Объекты", "פרויקטים")} value={projectCount} meta={lt("linked to work", "с назначенными работами", "עם עבודות")} tone="info" />
             <MetricTile label={lt("Service", "Сервис", "שירות")} value={serviceCount} meta={lt("attention visits", "сервисных выездов", "ביקורי שירות")} tone={serviceCount ? "warning" : "success"} />
           </View>
+
+          {selectedEvent ? (
+            <SectionCard
+              style={[
+                styles.selectedEvent,
+                {
+                  borderColor: selectedEvent.event_type.toUpperCase() === "SERVICE"
+                    ? installerTheme.warningBorder
+                    : installerTheme.infoBorder,
+                },
+              ]}
+            >
+              <View style={styles.selectedEventHeader}>
+                <View style={styles.selectedEventBody}>
+                  <StatusPill
+                    label={selectedEvent.event_type.toUpperCase() === "SERVICE"
+                      ? lt("Service", "Сервис", "שירות")
+                      : lt("Install", "Монтаж", "התקנה")}
+                    tone={selectedEvent.event_type.toUpperCase() === "SERVICE" ? "warning" : "info"}
+                  />
+                  <Text style={styles.selectedEventTitle}>{selectedEvent.title}</Text>
+                </View>
+                <IconButton
+                  icon="close"
+                  label={lt("Close visit details", "Закрыть детали выезда", "סגירת פרטי הביקור")}
+                  onPress={() => setSelectedEventId(null)}
+                />
+              </View>
+              <Text style={styles.selectedEventTime}>
+                {dayLabel(selectedEvent.starts_at.slice(0, 10))} · {timeLabel(selectedEvent.starts_at)}–{timeLabel(selectedEvent.ends_at)}
+              </Text>
+              {selectedEvent.location ? (
+                <View style={styles.metaRow}>
+                  <Ionicons name="location-outline" size={15} color={installerTheme.textMuted} />
+                  <Text style={styles.metaText}>{selectedEvent.location}</Text>
+                </View>
+              ) : null}
+              {selectedEvent.description ? <Text style={styles.selectedEventDescription}>{selectedEvent.description}</Text> : null}
+              {renderEventActions(selectedEvent)}
+            </SectionCard>
+          ) : null}
 
           {selectedDay !== ALL_DAYS ? (
             <ActionButton
@@ -197,7 +322,13 @@ export default function CalendarScreen() {
                   return (
                     <SectionCard key={item.id} style={styles.eventCard}>
                       <View style={[styles.eventStrip, { backgroundColor: service ? installerTheme.warningFill : installerTheme.infoFill }]} />
-                      <View style={styles.eventTop}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`${item.title}. ${dayLabel(day)}. ${timeLabel(item.starts_at)}–${timeLabel(item.ends_at)}`}
+                        accessibilityState={{ selected: selectedEventId === item.id }}
+                        onPress={() => setSelectedEventId(item.id)}
+                        style={({ pressed }) => [styles.eventTop, pressed && styles.eventTopPressed]}
+                      >
                         <View style={[styles.eventIcon, { backgroundColor: service ? installerTheme.warningSoft : installerTheme.infoSoft }]}>
                           <Ionicons
                             name={service ? "construct-outline" : "briefcase-outline"}
@@ -213,7 +344,8 @@ export default function CalendarScreen() {
                           label={service ? lt("Service", "Сервис", "שירות") : lt("Install", "Монтаж", "התקנה")}
                           tone={service ? "warning" : "info"}
                         />
-                      </View>
+                        <Ionicons name="chevron-forward" size={16} color={installerTheme.textFaint} />
+                      </Pressable>
                       {item.location ? (
                         <View style={styles.metaRow}>
                           <Ionicons name="location-outline" size={15} color={installerTheme.textMuted} />
@@ -221,40 +353,7 @@ export default function CalendarScreen() {
                         </View>
                       ) : null}
                       {item.description ? <Text style={styles.description} numberOfLines={3}>{item.description}</Text> : null}
-                      <View style={styles.actions}>
-                        {item.project_id ? (
-                          <ActionButton
-                            label={lt("Open job", "Открыть объект", "פתיחת עבודה")}
-                            icon="briefcase-outline"
-                            variant="dark"
-                            style={styles.flex}
-                            onPress={() => {
-                              const route = buildProjectRouteFromCalendarEvent(item);
-                              if (route) router.push(route as never);
-                            }}
-                          />
-                        ) : null}
-                        {item.project_id ? (
-                          <IconButton
-                            icon={service ? "alert-circle-outline" : "grid-outline"}
-                            label={service ? lt("Open issues", "Открыть проблемы", "פתיחת תקלות") : lt("Prepare doors", "Открыть двери", "פתיחת דלתות")}
-                            onPress={() => {
-                              const route = service
-                                ? buildIssueRouteFromCalendarEvent(item)
-                                : buildDoorPrepRoute(item.project_id as string);
-                              if (route) router.push(route as never);
-                            }}
-                          />
-                        ) : null}
-                        {item.waze_url ? (
-                          <IconButton
-                            icon="navigate-outline"
-                            label={lt("Open Waze", "Открыть Waze", "פתיחת Waze")}
-                            tone="accent"
-                            onPress={() => void openWaze(item.waze_url)}
-                          />
-                        ) : null}
-                      </View>
+                      {renderEventActions(item)}
                     </SectionCard>
                   );
                 })}
@@ -282,24 +381,25 @@ export default function CalendarScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: installerTheme.background },
+  content: { flex: 1 },
   scroll: { paddingBottom: installerTheme.layout.bottomNavClearance },
-  heroState: { alignSelf: "flex-start", marginTop: 14 },
-  body: { gap: 12, padding: 12 },
+  heroState: { alignSelf: "flex-start", marginTop: 10 },
+  body: { gap: 14, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12 },
   notice: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     borderRadius: installerTheme.radius.card,
     borderWidth: 1,
-    borderColor: "#B5D1F0",
+    borderColor: installerTheme.infoBorder,
     backgroundColor: installerTheme.infoSoft,
     padding: 11,
   },
   noticeText: { flex: 1, color: installerTheme.info, fontSize: 11, lineHeight: 16 },
   errorText: { color: installerTheme.danger, fontSize: 11 },
-  dayStrip: { gap: 7, paddingRight: 12 },
+  dayStrip: { gap: 7, paddingEnd: 12 },
   dayChip: {
-    minHeight: 38,
+    minHeight: 44,
     justifyContent: "center",
     borderRadius: installerTheme.radius.pill,
     borderWidth: 1,
@@ -307,15 +407,28 @@ const styles = StyleSheet.create({
     backgroundColor: installerTheme.card,
     paddingHorizontal: 13,
   },
-  dayChipActive: { borderColor: installerTheme.primary, backgroundColor: installerTheme.primary },
+  dayChipActive: { borderColor: installerTheme.infoBorder, backgroundColor: installerTheme.primarySoft },
   dayChipText: { color: installerTheme.textMuted, fontSize: 10, fontWeight: "800" },
-  dayChipTextActive: { color: installerTheme.textOnDark },
+  dayChipTextActive: { color: installerTheme.info },
   metrics: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  selectedEvent: { borderWidth: 1, borderStartWidth: 3 },
+  selectedEventHeader: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  selectedEventBody: { flex: 1, minWidth: 0, alignItems: "flex-start", gap: 8 },
+  selectedEventTitle: { color: installerTheme.text, fontSize: 16, lineHeight: 21, fontWeight: "800" },
+  selectedEventTime: {
+    color: installerTheme.text,
+    fontFamily: installerTheme.fontFamilyMono,
+    fontSize: 10,
+    lineHeight: 15,
+    marginTop: 10,
+  },
+  selectedEventDescription: { color: installerTheme.textMuted, fontSize: 11, lineHeight: 17, marginTop: 9 },
   dayGroup: { gap: 7 },
   events: { gap: 8 },
-  eventCard: { position: "relative", overflow: "hidden", paddingLeft: 17 },
-  eventStrip: { position: "absolute", top: 0, bottom: 0, left: 0, width: 3 },
+  eventCard: { position: "relative", overflow: "hidden", paddingStart: 17, borderColor: installerTheme.borderStrong },
+  eventStrip: { position: "absolute", top: 0, bottom: 0, start: 0, width: 3 },
   eventTop: { flexDirection: "row", alignItems: "center", gap: 10 },
+  eventTopPressed: { opacity: 0.68 },
   eventIcon: {
     width: 36,
     height: 36,
@@ -325,7 +438,7 @@ const styles = StyleSheet.create({
   },
   eventBody: { flex: 1, minWidth: 0 },
   eventTitle: { color: installerTheme.text, fontSize: 13, lineHeight: 17, fontWeight: "800" },
-  eventTime: { color: installerTheme.textMuted, fontSize: 10, marginTop: 3, fontVariant: ["tabular-nums"] },
+  eventTime: { color: installerTheme.textMuted, fontFamily: installerTheme.fontFamilyMono, fontSize: 10, marginTop: 3 },
   metaRow: { flexDirection: "row", alignItems: "flex-start", gap: 6, marginTop: 11 },
   metaText: { flex: 1, color: installerTheme.textMuted, fontSize: 11, lineHeight: 16 },
   description: { color: installerTheme.textMuted, fontSize: 11, lineHeight: 16, marginTop: 8 },

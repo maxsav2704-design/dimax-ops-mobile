@@ -11,6 +11,7 @@ vi.mock("expo-linking", () => ({
 import {
   buildProjectExternalActions,
   deriveProjectExternalLinks,
+  normalizeCallUrl,
   normalizeWhatsAppUrl,
   normalizeWazeUrl,
   openProjectExternalAction,
@@ -66,6 +67,32 @@ describe("project external actions", () => {
     expect(
       normalizeWhatsAppUrl("https://wa.me/972501110001?text=Hello%2C+regarding+project+Mobile+Test+Alpha")
     ).toBe("whatsapp://send?phone=972501110001&text=Hello%2C+regarding+project+Mobile+Test+Alpha");
+  });
+
+  it("rejects untrusted external action URLs", async () => {
+    expect(normalizeWazeUrl("javascript:alert(1)")).toBeNull();
+    expect(normalizeWhatsAppUrl("https://example.com/972501110001")).toBeNull();
+    expect(normalizeCallUrl("https://example.com/call")).toBeNull();
+    expect(
+      buildProjectExternalActions({
+        waze_url: "javascript:alert(1)",
+        whatsapp_url: "https://example.com/chat",
+        call_url: "file:///contacts.txt",
+      })
+    ).toEqual([]);
+
+    await expect(
+      openProjectExternalAction({ kind: "waze", url: "javascript:alert(1)" })
+    ).rejects.toThrow("Unsupported waze URL");
+    expect(openURLMock).not.toHaveBeenCalled();
+  });
+
+  it("normalizes phone links before opening them", async () => {
+    openURLMock.mockResolvedValue(undefined);
+
+    await openProjectExternalAction({ kind: "call", url: "tel:+972 50-111-0003" });
+
+    expect(openURLMock).toHaveBeenCalledWith("tel:+972501110003");
   });
 
   it("opens Waze using the native scheme first", async () => {

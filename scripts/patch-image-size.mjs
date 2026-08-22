@@ -123,7 +123,7 @@ function runSelfTest() {
   verifyPatches();
   const probe = spawnSync(process.execPath, [scriptPath, "--probe"], {
     encoding: "utf8",
-    timeout: 3_000,
+    timeout: 10_000,
   });
   if (probe.error) {
     throw probe.error;

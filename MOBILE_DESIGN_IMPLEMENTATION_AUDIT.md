@@ -2,6 +2,28 @@
 
 Date: 2026-06-21
 
+## Premium visual checkpoint
+
+Updated: 2026-08-22
+
+The current React Native implementation also follows the mobile Lovable
+reference at:
+
+`C:\Users\Hi-tech\Downloads\Новая папка\lovable-project-bd65b90a-feef-4f6d-bb5e-c132995b3649-2026-08-20`
+
+Applied without replacing DIMAX business contracts:
+
+- graphite `#080E15` shell and glass surfaces
+- Sora display type, Manrope body type and JetBrains Mono identifiers
+- gold DIMAX mark with electric-blue operational accents
+- floating five-action installer navigation
+- premium workspace imagery and progress treatment
+- vertical floor rail and door-position explorer
+- branded launcher, adaptive icon and dark splash screen
+
+Reference-only scan, photo, signature and simulated logistics actions were not
+copied because they are not part of the current installer API/offline contract.
+
 ## Source audit
 
 The source folder `C:\Users\Hi-tech\Downloads\дизайн` was inspected recursively.
@@ -75,12 +97,17 @@ screen heroes, metrics, segmented controls, actions, empty states and bottom nav
 ## Validation
 
 - TypeScript: passed
-- Vitest: 97 tests passed
+- Vitest: 154 tests passed across 20 test files
 - Expo config: passed
 - Python compile check for backend sync changes: passed
 - Native Android toolchain preflight: passed
 - Native Android debug build: passed
-- APK: `android/app/build/outputs/apk/debug/app-debug.apk` (132.22 MB)
-- APK SHA-256: `C61DD68FC72055968902573DE33DE7CE6900D2AB77C342906ECEBDDD82151223`
-- Physical-device installation and visual pass: passed on Xiaomi `2210129SG` (Android API 35)
-- Device smoke: login refresh, installer sync, tabs, issue composer, project detail and door detail passed
+- APK: `artifacts/android/dimax-installer-debug.apk` (132.55 MB)
+- APK SHA-256: `2FF4362630E0E50412000F464FC9AED7341C5C659BD4C178ACB2C35AE61E7FA4`
+- clean mobile source is recorded by the native build gate in
+  `artifacts/android/native-build-latest.json`
+- merged debug and release manifests inspected; obsolete storage permissions are absent
+- the premium flow, cold resync, and offline saved-workspace startup were explored
+  on Xiaomi `2210129SG` (Android API 35)
+- visual evidence is stored under `artifacts/device-qa`, but that session did not
+  record a machine-verifiable installed-APK hash and is not current release proof

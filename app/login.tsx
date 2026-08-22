@@ -1,20 +1,21 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
+  Image,
   Platform,
   Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
-import { DimaxMark } from "@/components/mobile-ui";
+import { BrandText as Text, DimaxMark } from "@/components/mobile-ui";
 import { DEV_AUTO_LOGIN } from "@/lib/config";
 import { installerTheme } from "@/lib/theme";
 import { useAuth, useI18n } from "@/providers/AppProviders";
@@ -110,6 +111,24 @@ export default function LoginScreen() {
           contentContainerStyle={styles.scroll}
         >
           <View style={styles.hero}>
+            <Image
+              source={require("../assets/premium/door-premium.jpg")}
+              resizeMode="cover"
+              style={styles.heroImage}
+              accessibilityIgnoresInvertColors
+            />
+            <LinearGradient
+              pointerEvents="none"
+              colors={["rgba(8,14,21,0.22)", "rgba(8,14,21,0.82)", installerTheme.background]}
+              locations={[0, 0.62, 1]}
+              style={StyleSheet.absoluteFillObject}
+            />
+            <View pointerEvents="none" style={styles.heroArchitecture}>
+              <View style={[styles.heroLine, styles.heroLineTop]} />
+              <View style={[styles.heroLine, styles.heroLineBottom]} />
+              <View style={styles.heroFrame} />
+              <View style={styles.heroAccentRail} />
+            </View>
             <View style={styles.heroTop}>
               <DimaxMark />
               <LocaleSwitcher dark />
@@ -173,13 +192,16 @@ export default function LoginScreen() {
             </View>
 
             {error ? (
-              <View style={styles.errorBox}>
+              <View style={styles.errorBox} accessibilityLiveRegion="assertive">
                 <Ionicons name="alert-circle-outline" size={18} color={installerTheme.danger} />
                 <Text style={styles.errorText}>{error}</Text>
               </View>
             ) : null}
 
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("login.signIn")}
+              accessibilityState={{ disabled: !canSubmit || submitting, busy: submitting }}
               onPress={() => void runLogin(companyId, email, password)}
               disabled={!canSubmit || submitting}
               style={({ pressed }) => [
@@ -188,13 +210,20 @@ export default function LoginScreen() {
                 (!canSubmit || submitting) && styles.disabled,
               ]}
             >
+              <LinearGradient
+                pointerEvents="none"
+                colors={[installerTheme.accent, "#C58D2F"]}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={StyleSheet.absoluteFillObject}
+              />
               <Text style={styles.submitText}>{submitting ? t("login.signingIn") : t("login.signIn")}</Text>
-              <Ionicons name="arrow-forward" size={18} color={installerTheme.text} />
+              <Ionicons name="arrow-forward" size={18} color={installerTheme.textOnAccent} />
             </Pressable>
 
             <View style={styles.formFooter}>
               <View style={styles.onlineDot} />
-              <Text style={styles.footerText}>{lt("Offline data is encrypted on this phone", "Офлайн-данные защищены на телефоне", "המידע המקומי מוגן במכשיר")}</Text>
+              <Text style={styles.footerText}>{lt("Offline data stays in protected app storage", "Офлайн-данные хранятся в защищённом хранилище приложения", "המידע המקומי נשמר באחסון המוגן של האפליקציה")}</Text>
             </View>
           </View>
         </ScrollView>
@@ -212,11 +241,48 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   hero: {
-    minHeight: 330,
+    position: "relative",
+    overflow: "hidden",
+    minHeight: 390,
     backgroundColor: installerTheme.shell,
     paddingHorizontal: 22,
     paddingTop: 14,
     paddingBottom: 28,
+  },
+  heroImage: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.5,
+  },
+  heroArchitecture: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  heroLine: {
+    position: "absolute",
+    start: 0,
+    end: 0,
+    height: 1,
+    backgroundColor: installerTheme.shellOverlaySubtle,
+  },
+  heroLineTop: { top: 74 },
+  heroLineBottom: { bottom: 42 },
+  heroFrame: {
+    position: "absolute",
+    top: 30,
+    end: -36,
+    width: 158,
+    height: 116,
+    borderStartWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: installerTheme.shellBorderSoft,
+    transform: [{ skewX: "-18deg" }],
+  },
+  heroAccentRail: {
+    position: "absolute",
+    start: 0,
+    top: 118,
+    width: 3,
+    height: 76,
+    backgroundColor: installerTheme.accent,
   },
   heroTop: {
     flexDirection: "row",
@@ -234,7 +300,7 @@ const styles = StyleSheet.create({
   heroTitle: {
     maxWidth: 330,
     color: installerTheme.textOnDark,
-    fontFamily: installerTheme.fontFamily,
+    fontFamily: installerTheme.fontFamilyDisplayStrong,
     fontSize: 31,
     lineHeight: 36,
     fontWeight: "800",
@@ -259,8 +325,8 @@ const styles = StyleSheet.create({
     gap: 5,
     borderRadius: installerTheme.radius.card,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.10)",
-    backgroundColor: "rgba(255,255,255,0.04)",
+    borderColor: installerTheme.shellBorderSoft,
+    backgroundColor: installerTheme.shellOverlayFaint,
     padding: 10,
   },
   heroFeatureText: {
@@ -271,9 +337,11 @@ const styles = StyleSheet.create({
   },
   form: {
     flex: 1,
-    backgroundColor: installerTheme.card,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
+    backgroundColor: installerTheme.background,
+    borderTopLeftRadius: installerTheme.radius.glass,
+    borderTopRightRadius: installerTheme.radius.glass,
+    borderTopWidth: 1,
+    borderTopColor: installerTheme.borderStrong,
     padding: 20,
   },
   formHead: {
@@ -284,7 +352,7 @@ const styles = StyleSheet.create({
   },
   productName: {
     color: installerTheme.text,
-    fontFamily: installerTheme.fontFamily,
+    fontFamily: installerTheme.fontFamilyDisplay,
     fontSize: 20,
     fontWeight: "900",
   },
@@ -309,7 +377,7 @@ const styles = StyleSheet.create({
   onlineDot: {
     width: 7,
     height: 7,
-    borderRadius: 999,
+    borderRadius: installerTheme.radius.pill,
     backgroundColor: installerTheme.successFill,
   },
   systemText: {
@@ -363,18 +431,25 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   submit: {
+    position: "relative",
+    overflow: "hidden",
     minHeight: 52,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 9,
-    borderRadius: installerTheme.radius.pill,
-    backgroundColor: installerTheme.accent,
+    borderRadius: installerTheme.radius.card,
+    backgroundColor: "transparent",
     marginTop: 18,
+    shadowColor: installerTheme.accent,
+    shadowOpacity: 0.26,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 4,
   },
   submitText: {
-    color: installerTheme.text,
-    fontFamily: installerTheme.fontFamily,
+    color: installerTheme.textOnAccent,
+    fontFamily: installerTheme.fontFamilyStrong,
     fontSize: 13,
     fontWeight: "900",
   },
@@ -386,9 +461,11 @@ const styles = StyleSheet.create({
     marginTop: 18,
   },
   footerText: {
+    flexShrink: 1,
     color: installerTheme.textFaint,
     fontFamily: installerTheme.fontFamily,
     fontSize: 9,
+    textAlign: "center",
   },
   pressed: {
     opacity: 0.72,

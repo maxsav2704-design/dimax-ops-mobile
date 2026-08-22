@@ -46,38 +46,46 @@ function buildCallUrl(phone: string | null | undefined): string | null {
 }
 
 export function normalizeWazeUrl(url: string | null | undefined): string | null {
-  if (!url) {
+  const normalized = url?.trim();
+  if (!normalized) {
     return null;
   }
 
-  if (url.startsWith("waze://")) {
-    return url;
+  if (normalized.startsWith("waze://")) {
+    return normalized;
   }
 
   try {
-    const parsed = new URL(url);
+    const parsed = new URL(normalized);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return null;
+    }
     if (!/waze\.com$/i.test(parsed.hostname) && !/\.waze\.com$/i.test(parsed.hostname)) {
-      return url;
+      return null;
     }
 
     const query = parsed.searchParams.toString();
     return query ? `waze://?${query}` : "waze://";
   } catch {
-    return url;
+    return null;
   }
 }
 
 export function normalizeWhatsAppUrl(url: string | null | undefined): string | null {
-  if (!url) {
+  const normalized = url?.trim();
+  if (!normalized) {
     return null;
   }
 
-  if (url.startsWith("whatsapp://")) {
-    return url;
+  if (normalized.startsWith("whatsapp://send")) {
+    return normalized;
   }
 
   try {
-    const parsed = new URL(url);
+    const parsed = new URL(normalized);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return null;
+    }
     const hostname = parsed.hostname.toLowerCase();
     let phone: string | null = null;
 
@@ -86,11 +94,11 @@ export function normalizeWhatsAppUrl(url: string | null | undefined): string | n
     } else if (hostname === "api.whatsapp.com" || hostname.endsWith(".api.whatsapp.com")) {
       phone = sanitizePhoneDigits(parsed.searchParams.get("phone"));
     } else {
-      return url;
+      return null;
     }
 
     if (!phone) {
-      return url;
+      return null;
     }
 
     const params = new URLSearchParams({ phone });
@@ -100,8 +108,17 @@ export function normalizeWhatsAppUrl(url: string | null | undefined): string | n
     }
     return `whatsapp://send?${params.toString()}`;
   } catch {
-    return url;
+    return null;
   }
+}
+
+export function normalizeCallUrl(url: string | null | undefined): string | null {
+  const normalized = url?.trim();
+  if (!normalized || !normalized.toLowerCase().startsWith("tel:")) {
+    return null;
+  }
+  const phone = normalized.slice(4).replace(/[^\d+*#,;]/g, "");
+  return /\d/.test(phone) ? `tel:${phone}` : null;
 }
 
 export function deriveProjectExternalLinks(source: ProjectExternalLinkSource | null | undefined): ProjectExternalLinks {
@@ -135,13 +152,13 @@ export function buildProjectExternalActions(source: ProjectExternalLinkSource | 
   const links = deriveProjectExternalLinks(source);
   const actions: ProjectExternalAction[] = [];
 
-  if (links.waze_url) {
+  if (links.waze_url && normalizeWazeUrl(links.waze_url)) {
     actions.push({ kind: "waze", url: links.waze_url });
   }
-  if (links.whatsapp_url) {
+  if (links.whatsapp_url && normalizeWhatsAppUrl(links.whatsapp_url)) {
     actions.push({ kind: "whatsapp", url: links.whatsapp_url });
   }
-  if (links.call_url) {
+  if (links.call_url && normalizeCallUrl(links.call_url)) {
     actions.push({ kind: "call", url: links.call_url });
   }
 
@@ -151,10 +168,13 @@ export function buildProjectExternalActions(source: ProjectExternalLinkSource | 
 export async function openProjectExternalAction(action: ProjectExternalAction): Promise<void> {
   const candidateUrl =
     action.kind === "waze"
-      ? normalizeWazeUrl(action.url) ?? action.url
+      ? normalizeWazeUrl(action.url)
       : action.kind === "whatsapp"
-        ? normalizeWhatsAppUrl(action.url) ?? action.url
-        : action.url;
+        ? normalizeWhatsAppUrl(action.url)
+        : normalizeCallUrl(action.url);
+  if (!candidateUrl) {
+    throw new Error(`Unsupported ${action.kind} URL`);
+  }
 
   try {
     await Linking.openURL(candidateUrl);

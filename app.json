@@ -4,8 +4,14 @@
     "slug": "dimax-installer",
     "scheme": "dimax-installer",
     "version": "0.1.0",
+    "icon": "./assets/brand/icon.png",
     "orientation": "portrait",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/brand/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#080E15"
+    },
     "plugins": [
       "expo-router",
       "expo-secure-store",
@@ -16,7 +22,20 @@
       "typedRoutes": true
     },
     "android": {
-      "package": "com.dimax.operations.installer"
+      "package": "com.dimax.operations.installer",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/brand/adaptive-icon.png",
+        "backgroundColor": "#080E15"
+      }
+    },
+    "androidStatusBar": {
+      "backgroundColor": "#080E15",
+      "barStyle": "light-content",
+      "translucent": false
+    },
+    "androidNavigationBar": {
+      "backgroundColor": "#080E15",
+      "barStyle": "light-content"
     }
   }
 }

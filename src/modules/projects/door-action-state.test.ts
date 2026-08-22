@@ -12,6 +12,7 @@ describe("door action state", () => {
       })
     ).toEqual({
       isLocked: false,
+      hasPendingStatusEvent: false,
       needsNotInstalledReason: false,
       canMarkInstalled: true,
       canMarkNotInstalled: true,
@@ -61,10 +62,27 @@ describe("door action state", () => {
     });
   });
 
+  it("disables another status action while the selected door is already queued", () => {
+    expect(
+      buildDoorActionState({
+        door: { status: "NOT_INSTALLED", is_locked: false },
+        busy: false,
+        selectedReasonId: "reason-1",
+        hasPendingStatusEvent: true,
+      })
+    ).toMatchObject({
+      isLocked: false,
+      hasPendingStatusEvent: true,
+      canMarkInstalled: false,
+      canMarkNotInstalled: false,
+    });
+  });
+
   it("normalizes add-on quantities before they reach the offline queue", () => {
     expect(normalizeAddonQty("2,50")).toBe("2.50");
     expect(normalizeAddonQty("0")).toBeNull();
     expect(normalizeAddonQty("abc")).toBeNull();
+    expect(normalizeAddonQty("1.234")).toBeNull();
   });
 
   it("allows add-on queueing only for a valid catalog type and positive quantity", () => {

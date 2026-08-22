@@ -15,6 +15,9 @@ node_modules/
 *.out.log
 *.pid
 *.png
+!assets/brand/
+!assets/brand/*.png
+!android/app/src/main/res/drawable-*/splashscreen_logo.png
 
 # Local release/device evidence is retained outside the source snapshot.
 /artifacts/

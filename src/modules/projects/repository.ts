@@ -10,6 +10,11 @@ import type {
   ProjectListItem,
 } from "@/modules/projects/types";
 
+type InstallerDoorRow = Omit<InstallerDoor, "is_locked" | "version"> & {
+  is_locked: unknown;
+  version: unknown;
+};
+
 export async function replaceProjects(items: ProjectListItem[]): Promise<void> {
   const db = await getDb();
   await db.withTransactionAsync(async () => {
@@ -71,8 +76,8 @@ export async function hydrateProjectDetails(payload: ProjectDetailsResponse): Pr
         payload.name,
         payload.address,
         payload.status,
-        payload.lifecycle_status,
-        payload.health_status,
+        payload.lifecycle_status || "ACTIVE",
+        payload.health_status || "NORMAL",
         externalLinks.waze_url,
         externalLinks.whatsapp_url,
         externalLinks.call_url,
@@ -187,7 +192,10 @@ export async function hydrateProjectDetails(payload: ProjectDetailsResponse): Pr
 export async function listProjects(): Promise<ProjectListItem[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<ProjectListItem>(
-    "SELECT id, name, address, status, waze_url, whatsapp_url, call_url FROM projects ORDER BY name ASC"
+    `SELECT id, name, address, status, lifecycle_status, health_status,
+            waze_url, whatsapp_url, call_url
+     FROM projects
+     ORDER BY name ASC`
   );
   return rows;
 }
@@ -195,25 +203,28 @@ export async function listProjects(): Promise<ProjectListItem[]> {
 export async function getProject(projectId: string): Promise<ProjectListItem | null> {
   const db = await getDb();
   return (await db.getFirstAsync<ProjectListItem>(
-    "SELECT id, name, address, status, waze_url, whatsapp_url, call_url FROM projects WHERE id = ?",
+    `SELECT id, name, address, status, lifecycle_status, health_status,
+            waze_url, whatsapp_url, call_url
+     FROM projects
+     WHERE id = ?`,
     [projectId]
   )) ?? null;
 }
 
 export async function listProjectDoors(projectId: string): Promise<InstallerDoor[]> {
   const db = await getDb();
-  const rows = await db.getAllAsync<any>(
+  const rows = await db.getAllAsync<InstallerDoorRow>(
     `SELECT id, project_id, door_type_id, unit_label, order_number, house_number, floor_label,
             apartment_number, location_code, door_marking, status, reason_id, comment, is_locked, version, updated_at
      FROM doors WHERE project_id = ?
      ORDER BY floor_label ASC, apartment_number ASC, unit_label ASC`,
     [projectId]
   );
-  return rows.map((row) => ({
+  return rows.map((row): InstallerDoor => ({
     ...row,
     is_locked: Boolean(row.is_locked),
     version: Number(row.version ?? 0),
-  })) as InstallerDoor[];
+  }));
 }
 
 export async function listProjectIssues(projectId: string): Promise<ProjectIssue[]> {

@@ -1,11 +1,7 @@
-import { Redirect } from "expo-router";
 import React from "react";
-import { useAuth } from "@/providers/AppProviders";
+import { View } from "react-native";
+import { installerTheme } from "@/lib/theme";
 
 export default function IndexScreen() {
-  const { user } = useAuth();
-  if (!user) {
-    return <Redirect href="/login" />;
-  }
-  return <Redirect href="/projects" />;
+  return <View style={{ flex: 1, backgroundColor: installerTheme.background }} />;
 }

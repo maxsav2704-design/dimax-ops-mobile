@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { refreshProjectDetails } from "@/modules/projects/service";
+import {
+  canUseProjectCacheAfterSyncFailure,
+  canRefreshProjectDetails,
+  isProjectAccessRevoked,
+  refreshProjectDetails,
+} from "@/modules/projects/service";
+import { ApiError, NetworkError } from "@/lib/errors";
 
 const apiFetchMock = vi.fn();
 const hydrateProjectDetailsMock = vi.fn();
@@ -45,5 +51,24 @@ describe("refreshProjectDetails", () => {
 
     expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/projects/project-1");
     expect(hydrateProjectDetailsMock).toHaveBeenCalledWith(payload);
+  });
+
+  it("does not allow a backend snapshot to overwrite pending offline work", () => {
+    expect(canRefreshProjectDetails(1)).toBe(false);
+    expect(canRefreshProjectDetails(3)).toBe(false);
+    expect(canRefreshProjectDetails(0)).toBe(true);
+  });
+
+  it("uses the project cache only for a network failure with cached assignments", () => {
+    expect(canUseProjectCacheAfterSyncFailure(new NetworkError(), 20)).toBe(true);
+    expect(canUseProjectCacheAfterSyncFailure(new NetworkError(), 0)).toBe(false);
+    expect(canUseProjectCacheAfterSyncFailure(new Error("invalid payload"), 20)).toBe(false);
+  });
+
+  it("recognizes a confirmed project access revocation", () => {
+    expect(isProjectAccessRevoked(new ApiError("forbidden", 403, ""))).toBe(true);
+    expect(isProjectAccessRevoked(new ApiError("missing", 404, ""))).toBe(true);
+    expect(isProjectAccessRevoked(new ApiError("server error", 500, ""))).toBe(false);
+    expect(isProjectAccessRevoked(new NetworkError("offline"))).toBe(false);
   });
 });

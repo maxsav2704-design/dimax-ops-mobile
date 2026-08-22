@@ -2,7 +2,7 @@ import * as SQLite from "expo-sqlite";
 
 const LEGACY_DB_NAME = "dimax_mobile.db";
 const DB_OWNER_STATE_KEY = "database_owner";
-const DB_SCHEMA_VERSION = 9;
+const DB_SCHEMA_VERSION = 10;
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 let activeOwnerKey: string | null = null;
@@ -12,7 +12,9 @@ let activationTail: Promise<void> = Promise.resolve();
 
 export async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise || !activeOwnerKey || !activeDbName) {
-    throw new Error("Local database is not activated for an authenticated user");
+    throw new Error(
+      "Local database is not activated for an authenticated user",
+    );
   }
   return dbPromise;
 }
@@ -140,6 +142,17 @@ async function createBaseSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       payload_json TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS installer_journal_snapshots (
+      id TEXT PRIMARY KEY NOT NULL,
+      project_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_installer_journal_snapshots_project
+      ON installer_journal_snapshots(project_id, updated_at);
   `);
 }
 
@@ -147,16 +160,20 @@ async function ensureColumn(
   db: SQLite.SQLiteDatabase,
   tableName: string,
   columnName: string,
-  ddl: string
+  ddl: string,
 ): Promise<void> {
-  const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${tableName})`);
+  const columns = await db.getAllAsync<{ name: string }>(
+    `PRAGMA table_info(${tableName})`,
+  );
   if (columns.some((column) => column.name === columnName)) {
     return;
   }
   await db.execAsync(`ALTER TABLE ${tableName} ADD COLUMN ${ddl};`);
 }
 
-async function normalizeAddonPlansSchema(db: SQLite.SQLiteDatabase): Promise<void> {
+async function normalizeAddonPlansSchema(
+  db: SQLite.SQLiteDatabase,
+): Promise<void> {
   await db.execAsync(`
     DROP TABLE IF EXISTS addon_plans_v8;
 
@@ -177,13 +194,30 @@ async function normalizeAddonPlansSchema(db: SQLite.SQLiteDatabase): Promise<voi
 }
 
 async function migrateDb(db: SQLite.SQLiteDatabase): Promise<void> {
-  const versionRow = await db.getFirstAsync<{ user_version: number }>("PRAGMA user_version");
+  const versionRow = await db.getFirstAsync<{ user_version: number }>(
+    "PRAGMA user_version",
+  );
   const currentVersion = Number(versionRow?.user_version || 0);
 
   if (currentVersion < 2) {
-    await ensureColumn(db, "pending_events", "attempts", "attempts INTEGER NOT NULL DEFAULT 0");
-    await ensureColumn(db, "pending_events", "next_retry_at", "next_retry_at TEXT");
-    await ensureColumn(db, "pending_events", "last_attempt_at", "last_attempt_at TEXT");
+    await ensureColumn(
+      db,
+      "pending_events",
+      "attempts",
+      "attempts INTEGER NOT NULL DEFAULT 0",
+    );
+    await ensureColumn(
+      db,
+      "pending_events",
+      "next_retry_at",
+      "next_retry_at TEXT",
+    );
+    await ensureColumn(
+      db,
+      "pending_events",
+      "last_attempt_at",
+      "last_attempt_at TEXT",
+    );
     await db.execAsync(`
       CREATE INDEX IF NOT EXISTS idx_pending_events_status_retry
         ON pending_events(status, next_retry_at, created_at);
@@ -221,7 +255,12 @@ async function migrateDb(db: SQLite.SQLiteDatabase): Promise<void> {
   }
 
   if (currentVersion < 7) {
-    await ensureColumn(db, "doors", "version", "version INTEGER NOT NULL DEFAULT 0");
+    await ensureColumn(
+      db,
+      "doors",
+      "version",
+      "version INTEGER NOT NULL DEFAULT 0",
+    );
   }
 
   if (currentVersion < 8) {
@@ -233,14 +272,28 @@ async function migrateDb(db: SQLite.SQLiteDatabase): Promise<void> {
       db,
       "projects",
       "lifecycle_status",
-      "lifecycle_status TEXT NOT NULL DEFAULT 'ACTIVE'"
+      "lifecycle_status TEXT NOT NULL DEFAULT 'ACTIVE'",
     );
     await ensureColumn(
       db,
       "projects",
       "health_status",
-      "health_status TEXT NOT NULL DEFAULT 'NORMAL'"
+      "health_status TEXT NOT NULL DEFAULT 'NORMAL'",
     );
+  }
+
+  if (currentVersion < 10) {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS installer_journal_snapshots (
+        id TEXT PRIMARY KEY NOT NULL,
+        project_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_installer_journal_snapshots_project
+        ON installer_journal_snapshots(project_id, updated_at);
+    `);
   }
 
   if (currentVersion !== DB_SCHEMA_VERSION) {
@@ -264,32 +317,34 @@ function buildAccountDbName(companyId: string, userId: string): string {
   return `dimax_mobile_${companyId}_${userId}.db`;
 }
 
-async function readDatabaseOwner(db: SQLite.SQLiteDatabase): Promise<string | null> {
+async function readDatabaseOwner(
+  db: SQLite.SQLiteDatabase,
+): Promise<string | null> {
   const row = await db.getFirstAsync<{ value: string | null }>(
     "SELECT value FROM sync_state WHERE key = ?",
-    [DB_OWNER_STATE_KEY]
+    [DB_OWNER_STATE_KEY],
   );
   return row?.value ?? null;
 }
 
 async function bindDatabaseOwner(
   db: SQLite.SQLiteDatabase,
-  ownerKey: string
+  ownerKey: string,
 ): Promise<void> {
   await db.runAsync(
     `INSERT INTO sync_state(key, value) VALUES(?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    [DB_OWNER_STATE_KEY, ownerKey]
+    [DB_OWNER_STATE_KEY, ownerKey],
   );
 }
 
 async function openInitializedDatabase(
-  dbName: string
+  dbName: string,
 ): Promise<SQLite.SQLiteDatabase> {
   const db = await SQLite.openDatabaseAsync(dbName);
   try {
     await createBaseSchema(db);
-    await migrateDb(db);
+    await db.withTransactionAsync(async () => migrateDb(db));
     return db;
   } catch (error) {
     await db.closeAsync().catch(() => undefined);
@@ -311,7 +366,7 @@ async function closeActiveDatabase(): Promise<void> {
 async function selectDatabaseForOwner(
   ownerKey: string,
   companyId: string,
-  userId: string
+  userId: string,
 ): Promise<{ db: SQLite.SQLiteDatabase; dbName: string }> {
   if (legacyOwnerKey === undefined) {
     const legacyDb = await openInitializedDatabase(LEGACY_DB_NAME);
@@ -339,7 +394,9 @@ async function selectDatabaseForOwner(
   const storedOwner = await readDatabaseOwner(db);
   if (storedOwner !== null && storedOwner !== ownerKey) {
     await db.closeAsync();
-    throw new Error("Local database owner does not match the authenticated user");
+    throw new Error(
+      "Local database owner does not match the authenticated user",
+    );
   }
   if (storedOwner === null) {
     await bindDatabaseOwner(db, ownerKey);
@@ -349,7 +406,7 @@ async function selectDatabaseForOwner(
 
 async function activateDatabase(
   companyId: string,
-  userId: string
+  userId: string,
 ): Promise<void> {
   const normalizedCompanyId = normalizeIdentityPart(companyId, "company ID");
   const normalizedUserId = normalizeIdentityPart(userId, "user ID");
@@ -364,7 +421,7 @@ async function activateDatabase(
   const selected = await selectDatabaseForOwner(
     ownerKey,
     normalizedCompanyId,
-    normalizedUserId
+    normalizedUserId,
   );
   activeOwnerKey = ownerKey;
   activeDbName = selected.dbName;
@@ -373,7 +430,7 @@ async function activateDatabase(
 
 export function activateDbForIdentity(
   companyId: string,
-  userId: string
+  userId: string,
 ): Promise<void> {
   const task = activationTail.then(() => activateDatabase(companyId, userId));
   activationTail = task.catch(() => undefined);
@@ -390,12 +447,15 @@ export async function initDb(): Promise<void> {
   await getDb();
 }
 
-export async function setState(key: string, value: string | null): Promise<void> {
+export async function setState(
+  key: string,
+  value: string | null,
+): Promise<void> {
   const db = await getDb();
   await db.runAsync(
     `INSERT INTO sync_state(key, value) VALUES(?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    [key, value]
+    [key, value],
   );
 }
 
@@ -403,7 +463,7 @@ export async function getState(key: string): Promise<string | null> {
   const db = await getDb();
   const row = await db.getFirstAsync<{ value: string | null }>(
     "SELECT value FROM sync_state WHERE key = ?",
-    [key]
+    [key],
   );
   return row?.value ?? null;
 }

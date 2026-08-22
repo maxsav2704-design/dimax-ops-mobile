@@ -40,6 +40,17 @@ export function buildProjectRouteFromCalendarEvent(event: InstallerCalendarEvent
   return buildProjectRoute(event.project_id);
 }
 
+export function buildDashboardPrimaryAction(events: InstallerCalendarEvent[]) {
+  const nextAssignedEvent = [...events]
+    .filter((event) => Boolean(event.project_id))
+    .sort((left, right) => left.starts_at.localeCompare(right.starts_at))[0];
+  const route = nextAssignedEvent ? buildProjectRouteFromCalendarEvent(nextAssignedEvent) : null;
+
+  return route
+    ? { kind: "SCHEDULED_PROJECT" as const, route }
+    : { kind: "CALENDAR" as const, route: "/calendar" as const };
+}
+
 export function buildIssueRouteFromCalendarEvent(event: InstallerCalendarEvent) {
   if (!event.project_id) {
     return null;

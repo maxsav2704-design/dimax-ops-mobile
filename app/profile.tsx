@@ -1,12 +1,14 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
-import { Alert, ScrollView, StatusBar, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StatusBar, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import {
   ActionButton,
+  BrandText as Text,
+  ConfirmDialog,
   IconButton,
   Row,
   ScreenHero,
@@ -14,6 +16,7 @@ import {
   SectionHeader,
   StatusPill,
 } from "@/components/mobile-ui";
+import { translateEnum } from "@/lib/i18n";
 import { installerTheme } from "@/lib/theme";
 import { getLastSyncAt, getSyncQueueSummary, runSync } from "@/modules/sync/service";
 import type { SyncQueueSummary } from "@/modules/sync/types";
@@ -25,6 +28,7 @@ export default function ProfileScreen() {
   const [queue, setQueue] = useState<SyncQueueSummary | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lt = (en: string, ru: string, he: string) => (locale === "ru" ? ru : locale === "he" ? he : en);
   const intlLocale = locale === "ru" ? "ru-RU" : locale === "he" ? "he-IL" : "en-GB";
@@ -45,7 +49,9 @@ export default function ProfileScreen() {
   };
 
   useEffect(() => {
-    void reload();
+    void reload().catch((reason) => {
+      setError(reason instanceof Error ? reason.message : lt("Unable to load profile state", "Не удалось загрузить состояние профиля", "לא ניתן לטעון את מצב הפרופיל"));
+    });
   }, []);
 
   const syncNow = async () => {
@@ -63,26 +69,7 @@ export default function ProfileScreen() {
     }
   };
 
-  const confirmSignOut = () => {
-    Alert.alert(
-      lt("Sign out", "Выйти", "יציאה"),
-      queue?.total
-        ? lt(
-            `${queue.total} queued actions remain on this phone. Sign out only after they sync.`,
-            `На телефоне осталось действий в очереди: ${queue.total}. Лучше выйти после синхронизации.`,
-            `${queue.total} פעולות עדיין בתור. מומלץ לצאת לאחר הסנכרון.`
-          )
-        : lt("Sign out of DIMAX Installer?", "Выйти из DIMAX Installer?", "לצאת מ-DIMAX Installer?"),
-      [
-        { text: lt("Cancel", "Отмена", "ביטול"), style: "cancel" },
-        {
-          text: lt("Sign out", "Выйти", "יציאה"),
-          style: "destructive",
-          onPress: () => void signOut(),
-        },
-      ]
-    );
-  };
+  const confirmSignOut = () => setShowSignOutConfirm(true);
 
   const initials = (user?.full_name || user?.email || "D")
     .split(/\s+/)
@@ -94,8 +81,9 @@ export default function ProfileScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       <StatusBar barStyle="light-content" backgroundColor={installerTheme.shell} />
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.content} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <ScreenHero
+          showMark={false}
           eyebrow={lt("ACCOUNT & DEVICE", "АККАУНТ И УСТРОЙСТВО", "חשבון ומכשיר")}
           title={lt("My profile", "Мой профиль", "הפרופיל שלי")}
           subtitle={user?.email}
@@ -116,7 +104,7 @@ export default function ProfileScreen() {
             <View style={styles.identityBody}>
               <Text style={styles.name}>{user?.full_name || lt("Installer", "Монтажник", "מתקין")}</Text>
               <View style={styles.badges}>
-                <StatusPill label={user?.role || "INSTALLER"} tone="accent" />
+                <StatusPill label={translateEnum(locale, user?.role || "INSTALLER")} tone="accent" />
                 <StatusPill
                   label={user?.is_active ? lt("Active", "Активен", "פעיל") : lt("Inactive", "Неактивен", "לא פעיל")}
                   tone={user?.is_active ? "success" : "danger"}
@@ -136,7 +124,7 @@ export default function ProfileScreen() {
 
           <SectionCard>
             <SectionHeader title={lt("Account", "Аккаунт", "חשבון")} />
-            <Row icon="mail-outline" title={lt("Email", "Email", "אימייל")} value={user?.email || "—"} tone="info" />
+            <Row icon="mail-outline" title={lt("Email", "Эл. почта", "דוא״ל")} value={user?.email || "—"} tone="info" />
             <Row icon="business-outline" title={lt("Company", "Компания", "חברה")} value={user?.company_id?.slice(0, 8) || "—"} tone="accent" />
             <Row icon="finger-print-outline" title={lt("User ID", "ID пользователя", "מזהה משתמש")} value={user?.id?.slice(0, 8) || "—"} />
           </SectionCard>
@@ -196,6 +184,28 @@ export default function ProfileScreen() {
           <Text style={styles.version}>DIMAX Installer · v0.1.0</Text>
         </View>
       </ScrollView>
+      <ConfirmDialog
+        visible={showSignOutConfirm}
+        title={lt("Sign out", "Выйти", "יציאה")}
+        message={
+          queue?.total
+            ? lt(
+                `${queue.total} queued actions remain on this phone. Sign out only after they sync.`,
+                `На телефоне осталось действий в очереди: ${queue.total}. Лучше выйти после синхронизации.`,
+                `${queue.total} פעולות עדיין בתור. מומלץ לצאת לאחר הסנכרון.`
+              )
+            : lt("Sign out of DIMAX Installer?", "Выйти из DIMAX Installer?", "לצאת מ-DIMAX Installer?")
+        }
+        confirmLabel={lt("Sign out", "Выйти", "יציאה")}
+        cancelLabel={lt("Cancel", "Отмена", "ביטול")}
+        danger
+        confirmIcon="log-out-outline"
+        onCancel={() => setShowSignOutConfirm(false)}
+        onConfirm={() => {
+          setShowSignOutConfirm(false);
+          void signOut();
+        }}
+      />
       <InstallerBottomNav />
     </SafeAreaView>
   );
@@ -203,8 +213,9 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: installerTheme.background },
+  content: { flex: 1 },
   scroll: { paddingBottom: installerTheme.layout.bottomNavClearance },
-  identity: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 18 },
+  identity: { flexDirection: "row", alignItems: "center", gap: 11, marginTop: 14 },
   avatar: {
     width: 54,
     height: 54,
@@ -219,14 +230,14 @@ const styles = StyleSheet.create({
   identityBody: { flex: 1, minWidth: 0 },
   name: { color: installerTheme.textOnDark, fontSize: 18, fontWeight: "800" },
   badges: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 7 },
-  body: { gap: 12, padding: 12 },
+  body: { gap: 14, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12 },
   errorBox: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     borderRadius: installerTheme.radius.card,
     borderWidth: 1,
-    borderColor: "#F5C2BC",
+    borderColor: installerTheme.dangerBorder,
     backgroundColor: installerTheme.dangerSoft,
     padding: 11,
   },

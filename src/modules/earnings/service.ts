@@ -93,15 +93,32 @@ export async function loadInstallerEarnings(
       };
     }
     const normalizedSnapshot = normalizeInstallerEarningsSummary(snapshot);
-    await saveEarningsSnapshot(normalizedSnapshot);
+    try {
+      await saveEarningsSnapshot(normalizedSnapshot);
+    } catch {
+      return {
+        snapshot: normalizedSnapshot,
+        source: "online",
+        message: "Current earnings are loaded, but their offline copy could not be updated.",
+      };
+    }
     return {
       snapshot: normalizedSnapshot,
       source: "online",
       message: null,
     };
   } catch (error) {
-    const cached = await getEarningsSnapshot(requestedPeriodKey);
-    if (cached) {
+    let cached: InstallerEarningsSummary | null = null;
+    try {
+      cached = await getEarningsSnapshot(requestedPeriodKey);
+    } catch {
+      return {
+        snapshot: null,
+        source: "unavailable",
+        message: `Earnings for ${requestedPeriodKey} and their offline copy are temporarily unavailable.`,
+      };
+    }
+    if (cached && isInstallerEarningsSummary(cached)) {
       return {
         snapshot: normalizeInstallerEarningsSummary(cached),
         source: "cache",

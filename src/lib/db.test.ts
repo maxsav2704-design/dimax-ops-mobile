@@ -35,6 +35,9 @@ const { databases, openDatabaseAsyncMock } = vi.hoisted(() => {
       }
       return { changes: 1, lastInsertRowId: 0 };
     });
+    database.withTransactionAsync = vi.fn(
+      async (callback: () => Promise<void>) => callback(),
+    );
     database.closeAsync = vi.fn(async () => undefined);
     return database;
   };
@@ -61,7 +64,8 @@ describe("mobile SQLite schema and account isolation", () => {
   });
 
   it("keeps add-on plans price-free and binds the legacy database to its first owner", async () => {
-    const { activateDbForIdentity, initDb } = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    const { activateDbForIdentity, initDb } =
+      await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
 
     await activateDbForIdentity("company-a", "user-a");
     await initDb();
@@ -73,29 +77,30 @@ describe("mobile SQLite schema and account isolation", () => {
 
     expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS addon_plans");
     expect(executedSql).toContain("CREATE TABLE addon_plans_v8");
-    expect(executedSql).toContain("PRAGMA user_version = 9");
+    expect(executedSql).toContain(
+      "CREATE TABLE IF NOT EXISTS installer_journal_snapshots",
+    );
+    expect(executedSql).toContain("PRAGMA user_version = 10");
     expect(executedSql).toContain("lifecycle_status TEXT NOT NULL");
     expect(executedSql).toContain("health_status TEXT NOT NULL");
     expect(executedSql).not.toContain("client_price");
     expect(executedSql).not.toContain("installer_price");
     expect(database.state.get("database_owner")).toBe("company-a:user-a");
+    expect(database.withTransactionAsync).toHaveBeenCalledTimes(1);
   });
 
   it("does not expose a database before an authenticated identity is activated", async () => {
-    const { getDb } = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    const { getDb } =
+      await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
 
     await expect(getDb()).rejects.toThrow(
-      "Local database is not activated for an authenticated user"
+      "Local database is not activated for an authenticated user",
     );
   });
 
   it("uses separate files per account and preserves each account outbox", async () => {
-    const {
-      activateDbForIdentity,
-      getDb,
-      getState,
-      setState,
-    } = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    const { activateDbForIdentity, getDb, getState, setState } =
+      await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
 
     await activateDbForIdentity("company-a", "user-a");
     const databaseA = (await getDb()) as any;
@@ -128,14 +133,16 @@ describe("mobile SQLite schema and account isolation", () => {
   });
 
   it("persists the legacy owner decision across an application restart", async () => {
-    const firstRuntime = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    const firstRuntime =
+      await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
     await firstRuntime.activateDbForIdentity("company-a", "user-a");
     await firstRuntime.deactivateDb();
 
     vi.resetModules();
     openDatabaseAsyncMock.mockClear();
 
-    const secondRuntime = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    const secondRuntime =
+      await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
     await secondRuntime.activateDbForIdentity("company-a", "user-b");
 
     expect(openDatabaseAsyncMock.mock.calls.map(([name]) => name)).toEqual([
@@ -143,12 +150,12 @@ describe("mobile SQLite schema and account isolation", () => {
       "dimax_mobile_company-a_user-b.db",
     ]);
     expect(databases.get("dimax_mobile.db").state.get("database_owner")).toBe(
-      "company-a:user-a"
+      "company-a:user-a",
     );
     expect(
       databases
         .get("dimax_mobile_company-a_user-b.db")
-        .state.get("database_owner")
+        .state.get("database_owner"),
     ).toBe("company-a:user-b");
   });
 });

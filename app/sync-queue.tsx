@@ -1,10 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import React, { useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StatusBar, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
 import {
   ActionButton,
+  BrandText as Text,
+  ConfirmDialog,
   EmptyState,
   IconButton,
   ScreenHero,
@@ -42,35 +44,42 @@ export default function SyncQueueScreen() {
   const [filter, setFilter] = useState<QueueFilter>("ALL");
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [dropCandidate, setDropCandidate] = useState<PendingSyncEvent | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lt = (en: string, ru: string, he: string) => (locale === "ru" ? ru : locale === "he" ? he : en);
   const intlLocale = locale === "ru" ? "ru-RU" : locale === "he" ? "he-IL" : "en-GB";
 
-  const reload = async () => {
-    const [pending, queueSummary, projects, syncAt] = await Promise.all([
-      listPendingEvents(),
-      getSyncQueueSummary(),
-      listProjects(),
-      getLastSyncAt(),
-    ]);
-    const missingIds = pending
-      .map((event) => event.project_id)
-      .filter((projectId) => !projects.some((project) => project.id === projectId));
-    const extraProjects = await Promise.all(
-      Array.from(new Set(missingIds)).map(async (projectId) => getProject(projectId))
-    );
-    const names = Object.fromEntries(
-      [...projects, ...extraProjects.filter(Boolean)].map((project) => [project!.id, project!.name])
-    );
-    const priority = { BLOCKED: 0, FAILED: 1, PENDING: 2 } as const;
-    pending.sort((left, right) =>
-      priority[left.status] - priority[right.status] || right.created_at.localeCompare(left.created_at)
-    );
-    setItems(pending);
-    setSummary(queueSummary);
-    setProjectNames(names);
-    setLastSyncAt(syncAt);
+  const reload = async (): Promise<boolean> => {
+    try {
+      const [pending, queueSummary, projects, syncAt] = await Promise.all([
+        listPendingEvents(),
+        getSyncQueueSummary(),
+        listProjects(),
+        getLastSyncAt(),
+      ]);
+      const missingIds = pending
+        .map((event) => event.project_id)
+        .filter((projectId) => !projects.some((project) => project.id === projectId));
+      const extraProjects = await Promise.all(
+        Array.from(new Set(missingIds)).map(async (projectId) => getProject(projectId))
+      );
+      const names = Object.fromEntries(
+        [...projects, ...extraProjects.filter(Boolean)].map((project) => [project!.id, project!.name])
+      );
+      const priority = { BLOCKED: 0, FAILED: 1, PENDING: 2 } as const;
+      pending.sort((left, right) =>
+        priority[left.status] - priority[right.status] || right.created_at.localeCompare(left.created_at)
+      );
+      setItems(pending);
+      setSummary(queueSummary);
+      setProjectNames(names);
+      setLastSyncAt(syncAt);
+      return true;
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : lt("Unable to read sync queue", "Не удалось прочитать очередь синка", "לא ניתן לקרוא את תור הסנכרון"));
+      return false;
+    }
   };
 
   useEffect(() => {
@@ -113,24 +122,7 @@ export default function SyncQueueScreen() {
     }
   };
 
-  const confirmDrop = (item: PendingSyncEvent) => {
-    Alert.alert(
-      lt("Discard queued action?", "Удалить действие из очереди?", "למחוק פעולה מהתור?"),
-      lt(
-        "Its optimistic local change will also be removed. This cannot be undone.",
-        "Связанное локальное изменение тоже будет отменено. Это действие нельзя вернуть.",
-        "גם השינוי המקומי יבוטל. לא ניתן לשחזר פעולה זו."
-      ),
-      [
-        { text: lt("Cancel", "Отмена", "ביטול"), style: "cancel" },
-        {
-          text: lt("Discard", "Удалить", "מחיקה"),
-          style: "destructive",
-          onPress: () => void dropItem(item.client_event_id),
-        },
-      ]
-    );
-  };
+  const confirmDrop = (item: PendingSyncEvent) => setDropCandidate(item);
 
   const dropItem = async (clientEventId: string) => {
     setBusyId(clientEventId);
@@ -180,8 +172,9 @@ export default function SyncQueueScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       <StatusBar barStyle="light-content" backgroundColor={installerTheme.shell} />
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.content} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <ScreenHero
+          showMark={false}
           eyebrow={lt("OFFLINE QUEUE", "ОФЛАЙН-ОЧЕРЕДЬ", "תור לא מקוון")}
           title={lt("Sync status", "Состояние синхронизации", "מצב סנכרון")}
           subtitle={`${lt("Last sync", "Последняя синхронизация", "סנכרון אחרון")}: ${timeLabel(lastSyncAt)}`}
@@ -195,7 +188,7 @@ export default function SyncQueueScreen() {
           }
         >
           <View style={styles.connectionRow}>
-            <View style={[styles.connectionIcon, { backgroundColor: attentionCount ? "rgba(255,138,61,0.16)" : "rgba(76,175,80,0.16)" }]}>
+            <View style={[styles.connectionIcon, { backgroundColor: attentionCount ? installerTheme.warningGlow : installerTheme.successGlow }]}>
               <Ionicons
                 name={attentionCount ? "warning-outline" : "cloud-done-outline"}
                 size={21}
@@ -203,7 +196,7 @@ export default function SyncQueueScreen() {
               />
             </View>
             <View style={styles.connectionBody}>
-              <Text style={[styles.connectionTitle, { color: attentionCount ? installerTheme.warningFill : "#B8E5C4" }]}>
+              <Text style={[styles.connectionTitle, { color: attentionCount ? installerTheme.warningFill : installerTheme.successBorder }]}>
                 {attentionCount
                   ? lt("Queue needs attention", "Очередь требует внимания", "התור דורש טיפול")
                   : summary?.total
@@ -229,7 +222,7 @@ export default function SyncQueueScreen() {
 
         <View style={styles.body}>
           {error ? (
-            <View style={styles.errorBox}>
+            <View style={styles.errorBox} accessibilityLiveRegion="polite">
               <Ionicons name="alert-circle-outline" size={18} color={installerTheme.danger} />
               <Text style={styles.errorText}>{error}</Text>
             </View>
@@ -297,6 +290,27 @@ export default function SyncQueueScreen() {
           )}
         </View>
       </ScrollView>
+      <ConfirmDialog
+        visible={Boolean(dropCandidate)}
+        title={lt("Discard queued action?", "Удалить действие из очереди?", "למחוק פעולה מהתור?")}
+        message={lt(
+          "Its optimistic local change will also be removed. This cannot be undone.",
+          "Связанное локальное изменение тоже будет отменено. Это действие нельзя вернуть.",
+          "גם השינוי המקומי יבוטל. לא ניתן לשחזר פעולה זו."
+        )}
+        confirmLabel={lt("Discard", "Удалить", "מחיקה")}
+        cancelLabel={lt("Cancel", "Отмена", "ביטול")}
+        danger
+        confirmIcon="trash-outline"
+        busy={Boolean(dropCandidate && busyId === dropCandidate.client_event_id)}
+        onCancel={() => setDropCandidate(null)}
+        onConfirm={() => {
+          if (!dropCandidate) return;
+          const clientEventId = dropCandidate.client_event_id;
+          setDropCandidate(null);
+          void dropItem(clientEventId);
+        }}
+      />
       <InstallerBottomNav />
     </SafeAreaView>
   );
@@ -391,14 +405,15 @@ function QueueCard({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: installerTheme.background },
+  content: { flex: 1 },
   scroll: { paddingBottom: installerTheme.layout.bottomNavClearance },
-  connectionRow: { flexDirection: "row", alignItems: "center", gap: 11, marginTop: 16 },
+  connectionRow: { flexDirection: "row", alignItems: "center", gap: 11, marginTop: 12 },
   connectionIcon: {
     width: 42,
     height: 42,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 999,
+    borderRadius: installerTheme.radius.pill,
   },
   connectionBody: { flex: 1, minWidth: 0 },
   connectionTitle: { fontSize: 13, fontWeight: "800" },
@@ -407,28 +422,28 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     overflow: "hidden",
     borderRadius: installerTheme.radius.card,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    marginTop: 14,
+    backgroundColor: installerTheme.shellOverlaySubtle,
+    marginTop: 10,
   },
   heroStat: { flex: 1, alignItems: "center", paddingHorizontal: 4, paddingVertical: 10 },
-  heroStatValue: { fontSize: 17, fontWeight: "900", fontVariant: ["tabular-nums"] },
+  heroStatValue: { fontFamily: installerTheme.fontFamilyMono, fontSize: 17 },
   heroStatLabel: { color: installerTheme.textFaint, fontSize: 8, fontWeight: "700", marginTop: 3 },
-  body: { gap: 12, padding: 12 },
+  body: { gap: 14, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12 },
   errorBox: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     borderRadius: installerTheme.radius.card,
     borderWidth: 1,
-    borderColor: "#F5C2BC",
+    borderColor: installerTheme.dangerBorder,
     backgroundColor: installerTheme.dangerSoft,
     padding: 11,
   },
   errorText: { flex: 1, color: installerTheme.danger, fontSize: 11, lineHeight: 16 },
   bulkActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   queueList: { gap: 8 },
-  queueCard: { position: "relative", overflow: "hidden", paddingLeft: 17 },
-  queueStrip: { position: "absolute", top: 0, bottom: 0, left: 0, width: 3 },
+  queueCard: { position: "relative", overflow: "hidden", paddingStart: 17, borderColor: installerTheme.borderStrong },
+  queueStrip: { position: "absolute", top: 0, bottom: 0, start: 0, width: 3 },
   queueHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
   queueIcon: {
     width: 34,
@@ -450,7 +465,7 @@ const styles = StyleSheet.create({
   resolutionDetail: { color: installerTheme.textMuted, fontSize: 10, lineHeight: 15, marginTop: 4 },
   resolutionAction: { color: installerTheme.text, fontSize: 10, lineHeight: 15, fontWeight: "700", marginTop: 6 },
   queueFacts: { flexDirection: "row", flexWrap: "wrap", gap: 9, marginTop: 9 },
-  queueFact: { color: installerTheme.textFaint, fontSize: 9, fontVariant: ["tabular-nums"] },
+  queueFact: { color: installerTheme.textFaint, fontFamily: installerTheme.fontFamilyMono, fontSize: 9 },
   itemActions: { flexDirection: "row", gap: 7, marginTop: 11 },
   flex: { flex: 1 },
 });

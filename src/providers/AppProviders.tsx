@@ -9,7 +9,7 @@ import React, {
   useState,
 } from "react";
 import * as SecureStore from "expo-secure-store";
-import { ActivityIndicator, AppState, View } from "react-native";
+import { ActivityIndicator, AppState, StyleSheet, View } from "react-native";
 import { LOCALE_STORAGE_KEY } from "@/lib/config";
 import { installerTheme } from "@/lib/theme";
 import {
@@ -155,7 +155,20 @@ export function AppProviders({ children }: { children: ReactNode }) {
           setSyncVersion((version) => version + 1);
         }
       } catch {
-        // Ignore transient network failures; pending events remain local.
+        // Transient failures keep the offline workspace active. A rejected refresh
+        // clears SecureStore in the API layer, so return to login immediately.
+        try {
+          const session = await getStoredSession();
+          if (active && !session) {
+            authEpoch.current += 1;
+            queryClient.clear();
+            setUser(null);
+            setSyncVersion(0);
+            await deactivateDb();
+          }
+        } catch {
+          // A temporary SecureStore read failure must not destroy the offline session.
+        }
       }
     };
 
@@ -220,23 +233,26 @@ export function AppProviders({ children }: { children: ReactNode }) {
         const expectedEpoch = ++authEpoch.current;
         setLoading(true);
         try {
-          await logoutRequest();
+          await logoutRequest().catch(() => undefined);
         } finally {
-          queryClient.clear();
-          setUser(null);
-          setSyncVersion(0);
-          await deactivateDb().catch(() => undefined);
           if (authEpoch.current === expectedEpoch) {
+            queryClient.clear();
+            setUser(null);
+            setSyncVersion(0);
+            await deactivateDb().catch(() => undefined);
             setLoading(false);
           }
         }
       },
       refreshUser: async () => {
+        const expectedEpoch = authEpoch.current;
         setLoading(true);
         try {
-          await refreshUserFromServer();
+          await refreshUserFromServer(expectedEpoch);
         } finally {
-          setLoading(false);
+          if (authEpoch.current === expectedEpoch) {
+            setLoading(false);
+          }
         }
       },
     }),
@@ -260,18 +276,43 @@ export function AppProviders({ children }: { children: ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <I18nContext.Provider value={i18nValue}>
         <AuthContext.Provider value={value}>
-          {loading ? (
-            <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: installerTheme.background }}>
-              <ActivityIndicator size="large" color={installerTheme.primary} />
-            </View>
-          ) : (
-            children
-          )}
+          <View
+            style={[
+              styles.providerRoot,
+              isRtlLocale(locale) ? styles.providerRootRtl : styles.providerRootLtr,
+            ]}
+          >
+            {children}
+            {loading ? (
+              <View style={styles.loadingOverlay}>
+                <ActivityIndicator size="large" color={installerTheme.primary} />
+              </View>
+            ) : null}
+          </View>
         </AuthContext.Provider>
       </I18nContext.Provider>
     </QueryClientProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  providerRoot: {
+    flex: 1,
+    backgroundColor: installerTheme.background,
+  },
+  providerRootLtr: {
+    direction: "ltr",
+  },
+  providerRootRtl: {
+    direction: "rtl",
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: installerTheme.background,
+  },
+});
 
 export function useAuth() {
   const ctx = useContext(AuthContext);

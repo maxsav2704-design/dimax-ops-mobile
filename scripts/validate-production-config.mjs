@@ -112,6 +112,50 @@ function validateAndroidNetworkSecurity(projectRoot = process.cwd()) {
   return errors;
 }
 
+function validateAndroidManifest(projectRoot = process.cwd()) {
+  const errors = [];
+  const mainPath = path.join(projectRoot, "android", "app", "src", "main", "AndroidManifest.xml");
+  const debugPath = path.join(projectRoot, "android", "app", "src", "debug", "AndroidManifest.xml");
+
+  if (!fs.existsSync(mainPath)) {
+    return ["Android release manifest is missing"];
+  }
+
+  const main = fs.readFileSync(mainPath, "utf8");
+  if (!/android:name="android\.permission\.INTERNET"/u.test(main)) {
+    errors.push("Android release manifest must allow internet access");
+  }
+  for (const permission of ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "VIBRATE"]) {
+    const declaration = main.match(
+      new RegExp(
+        `<uses-permission\\b[^>]*android:name="android\\.permission\\.${permission}"[^>]*/?>`,
+        "u",
+      ),
+    )?.[0];
+    if (!declaration?.includes('tools:node="remove"')) {
+      errors.push(`Android release manifest must remove inherited ${permission}`);
+    }
+  }
+  if (main.includes("android.permission.SYSTEM_ALERT_WINDOW")) {
+    errors.push("Android release manifest must not request SYSTEM_ALERT_WINDOW");
+  }
+  if (!/android:allowBackup="false"/u.test(main)) {
+    errors.push("Android release manifest must disable backup for the offline work database");
+  }
+  const schemeMatches = main.match(/android:scheme="dimax-installer"/gu) || [];
+  if (schemeMatches.length !== 1) {
+    errors.push("Android release manifest must declare the DIMAX deep-link scheme exactly once");
+  }
+
+  if (!fs.existsSync(debugPath)) {
+    errors.push("Android debug manifest is missing");
+  } else if (!fs.readFileSync(debugPath, "utf8").includes("android.permission.SYSTEM_ALERT_WINDOW")) {
+    errors.push("Android debug manifest must retain the Expo development overlay permission");
+  }
+
+  return errors;
+}
+
 function parseArgs(args) {
   const result = { envFile: "", selfTest: false };
   for (let index = 0; index < args.length; index += 1) {
@@ -150,11 +194,13 @@ function runSelfTest() {
     }
   }
   const networkErrors = validateAndroidNetworkSecurity();
-  if (networkErrors.length > 0) {
-    throw new Error(`Android network policy contract failed: ${networkErrors.join("; ")}`);
+  const manifestErrors = validateAndroidManifest();
+  const androidErrors = [...networkErrors, ...manifestErrors];
+  if (androidErrors.length > 0) {
+    throw new Error(`Android production contract failed: ${androidErrors.join("; ")}`);
   }
   console.log(
-    `Mobile production contract passed (${cases.length} API cases + Android network policy).`,
+    `Mobile production contract passed (${cases.length} API cases + Android network/manifest policy).`,
   );
 }
 
@@ -177,6 +223,7 @@ function main() {
   const errors = [
     ...validateApiBaseUrl(values.EXPO_PUBLIC_API_BASE_URL),
     ...validateAndroidNetworkSecurity(),
+    ...validateAndroidManifest(),
   ];
   if (errors.length > 0) {
     console.error("Mobile production config validation failed:");

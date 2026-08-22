@@ -1,7 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { listProjectAddonFacts, replaceProjects } from "@/modules/projects/repository";
+import {
+  hydrateProjectDetails,
+  listProjectAddonFacts,
+  listProjects,
+  replaceProjects,
+} from "@/modules/projects/repository";
 
+const { deriveProjectExternalLinksMock } = vi.hoisted(() => ({
+  deriveProjectExternalLinksMock: vi.fn(),
+}));
 const runAsyncMock = vi.fn();
 const getAllAsyncMock = vi.fn();
 const withTransactionAsyncMock = vi.fn(async (callback: () => Promise<void>) => callback());
@@ -15,7 +23,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 vi.mock("@/modules/projects/external-actions", () => ({
-  deriveProjectExternalLinks: vi.fn(),
+  deriveProjectExternalLinks: deriveProjectExternalLinksMock,
 }));
 
 describe("replaceProjects", () => {
@@ -23,6 +31,7 @@ describe("replaceProjects", () => {
     runAsyncMock.mockReset();
     getAllAsyncMock.mockReset();
     withTransactionAsyncMock.mockClear();
+    deriveProjectExternalLinksMock.mockReset();
   });
 
   it("persists whatsapp and call links from the installer project list payload", async () => {
@@ -99,5 +108,44 @@ describe("replaceProjects", () => {
     expect(sql).toContain("LEFT JOIN addon_types");
     expect(sql).toContain("ORDER BY addon_facts.done_at DESC");
     expect(params).toEqual(["project-1"]);
+  });
+
+  it("loads lifecycle and health status with every cached project", async () => {
+    getAllAsyncMock.mockResolvedValueOnce([]);
+
+    await listProjects();
+
+    const [sql] = getAllAsyncMock.mock.calls[0] as [string];
+    expect(sql).toContain("lifecycle_status");
+    expect(sql).toContain("health_status");
+  });
+
+  it("keeps detail hydration compatible with an older backend payload", async () => {
+    deriveProjectExternalLinksMock.mockReturnValue({
+      waze_url: null,
+      whatsapp_url: null,
+      call_url: null,
+    });
+
+    await hydrateProjectDetails({
+      id: "project-1",
+      name: "Alpha",
+      address: "Street 1",
+      status: "OK",
+      lifecycle_status: undefined as never,
+      health_status: undefined as never,
+      waze_url: null,
+      server_time: "2026-08-28T13:00:00Z",
+      doors: [],
+      issues_open: [],
+      door_types_catalog: [],
+      reasons_catalog: [],
+      addons: { types: [], plan: [], facts: [] },
+    });
+
+    const [sql, params] = runAsyncMock.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("INSERT INTO projects");
+    expect(params[4]).toBe("ACTIVE");
+    expect(params[5]).toBe("NORMAL");
   });
 });

@@ -1,48 +1,69 @@
-import { Platform } from "react-native";
-
 export const installerTheme = {
-  background: "#F4F4F6",
-  shell: "#0A0A0A",
-  shellRaised: "#1A1A1A",
-  shellMuted: "#2A2A2D",
-  card: "#FFFFFF",
-  cardMuted: "#FAFAFB",
-  border: "#E5E5E7",
-  borderStrong: "#CFCFD2",
-  primary: "#1A1A1A",
-  primarySoft: "#FFF5D6",
-  accent: "#FFC83A",
-  accentPressed: "#F5BC2F",
-  accentWarm: "#FFF5D6",
-  accentEdge: "#F0D88A",
-  text: "#1A1A1A",
-  textOnDark: "#F4F4F6",
-  textMuted: "#6B6B6F",
-  textFaint: "#A5A5A9",
-  success: "#2D8F4E",
-  successFill: "#4CAF50",
-  successSoft: "#E8F7EE",
-  warning: "#A65300",
-  warningFill: "#FF8A3D",
-  warningSoft: "#FFF3E0",
-  danger: "#C0392B",
-  dangerFill: "#E74C3C",
-  dangerSoft: "#FDE9E7",
-  info: "#1F5FB8",
-  infoFill: "#2B7FFF",
-  infoSoft: "#E3F0FF",
-  purple: "#6B3FA0",
-  purpleSoft: "#F1E9FA",
+  background: "#080E15",
+  shell: "#0B111A",
+  shellRaised: "#131821",
+  shellMuted: "#1A202B",
+  card: "#131821",
+  cardMuted: "#1A202B",
+  elevated: "#222936",
+  border: "rgba(255,255,255,0.09)",
+  borderStrong: "rgba(255,255,255,0.16)",
+  primary: "#338EFF",
+  primarySoft: "rgba(51,142,255,0.13)",
+  accent: "#E4B24E",
+  accentPressed: "#C9973A",
+  accentWarm: "rgba(228,178,78,0.12)",
+  accentEdge: "rgba(228,178,78,0.38)",
+  text: "#F4F7FB",
+  textOnDark: "#F4F7FB",
+  textOnAccent: "#111820",
+  textMuted: "#9AA8BA",
+  textFaint: "#69788C",
+  success: "#35D991",
+  successFill: "#35D991",
+  successSoft: "rgba(53,217,145,0.10)",
+  warning: "#EAB44A",
+  warningFill: "#EAB44A",
+  warningSoft: "rgba(234,180,74,0.10)",
+  danger: "#EC5752",
+  dangerFill: "#EC5752",
+  dangerSoft: "rgba(236,87,82,0.10)",
+  info: "#338EFF",
+  infoFill: "#338EFF",
+  infoSoft: "rgba(51,142,255,0.12)",
+  purple: "#A477E8",
+  purpleSoft: "rgba(164,119,232,0.10)",
+  successBorder: "rgba(53,217,145,0.30)",
+  warningBorder: "rgba(234,180,74,0.35)",
+  dangerBorder: "rgba(236,87,82,0.35)",
+  infoBorder: "rgba(51,142,255,0.35)",
+  purpleBorder: "rgba(164,119,232,0.30)",
+  accentText: "#E4B24E",
+  shellOverlayFaint: "rgba(255,255,255,0.035)",
+  shellOverlaySubtle: "rgba(255,255,255,0.055)",
+  shellOverlay: "rgba(255,255,255,0.075)",
+  shellBorderSoft: "rgba(161,190,224,0.12)",
+  shellBorder: "rgba(161,190,224,0.20)",
+  successGlow: "rgba(77,219,145,0.18)",
+  warningGlow: "rgba(240,183,62,0.18)",
+  infoGlow: "rgba(34,149,255,0.20)",
+  accentGlow: "rgba(240,183,62,0.22)",
+  dangerGlow: "rgba(255,116,123,0.18)",
+  doorMaterial: "#202C3B",
+  doorMaterialInset: "rgba(188,211,238,0.18)",
   whatsapp: "#25D366",
-  fontFamily: Platform.select({
-    ios: "System",
-    android: "sans-serif",
-    default: "system-ui",
-  }),
+  fontFamily: "Manrope_400Regular",
+  fontFamilyMedium: "Manrope_600SemiBold",
+  fontFamilyStrong: "Manrope_700Bold",
+  fontFamilyDisplay: "Sora_700Bold",
+  fontFamilyDisplayStrong: "Sora_800ExtraBold",
+  fontFamilyMono: "JetBrainsMono_500Medium",
   radius: {
-    sm: 4,
-    md: 6,
-    card: 8,
+    sm: 10,
+    md: 13,
+    card: 16,
+    xl: 21,
+    glass: 26,
     pill: 999,
   },
   spacing: {
@@ -54,7 +75,7 @@ export const installerTheme = {
     xxl: 24,
   },
   layout: {
-    bottomNavClearance: 88,
+    bottomNavClearance: 112,
   },
 } as const;
 
@@ -63,17 +84,17 @@ export type InstallerTone = "neutral" | "accent" | "success" | "warning" | "dang
 export function toneColors(tone: InstallerTone) {
   switch (tone) {
     case "accent":
-      return { background: installerTheme.accentWarm, border: installerTheme.accentEdge, text: "#8A6C1F" };
+      return { background: installerTheme.accentWarm, border: installerTheme.accentEdge, text: installerTheme.accentText };
     case "success":
-      return { background: installerTheme.successSoft, border: "#B8E5C4", text: installerTheme.success };
+      return { background: installerTheme.successSoft, border: installerTheme.successBorder, text: installerTheme.success };
     case "warning":
-      return { background: installerTheme.warningSoft, border: "#FFD4A3", text: installerTheme.warning };
+      return { background: installerTheme.warningSoft, border: installerTheme.warningBorder, text: installerTheme.warning };
     case "danger":
-      return { background: installerTheme.dangerSoft, border: "#F5C2BC", text: installerTheme.danger };
+      return { background: installerTheme.dangerSoft, border: installerTheme.dangerBorder, text: installerTheme.danger };
     case "info":
-      return { background: installerTheme.infoSoft, border: "#B5D1F0", text: installerTheme.info };
+      return { background: installerTheme.infoSoft, border: installerTheme.infoBorder, text: installerTheme.info };
     case "purple":
-      return { background: installerTheme.purpleSoft, border: "#D8C2F0", text: installerTheme.purple };
+      return { background: installerTheme.purpleSoft, border: installerTheme.purpleBorder, text: installerTheme.purple };
     default:
       return { background: installerTheme.cardMuted, border: installerTheme.border, text: installerTheme.textMuted };
   }

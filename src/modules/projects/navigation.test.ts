@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDashboardPrimaryAction,
   buildDoorPrepRoute,
   buildIssueProjectRoute,
   buildIssueRouteFromCalendarEvent,
@@ -9,6 +10,63 @@ import {
 } from "@/modules/projects/navigation";
 
 describe("project navigation continuity", () => {
+  it("opens the calendar when today has no assigned project", () => {
+    expect(buildDashboardPrimaryAction([])).toEqual({
+      kind: "CALENDAR",
+      route: "/calendar",
+    });
+    expect(
+      buildDashboardPrimaryAction([
+        {
+          id: "office-event",
+          title: "Office briefing",
+          event_type: "OTHER",
+          starts_at: "2026-08-22T08:00:00Z",
+          ends_at: "2026-08-22T09:00:00Z",
+          location: null,
+          waze_url: null,
+          description: null,
+          project_id: null,
+          installer_ids: [],
+        },
+      ])
+    ).toEqual({ kind: "CALENDAR", route: "/calendar" });
+  });
+
+  it("opens the earliest assigned event with its business context", () => {
+    expect(
+      buildDashboardPrimaryAction([
+        {
+          id: "later-install",
+          title: "Install floor 4",
+          event_type: "INSTALLATION",
+          starts_at: "2026-08-22T12:00:00Z",
+          ends_at: "2026-08-22T14:00:00Z",
+          location: null,
+          waze_url: null,
+          description: null,
+          project_id: "project-install",
+          installer_ids: [],
+        },
+        {
+          id: "first-service",
+          title: "Door A-401",
+          event_type: "SERVICE",
+          starts_at: "2026-08-22T09:00:00Z",
+          ends_at: "2026-08-22T10:00:00Z",
+          location: null,
+          waze_url: null,
+          description: null,
+          project_id: "project-service",
+          installer_ids: [],
+        },
+      ])
+    ).toEqual({
+      kind: "SCHEDULED_PROJECT",
+      route: "/project/project-service?issueStatus=OPEN&doorStatus=ALL&doorSearch=Door+A-401",
+    });
+  });
+
   it("builds issue continuity route for service events", () => {
     expect(
       buildIssueRouteFromCalendarEvent({

@@ -1,18 +1,41 @@
 import { apiFetch } from "@/lib/api";
+import { MOBILE_APP_VERSION } from "@/lib/config";
 import { getOrCreateDeviceId } from "@/lib/device-id";
 import { getDb, getState, initDb, setState } from "@/lib/db";
-import { hydrateProjectDetails, replaceProjects } from "@/modules/projects/repository";
+import { normalizeAddonQuantity } from "@/modules/addons/quantity";
 import {
   MAX_AUTO_RETRY_ATTEMPTS,
   computeRetryDelayMinutes,
   getSyncErrorMessage,
   isRetryableSyncError,
 } from "@/modules/sync/policy";
-import type { ProjectDetailsResponse, ProjectListItem } from "@/modules/projects/types";
 import type { PendingSyncEvent, SyncChange, SyncQueueSummary, SyncResponse, SyncSnapshot } from "@/modules/sync/types";
 
 const CURSOR_KEY = "sync_cursor";
 const LAST_SYNC_AT_KEY = "last_sync_at";
+let syncExecutionTail: Promise<void> = Promise.resolve();
+let automaticSyncInFlight: Promise<SyncResponse> | null = null;
+
+type PendingSyncEventRow = Omit<PendingSyncEvent, "payload"> & {
+  payload_json: string;
+};
+
+function mapPendingEventRow(row: PendingSyncEventRow): PendingSyncEvent {
+  const { payload_json: payloadJson, ...event } = row;
+  return {
+    ...event,
+    payload: parsePendingPayload(payloadJson),
+  };
+}
+
+function enqueueSync<T>(operation: () => Promise<T>): Promise<T> {
+  const result = syncExecutionTail.then(operation);
+  syncExecutionTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
 const ASSIGNMENT_CHANGED_ERROR = "CONFLICT_ASSIGNMENT_CHANGED";
 
 function createClientEventId(): string {
@@ -29,14 +52,6 @@ function parsePendingPayload(payloadJson: string): Record<string, unknown> {
 
 function toIsoAfterMinutes(minutes: number): string {
   return new Date(Date.now() + minutes * 60 * 1000).toISOString();
-}
-
-function normalizePositiveDecimal(value: string): string {
-  const normalized = value.trim().replace(",", ".");
-  if (!/^\d+(\.\d+)?$/.test(normalized) || Number.parseFloat(normalized) <= 0) {
-    throw new Error("qty_done must be > 0");
-  }
-  return normalized;
 }
 
 type LocalDoorSyncState = {
@@ -93,7 +108,7 @@ async function getLocalDoorSyncState(
 
 async function getPendingEvents(limit = 500, forceRetry = false): Promise<PendingSyncEvent[]> {
   const db = await getDb();
-  const rows = await db.getAllAsync<any>(
+  const rows = await db.getAllAsync<PendingSyncEventRow>(
     `SELECT client_event_id, type, project_id, happened_at, payload_json, status, error, attempts, next_retry_at, last_attempt_at, created_at
      FROM pending_events
      WHERE status IN ('PENDING', 'FAILED')
@@ -103,32 +118,26 @@ async function getPendingEvents(limit = 500, forceRetry = false): Promise<Pendin
      LIMIT ?`,
     [MAX_AUTO_RETRY_ATTEMPTS, forceRetry ? 1 : 0, new Date().toISOString(), limit]
   );
-  return rows.map((row) => ({
-    ...row,
-    payload: parsePendingPayload(row.payload_json),
-  })) as PendingSyncEvent[];
+  return rows.map(mapPendingEventRow);
 }
 
 export async function listPendingEvents(projectId?: string): Promise<PendingSyncEvent[]> {
   const db = await getDb();
   const rows = projectId
-    ? await db.getAllAsync<any>(
+    ? await db.getAllAsync<PendingSyncEventRow>(
         `SELECT client_event_id, type, project_id, happened_at, payload_json, status, error, attempts, next_retry_at, last_attempt_at, created_at
          FROM pending_events
          WHERE project_id = ?
          ORDER BY created_at DESC`,
         [projectId]
       )
-    : await db.getAllAsync<any>(
+    : await db.getAllAsync<PendingSyncEventRow>(
         `SELECT client_event_id, type, project_id, happened_at, payload_json, status, error, attempts, next_retry_at, last_attempt_at, created_at
          FROM pending_events
          ORDER BY created_at DESC`
       );
 
-  return rows.map((row) => ({
-    ...row,
-    payload: parsePendingPayload(row.payload_json),
-  })) as PendingSyncEvent[];
+  return rows.map(mapPendingEventRow);
 }
 
 export async function countPendingEvents(projectId?: string): Promise<number> {
@@ -469,10 +478,8 @@ async function restoreLocalAddonFactFromPayload(
     return;
   }
 
-  let qtyDone: string;
-  try {
-    qtyDone = normalizePositiveDecimal(rawQtyDone);
-  } catch {
+  const qtyDone = normalizeAddonQuantity(rawQtyDone);
+  if (!qtyDone) {
     return;
   }
 
@@ -1070,23 +1077,49 @@ async function applyChange(change: SyncChange): Promise<void> {
 }
 
 export async function bootstrapOnlineData(): Promise<void> {
-  await initDb();
-  const projects = await apiFetch<{ items: ProjectListItem[] }>("/api/v1/installer/projects");
-  await replaceProjects(projects.items);
+  await forceColdResync();
+}
 
-  for (const project of projects.items) {
-    const details = await apiFetch<ProjectDetailsResponse>(`/api/v1/installer/projects/${project.id}`);
-    await hydrateProjectDetails(details);
+export function forceColdResync(): Promise<SyncResponse> {
+  return enqueueSync(async () => {
+    await initDb();
+    const unresolvedEventCount = await countPendingEvents();
+    if (unresolvedEventCount > 0) {
+      throw new Error("Cold resync is blocked while unsynced work remains on this device.");
+    }
+    await setState(CURSOR_KEY, "0");
+    return executeSync({ sinceCursor: 0, includeEvents: false });
+  });
+}
+
+export function runSync(options?: {
+  forceRetry?: boolean;
+  sinceCursor?: number;
+  includeEvents?: boolean;
+}): Promise<SyncResponse> {
+  const isAutomaticSync =
+    !options?.forceRetry &&
+    options?.sinceCursor === undefined &&
+    options?.includeEvents === undefined;
+  if (!isAutomaticSync) {
+    return enqueueSync(() => executeSync(options));
   }
+  if (automaticSyncInFlight) {
+    return automaticSyncInFlight;
+  }
+
+  const operation = enqueueSync(() => executeSync(options));
+  automaticSyncInFlight = operation;
+  const clearAutomaticSync = () => {
+    if (automaticSyncInFlight === operation) {
+      automaticSyncInFlight = null;
+    }
+  };
+  void operation.then(clearAutomaticSync, clearAutomaticSync);
+  return operation;
 }
 
-export async function forceColdResync(): Promise<SyncResponse> {
-  await initDb();
-  await setState(CURSOR_KEY, "0");
-  return runSync({ sinceCursor: 0, includeEvents: false });
-}
-
-export async function runSync(options?: {
+async function executeSync(options?: {
   forceRetry?: boolean;
   sinceCursor?: number;
   includeEvents?: boolean;
@@ -1108,10 +1141,11 @@ export async function runSync(options?: {
   try {
     response = await apiFetch<SyncResponse>("/api/v1/installer/sync", {
       method: "POST",
+      timeoutMs: 30000,
       body: JSON.stringify({
         since_cursor: sinceCursor,
         ack_cursor: sinceCursor,
-        app_version: "mobile-v0",
+        app_version: `mobile-${MOBILE_APP_VERSION}`,
         device_id: deviceId,
         events: pendingEvents.map((event) => ({
           client_event_id: event.client_event_id,
@@ -1210,6 +1244,17 @@ export async function queueDoorStatusEvent(input: {
   };
 
   await db.withTransactionAsync(async () => {
+    const existingEvent = await db.getFirstAsync<{ total: number }>(
+      `SELECT COUNT(*) as total
+       FROM pending_events
+       WHERE type = 'DOOR_SET_STATUS'
+         AND json_extract(payload_json, '$.door_id') = ?`,
+      [input.doorId]
+    );
+    if (Number(existingEvent?.total || 0) > 0) {
+      throw new Error("A door status update is already waiting in the sync queue.");
+    }
+
     await db.runAsync(
       `INSERT INTO pending_events(client_event_id, type, project_id, happened_at, payload_json, status, error, attempts, next_retry_at, last_attempt_at, created_at)
        VALUES(?, 'DOOR_SET_STATUS', ?, ?, ?, 'PENDING', NULL, 0, NULL, NULL, ?)` ,
@@ -1233,7 +1278,10 @@ export async function queueAddonFactEvent(input: {
   if (!addonTypeId) {
     throw new Error("addon_type_id is required");
   }
-  const qtyDone = normalizePositiveDecimal(input.qtyDone);
+  const qtyDone = normalizeAddonQuantity(input.qtyDone);
+  if (!qtyDone) {
+    throw new Error("qty_done must be > 0 with at most 10 integer and 2 decimal digits");
+  }
   const projectRow = await db.getFirstAsync<{ total: number }>(
     "SELECT COUNT(*) as total FROM projects WHERE id = ?",
     [input.projectId]

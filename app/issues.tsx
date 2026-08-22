@@ -6,7 +6,6 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
   TextInput,
   View,
 } from "react-native";
@@ -14,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
 import {
   ActionButton,
+  BrandText as Text,
   EmptyState,
   IconButton,
   ScreenHero,
@@ -132,7 +132,10 @@ export default function IssuesScreen() {
   };
 
   useEffect(() => {
-    void reload();
+    void reload().catch((reason) => {
+      setLoaded(true);
+      setError(reason instanceof Error ? reason.message : lt("Unable to load issues", "Не удалось загрузить проблемы", "לא ניתן לטעון תקלות"));
+    });
   }, []);
 
   useEffect(() => {
@@ -269,8 +272,9 @@ export default function IssuesScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       <StatusBar barStyle="light-content" backgroundColor={installerTheme.shell} />
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.content} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <ScreenHero
+          showMark={false}
           eyebrow={lt("FIELD ISSUES", "ПРОБЛЕМЫ НА ОБЪЕКТЕ", "תקלות בשטח")}
           title={lt("Issues", "Проблемы", "תקלות")}
           subtitle={lt(
@@ -297,7 +301,7 @@ export default function IssuesScreen() {
 
         <View style={styles.body}>
           {queuedMessage ? (
-            <View style={styles.successBox}>
+            <View style={styles.successBox} accessibilityLiveRegion="polite">
               <Ionicons name="checkmark-circle-outline" size={18} color={installerTheme.success} />
               <Text style={styles.successText}>{queuedMessage}</Text>
             </View>
@@ -402,6 +406,9 @@ export default function IssuesScreen() {
                     {projects.map((project) => (
                       <Pressable
                         key={project.id}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: projectId === project.id }}
+                        accessibilityLabel={project.name}
                         onPress={() => setProjectId(project.id)}
                         style={[styles.chip, projectId === project.id && styles.chipActive]}
                       >
@@ -414,6 +421,9 @@ export default function IssuesScreen() {
                     {projectDoors.map((door) => (
                       <Pressable
                         key={door.id}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: doorId === door.id }}
+                        accessibilityLabel={door.unit_label}
                         onPress={() => setDoorId(door.id)}
                         style={[styles.chip, doorId === door.id && styles.chipActive]}
                       >
@@ -428,6 +438,9 @@ export default function IssuesScreen() {
                       return (
                         <Pressable
                           key={item.id}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: active }}
+                          accessibilityLabel={`${item.title}. ${item.hint}`}
                           onPress={() => setCategory(item.id)}
                           style={[styles.category, active && styles.categoryActive]}
                         >
@@ -460,6 +473,7 @@ export default function IssuesScreen() {
                   </View>
                   <Text style={styles.fieldLabel}>{lt("Description", "Описание", "תיאור")}</Text>
                   <TextInput
+                    accessibilityLabel={lt("Issue description", "Описание проблемы", "תיאור התקלה")}
                     value={details}
                     onChangeText={setDetails}
                     placeholder={lt("What should the office know?", "Что должен знать офис?", "מה המשרד צריך לדעת?")}
@@ -495,7 +509,7 @@ export default function IssuesScreen() {
                     <Ionicons name="cloud-offline-outline" size={18} color={installerTheme.info} />
                     <Text style={styles.infoText}>{lt("Saved locally first, then synced automatically.", "Сначала сохраняется на телефоне, затем синхронизируется.", "נשמר קודם במכשיר ואז מסתנכרן.")}</Text>
                   </View>
-                  {error ? <Text style={styles.errorText}>{error}</Text> : null}
+                  {error ? <Text style={styles.errorText} accessibilityLiveRegion="assertive">{error}</Text> : null}
                   <View style={styles.actionRow}>
                     <ActionButton label={lt("Back", "Назад", "חזרה")} icon="arrow-back" variant="secondary" style={styles.flex} onPress={() => setStep("DETAILS")} />
                     <ActionButton label={lt("Save issue", "Сохранить проблему", "שמור תקלה")} icon="checkmark" style={styles.flex} loading={busy} disabled={busy} onPress={() => void queueIssue()} />
@@ -521,6 +535,8 @@ export default function IssuesScreen() {
                 {visibleIssues.map(({ issue, project, door }) => (
                   <Pressable
                     key={issue.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${issue.title || lt("Reported issue", "Заявленная проблема", "תקלה שדווחה")}. ${project.name}. ${door?.unit_label || ""}`}
                     onPress={() => router.push(buildProjectRoute(project.id) as never)}
                     style={({ pressed }) => [styles.issueRow, pressed && styles.pressed]}
                   >
@@ -573,6 +589,8 @@ function RouteNotice({
           {text}
         </Text>
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={actionLabel}
           onPress={onAction}
           style={({ pressed }) => [styles.routeNoticeAction, pressed && styles.pressed]}
         >
@@ -585,16 +603,17 @@ function RouteNotice({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: installerTheme.background },
+  content: { flex: 1 },
   scroll: { paddingBottom: installerTheme.layout.bottomNavClearance },
-  heroButton: { marginTop: 16 },
-  body: { gap: 12, padding: 12 },
+  heroButton: { marginTop: 10 },
+  body: { gap: 14, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12 },
   successBox: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     borderRadius: installerTheme.radius.card,
     borderWidth: 1,
-    borderColor: "#B8E5C4",
+    borderColor: installerTheme.successBorder,
     backgroundColor: installerTheme.successSoft,
     padding: 11,
   },
@@ -605,11 +624,11 @@ const styles = StyleSheet.create({
     gap: 8,
     borderRadius: installerTheme.radius.card,
     borderWidth: 1,
-    borderColor: "#FFD4A3",
+    borderColor: installerTheme.warningBorder,
     backgroundColor: installerTheme.warningSoft,
     padding: 11,
   },
-  routeNoticeInfo: { borderColor: "#B5D1F0", backgroundColor: installerTheme.infoSoft },
+  routeNoticeInfo: { borderColor: installerTheme.infoBorder, backgroundColor: installerTheme.infoSoft },
   routeNoticeBody: { flex: 1, minWidth: 0, gap: 8 },
   routeNoticeText: { color: installerTheme.warning, fontSize: 11, lineHeight: 16 },
   routeNoticeTextInfo: { color: installerTheme.info },
@@ -633,7 +652,7 @@ const styles = StyleSheet.create({
     height: 26,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 999,
+    borderRadius: installerTheme.radius.pill,
     borderWidth: 1,
     borderColor: installerTheme.borderStrong,
     backgroundColor: installerTheme.card,
@@ -644,10 +663,10 @@ const styles = StyleSheet.create({
   stepTextActive: { color: installerTheme.text },
   stepLine: { flex: 1, height: 1, backgroundColor: installerTheme.border, marginHorizontal: 5 },
   fieldLabel: { color: installerTheme.textMuted, fontSize: 10, fontWeight: "800", marginTop: 12, marginBottom: 7, textTransform: "uppercase" },
-  chips: { gap: 7, paddingRight: 12 },
+  chips: { gap: 7, paddingEnd: 12 },
   chip: {
     maxWidth: 210,
-    minHeight: 36,
+    minHeight: 44,
     justifyContent: "center",
     borderRadius: installerTheme.radius.pill,
     borderWidth: 1,
@@ -655,9 +674,9 @@ const styles = StyleSheet.create({
     backgroundColor: installerTheme.card,
     paddingHorizontal: 12,
   },
-  chipActive: { borderColor: installerTheme.primary, backgroundColor: installerTheme.primary },
+  chipActive: { borderColor: installerTheme.infoBorder, backgroundColor: installerTheme.primarySoft },
   chipText: { color: installerTheme.textMuted, fontSize: 10, fontWeight: "700" },
-  chipTextActive: { color: installerTheme.textOnDark },
+  chipTextActive: { color: installerTheme.info },
   categoryList: { gap: 7, marginBottom: 14 },
   category: {
     minHeight: 62,
@@ -683,7 +702,7 @@ const styles = StyleSheet.create({
   categoryBody: { flex: 1, minWidth: 0 },
   categoryTitle: { color: installerTheme.text, fontSize: 12, fontWeight: "800" },
   categoryHint: { color: installerTheme.textMuted, fontSize: 9, lineHeight: 13, marginTop: 2 },
-  contextBox: { borderRadius: installerTheme.radius.card, backgroundColor: installerTheme.background, padding: 12 },
+  contextBox: { borderRadius: installerTheme.radius.card, borderWidth: 1, borderColor: installerTheme.border, backgroundColor: installerTheme.shellRaised, padding: 12 },
   contextTitle: { color: installerTheme.text, fontSize: 13, fontWeight: "800" },
   contextMeta: { color: installerTheme.textMuted, fontSize: 10, marginTop: 3 },
   textarea: {
@@ -694,6 +713,7 @@ const styles = StyleSheet.create({
     borderColor: installerTheme.border,
     backgroundColor: installerTheme.cardMuted,
     color: installerTheme.text,
+    fontFamily: installerTheme.fontFamily,
     fontSize: 12,
     lineHeight: 18,
     padding: 12,

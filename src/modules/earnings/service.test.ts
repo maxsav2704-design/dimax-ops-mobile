@@ -78,6 +78,28 @@ describe("loadInstallerEarnings", () => {
     expect(saveEarningsSnapshotMock).toHaveBeenCalledWith(result.snapshot);
   });
 
+  it("keeps fresh earnings when the offline snapshot cannot be saved", async () => {
+    const payload = {
+      period_key: "2026-06",
+      currency: "ILS",
+      today_total: "0.00",
+      month_total: "80.00",
+      days: [],
+      install_types: [],
+      rows: [],
+      generated_at: "2026-06-15T10:00:00Z",
+    };
+    apiFetchMock.mockResolvedValue(payload);
+    saveEarningsSnapshotMock.mockRejectedValue(new Error("database is busy"));
+
+    const result = await loadInstallerEarnings("month", "2026-06-15");
+
+    expect(getEarningsSnapshotMock).not.toHaveBeenCalled();
+    expect(result.snapshot).toEqual(payload);
+    expect(result.source).toBe("online");
+    expect(result.message).toContain("offline copy");
+  });
+
   it("falls back to cache on network failure", async () => {
     const cached = {
       period_key: "2026-03",
@@ -101,6 +123,32 @@ describe("loadInstallerEarnings", () => {
     expect(result.source).toBe("cache");
     expect(result.snapshot).toEqual(cached);
     expect(result.message).toBe("Showing cached earnings for 2026-03 while the network is unavailable.");
+  });
+
+  it("ignores an invalid cached earnings payload", async () => {
+    apiFetchMock.mockRejectedValue(new NetworkError("offline"));
+    getEarningsSnapshotMock.mockResolvedValue({ period_key: "2026-03", rows: [] });
+
+    const result = await loadInstallerEarnings("month", "2026-03-11");
+
+    expect(result).toEqual({
+      snapshot: null,
+      source: "unavailable",
+      message: "No cached earnings are available for 2026-03.",
+    });
+  });
+
+  it("returns a controlled unavailable state when the earnings cache cannot be read", async () => {
+    apiFetchMock.mockRejectedValue(new NetworkError("offline"));
+    getEarningsSnapshotMock.mockRejectedValue(new Error("database is busy"));
+
+    const result = await loadInstallerEarnings("month", "2026-03-11");
+
+    expect(result).toEqual({
+      snapshot: null,
+      source: "unavailable",
+      message: "Earnings for 2026-03 and their offline copy are temporarily unavailable.",
+    });
   });
 
   it("requests an anchored payroll month for a selected calendar day", async () => {

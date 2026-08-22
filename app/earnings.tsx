@@ -1,11 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StatusBar, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
 import {
   ActionButton,
+  BrandText as Text,
   EmptyState,
   IconButton,
   MetricTile,
@@ -64,6 +65,12 @@ export default function EarningsScreen() {
     setLoading(true);
     try {
       setState(await loadInstallerEarnings("month", focus === "DAY" ? selectedDay : null));
+    } catch (reason) {
+      setState({
+        snapshot: null,
+        source: "unavailable",
+        message: reason instanceof Error ? reason.message : "Earnings loading failed.",
+      });
     } finally {
       setLoading(false);
     }
@@ -140,6 +147,25 @@ export default function EarningsScreen() {
   const totalAmount = rows.reduce((sum, row) => sum + numberValue(row.amount), 0);
   const totalQuantity = rows.reduce((sum, row) => sum + numberValue(row.quantity), 0);
   const projectCount = new Set(rows.map((row) => row.project_id).filter(Boolean)).size;
+  const stateNotice = !state.message
+    ? null
+    : state.source === "online"
+      ? lt(
+          "Earnings are current, but their offline copy could not be updated.",
+          "Начисления актуальны, но их офлайн-копию не удалось обновить.",
+          "נתוני השכר עדכניים, אך לא ניתן לעדכן את העותק הלא מקוון."
+        )
+      : state.source === "cache"
+      ? lt(
+          "Earnings could not be refreshed. The latest saved calculation is shown.",
+          "Не удалось обновить начисления. Показан последний сохранённый расчёт.",
+          "לא ניתן לרענן את השכר. מוצג החישוב האחרון שנשמר."
+        )
+      : lt(
+          "Earnings are temporarily unavailable. Try refreshing them.",
+          "Начисления временно недоступны. Попробуйте обновить их.",
+          "נתוני השכר אינם זמינים כעת. נסו לרענן אותם."
+        );
 
   useEffect(() => {
     if (!selectedDay && days.length) setSelectedDay(days[days.length - 1]);
@@ -191,8 +217,9 @@ export default function EarningsScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       <StatusBar barStyle="light-content" backgroundColor={installerTheme.shell} />
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.content} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <ScreenHero
+          showMark={false}
           eyebrow={lt("EARNINGS", "ЗАРАБОТОК", "שכר")}
           title={user?.full_name || "DIMAX Installer"}
           subtitle={lt("Calculated by completed work on the server", "Рассчитано по выполненным работам на сервере", "מחושב לפי עבודות שהושלמו בשרת")}
@@ -241,10 +268,10 @@ export default function EarningsScreen() {
         </ScreenHero>
 
         <View style={styles.body}>
-          {state.message ? (
-            <View style={styles.notice}>
+          {stateNotice ? (
+            <View style={styles.notice} accessibilityLiveRegion="polite">
               <Ionicons name="information-circle-outline" size={18} color={installerTheme.warning} />
-              <Text style={styles.noticeText}>{state.message}</Text>
+              <Text style={styles.noticeText}>{stateNotice}</Text>
             </View>
           ) : null}
           {projectScopeMissing ? (
@@ -259,6 +286,8 @@ export default function EarningsScreen() {
                   )}
                 </Text>
                 <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={lt("Show all earnings", "Показать все начисления", "הצג את כל השכר")}
                   onPress={() => router.replace("/earnings" as never)}
                   style={({ pressed }) => [styles.noticeAction, pressed && styles.pressed]}
                 >
@@ -273,7 +302,7 @@ export default function EarningsScreen() {
             <View style={[styles.notice, styles.scopeNotice]}>
               <Ionicons name="business-outline" size={18} color={installerTheme.info} />
               <View style={styles.noticeBody}>
-                <Text style={styles.noticeText}>
+                <Text style={[styles.noticeText, styles.scopeNoticeText]}>
                   {lt(
                     `Focused project ${context?.projectId}`,
                     `Фокус по объекту ${context?.projectId}`,
@@ -281,6 +310,8 @@ export default function EarningsScreen() {
                   )}
                 </Text>
                 <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={lt("Show all earnings", "Показать все начисления", "הצג את כל השכר")}
                   onPress={() => router.replace("/earnings" as never)}
                   style={({ pressed }) => [styles.noticeAction, pressed && styles.pressed]}
                 >
@@ -314,6 +345,9 @@ export default function EarningsScreen() {
                 {days.map((day) => (
                   <Pressable
                     key={day}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: focus === "DAY" && selectedDay === day }}
+                    accessibilityLabel={dateLabel(day)}
                     onPress={() => {
                       setFocus("DAY");
                       setSelectedDay(day);
@@ -349,6 +383,9 @@ export default function EarningsScreen() {
                     {installTypes.map((item) => (
                       <Pressable
                         key={item.code}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: installType === item.code }}
+                        accessibilityLabel={`${item.label}. ${lt("Quantity", "Количество", "כמות")}: ${item.quantity}. ${money(item.amount)}`}
                         onPress={() => setInstallType(item.code)}
                         style={({ pressed }) => [
                           styles.line,
@@ -392,11 +429,14 @@ export default function EarningsScreen() {
                 return (
                   <SectionCard key={lane.key} style={styles.projectCard}>
                     <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ expanded: open }}
+                      accessibilityLabel={`${lane.projectName}. ${money(lane.amount)}`}
                       onPress={() => setOpenProjectKey(open ? null : lane.key)}
                       style={({ pressed }) => [styles.projectHeader, pressed && styles.pressed]}
                     >
                       <View style={styles.projectIcon}>
-                        <Ionicons name="business-outline" size={18} color="#8A6C1F" />
+                        <Ionicons name="business-outline" size={18} color={installerTheme.accentText} />
                       </View>
                       <View style={styles.projectBody}>
                         <Text style={styles.projectTitle} numberOfLines={1}>{lane.projectName}</Text>
@@ -435,6 +475,8 @@ export default function EarningsScreen() {
                 {dayLanes.length ? dayLanes.map((lane) => (
                   <Pressable
                     key={lane.date}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${dateLabel(lane.date)}. ${money(lane.amount)}`}
                     onPress={() => router.push(`/calendar?day=${encodeURIComponent(lane.date)}` as never)}
                     style={({ pressed }) => [styles.dayRow, pressed && styles.pressed]}
                   >
@@ -459,6 +501,8 @@ export default function EarningsScreen() {
                     <EarningsLine row={row} money={money} />
                     {row.project_id ? (
                       <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`${lt("Open project", "Открыть объект", "פתיחת פרויקט")}. ${row.project_name || ""}`}
                         onPress={() => router.push(buildProjectRoute(row.project_id as string) as never)}
                         style={({ pressed }) => [styles.inlineLink, pressed && styles.pressed]}
                       >
@@ -482,7 +526,13 @@ export default function EarningsScreen() {
 
 function FilterChip({ active, label, onPress }: { active: boolean; label: string; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
+    <Pressable
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={[styles.chip, active && styles.chipActive]}
+    >
       <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>{label}</Text>
     </Pressable>
   );
@@ -514,13 +564,14 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: installerTheme.background },
+  content: { flex: 1 },
   scroll: { paddingBottom: installerTheme.layout.bottomNavClearance },
   periodNav: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     borderRadius: installerTheme.radius.pill,
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: installerTheme.shellOverlaySubtle,
     padding: 3,
     marginTop: 15,
   },
@@ -528,20 +579,21 @@ const styles = StyleSheet.create({
   periodTitle: { color: installerTheme.textOnDark, fontSize: 12, fontWeight: "800" },
   periodMeta: { color: installerTheme.textFaint, fontSize: 9, marginTop: 2 },
   totalLabel: { color: installerTheme.textFaint, fontSize: 9, fontWeight: "800", marginTop: 16 },
-  totalValue: { color: installerTheme.accent, fontSize: 34, lineHeight: 40, fontWeight: "900", fontVariant: ["tabular-nums"] },
-  heroStatus: { alignSelf: "flex-start", marginTop: 8, marginBottom: 14 },
-  body: { gap: 12, padding: 12 },
+  totalValue: { color: installerTheme.accent, fontFamily: installerTheme.fontFamilyMono, fontSize: 32, lineHeight: 38 },
+  heroStatus: { alignSelf: "flex-start", marginTop: 7, marginBottom: 10 },
+  body: { gap: 14, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12 },
   notice: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
     borderRadius: installerTheme.radius.card,
     borderWidth: 1,
-    borderColor: "#FFD4A3",
+    borderColor: installerTheme.warningBorder,
     backgroundColor: installerTheme.warningSoft,
     padding: 11,
   },
-  scopeNotice: { borderColor: "#BBD7FF", backgroundColor: installerTheme.infoSoft },
+  scopeNotice: { borderColor: installerTheme.infoBorder, backgroundColor: installerTheme.infoSoft },
+  scopeNoticeText: { color: installerTheme.info },
   noticeBody: { flex: 1, minWidth: 0, gap: 8 },
   noticeText: { flex: 1, color: installerTheme.warning, fontSize: 11, lineHeight: 16 },
   noticeAction: {
@@ -555,10 +607,10 @@ const styles = StyleSheet.create({
   },
   noticeActionText: { color: installerTheme.text, fontSize: 10, fontWeight: "800" },
   metrics: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chips: { gap: 7, paddingRight: 12, marginTop: 9 },
+  chips: { gap: 7, paddingEnd: 12, marginTop: 9 },
   chip: {
     maxWidth: 220,
-    minHeight: 36,
+    minHeight: 44,
     justifyContent: "center",
     borderRadius: installerTheme.radius.pill,
     borderWidth: 1,
@@ -566,9 +618,9 @@ const styles = StyleSheet.create({
     backgroundColor: installerTheme.card,
     paddingHorizontal: 12,
   },
-  chipActive: { borderColor: installerTheme.primary, backgroundColor: installerTheme.primary },
+  chipActive: { borderColor: installerTheme.infoBorder, backgroundColor: installerTheme.primarySoft },
   chipText: { color: installerTheme.textMuted, fontSize: 10, fontWeight: "700" },
-  chipTextActive: { color: installerTheme.textOnDark },
+  chipTextActive: { color: installerTheme.info },
   fieldLabel: { color: installerTheme.textMuted, fontSize: 9, fontWeight: "800", textTransform: "uppercase", marginTop: 13 },
   section: { gap: 8 },
   lineList: { marginTop: 8 },
@@ -576,29 +628,29 @@ const styles = StyleSheet.create({
   lineSelected: { backgroundColor: installerTheme.accentWarm },
   lineIcon: { width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: installerTheme.radius.md, backgroundColor: installerTheme.accentWarm },
   lineIconSuccess: { backgroundColor: installerTheme.successSoft },
-  lineIconText: { color: "#8A6C1F", fontSize: 11, fontWeight: "900" },
+  lineIconText: { color: installerTheme.accentText, fontSize: 11, fontWeight: "900" },
   lineBody: { flex: 1, minWidth: 0 },
   lineTitle: { color: installerTheme.text, fontSize: 11, fontWeight: "800" },
   lineMeta: { color: installerTheme.textMuted, fontSize: 9, marginTop: 3 },
-  lineAmount: { color: installerTheme.success, fontSize: 11, fontWeight: "900", fontVariant: ["tabular-nums"] },
+  lineAmount: { color: installerTheme.success, fontFamily: installerTheme.fontFamilyMono, fontSize: 11, flexShrink: 0 },
   summaryRow: { flexDirection: "row", justifyContent: "space-between", gap: 10, borderTopWidth: 1, borderTopColor: installerTheme.border, paddingVertical: 9 },
   summaryLabel: { color: installerTheme.textMuted, fontSize: 11 },
-  summaryValue: { color: installerTheme.text, fontSize: 11, fontWeight: "800" },
+  summaryValue: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyMono, fontSize: 11 },
   summaryGrand: { flexDirection: "row", justifyContent: "space-between", gap: 10, borderTopWidth: 1, borderTopColor: installerTheme.borderStrong, paddingTop: 12, marginTop: 3 },
   summaryGrandLabel: { color: installerTheme.text, fontSize: 13, fontWeight: "800" },
-  summaryGrandValue: { color: installerTheme.text, fontSize: 17, fontWeight: "900" },
-  projectCard: { padding: 0, overflow: "hidden" },
+  summaryGrandValue: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyMono, fontSize: 17 },
+  projectCard: { padding: 0, overflow: "hidden", borderColor: installerTheme.borderStrong, backgroundColor: installerTheme.shellRaised },
   projectHeader: { minHeight: 65, flexDirection: "row", alignItems: "center", gap: 10, padding: 12 },
   projectIcon: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: installerTheme.radius.md, backgroundColor: installerTheme.accentWarm },
   projectBody: { flex: 1, minWidth: 0 },
   projectTitle: { color: installerTheme.text, fontSize: 12, fontWeight: "800" },
   projectMeta: { color: installerTheme.textMuted, fontSize: 9, marginTop: 3 },
   projectRight: { alignItems: "flex-end", gap: 4 },
-  projectAmount: { color: installerTheme.text, fontSize: 12, fontWeight: "900", fontVariant: ["tabular-nums"] },
-  projectActions: { flexDirection: "row", alignItems: "center", gap: 7, borderTopWidth: 1, borderTopColor: installerTheme.border, backgroundColor: installerTheme.cardMuted, padding: 10 },
+  projectAmount: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyMono, fontSize: 12 },
+  projectActions: { flexDirection: "row", alignItems: "center", gap: 7, borderTopWidth: 1, borderTopColor: installerTheme.border, backgroundColor: installerTheme.card, padding: 10 },
   dayRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 9, borderTopWidth: 1, borderTopColor: installerTheme.border, paddingVertical: 9 },
   dayIcon: { width: 32, height: 32, alignItems: "center", justifyContent: "center", borderRadius: installerTheme.radius.md, backgroundColor: installerTheme.infoSoft },
-  dayIconText: { color: installerTheme.info, fontSize: 11, fontWeight: "900" },
+  dayIconText: { color: installerTheme.info, fontFamily: installerTheme.fontFamilyMono, fontSize: 11 },
   inlineLink: { minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5, borderTopWidth: 1, borderTopColor: installerTheme.border, paddingVertical: 7 },
   inlineLinkText: { color: installerTheme.info, fontSize: 10, fontWeight: "800" },
   flex: { flex: 1 },

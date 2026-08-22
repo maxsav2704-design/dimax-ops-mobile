@@ -71,7 +71,7 @@ Validated locally with:
 
 - `npm.cmd run quality-gate`
 - clean Node `20.20.2` CI contract in `Mobile Quality Gate / quality-gate`
-- `vitest`: `118 passed`
+- `vitest`: `154 passed` across `20` test files
 - `expo config --json`
 - `tsc --noEmit`
 - pinned `expo-doctor@1.20.2`: `17/17` checks
@@ -117,7 +117,7 @@ its artifact binding remains open. The canonical result is
 - broaden screen-level navigation tests beyond the current release-critical paths
 - add more small-screen and device-matrix visual coverage
 - define a push/notification strategy only when the operational process requires it
-- continue improving auth/session refresh UX without changing the offline data model
+- continue field feedback work without changing the offline data model prematurely
 
 ## Readiness assessment
 

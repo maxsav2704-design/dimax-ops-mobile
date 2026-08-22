@@ -37,6 +37,7 @@ vi.mock("@/modules/projects/repository", () => ({
 }));
 
 import {
+  bootstrapOnlineData,
   dropPendingEvent,
   forceColdResync,
   queueAddonFactEvent,
@@ -188,21 +189,6 @@ describe("mobile sync service", () => {
 
   it("force cold resync resets the cursor before requesting a snapshot", async () => {
     getStateMock.mockResolvedValue("1507");
-    dbRef.current.getAllAsync.mockResolvedValueOnce([
-      {
-        client_event_id: "stale-event-1",
-        type: "DOOR_SET_STATUS",
-        project_id: "project-1",
-        happened_at: "2026-04-26T08:01:00Z",
-        payload_json: JSON.stringify({ door_id: "door-1", status: "INSTALLED" }),
-        status: "FAILED",
-        error: "stale retry",
-        attempts: 1,
-        next_retry_at: null,
-        last_attempt_at: null,
-        created_at: "2026-04-26T08:01:00Z",
-      },
-    ]);
     apiFetchMock.mockResolvedValue({
       server_time: "2026-04-26T08:10:00Z",
       next_cursor: 1510,
@@ -231,7 +217,96 @@ describe("mobile sync service", () => {
     const body = JSON.parse(apiFetchMock.mock.calls[0][1].body);
     expect(body.since_cursor).toBe(0);
     expect(body.events).toEqual([]);
+    expect(body.app_version).toBe("mobile-0.1.0");
     expect(setStateMock).toHaveBeenLastCalledWith("last_sync_at", "2026-04-26T08:10:00Z");
+  });
+
+  it("blocks a cold resync while unresolved offline work remains", async () => {
+    dbRef.current.getFirstAsync.mockResolvedValueOnce({ total: 1 });
+
+    await expect(forceColdResync()).rejects.toThrow(
+      "Cold resync is blocked while unsynced work remains on this device."
+    );
+
+    expect(setStateMock).not.toHaveBeenCalled();
+    expect(apiFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the canonical cold sync contract for legacy bootstrap calls", async () => {
+    await bootstrapOnlineData();
+
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(apiFetchMock.mock.calls[0][1].body);
+    expect(body.since_cursor).toBe(0);
+    expect(body.events).toEqual([]);
+  });
+
+  it("serializes overlapping sync requests before they can open SQLite transactions", async () => {
+    let releaseFirstRequest!: () => void;
+    const firstRequestGate = new Promise<void>((resolve) => {
+      releaseFirstRequest = resolve;
+    });
+    let requestCount = 0;
+    let activeRequests = 0;
+    let maxActiveRequests = 0;
+
+    apiFetchMock.mockImplementation(async () => {
+      requestCount += 1;
+      activeRequests += 1;
+      maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
+      if (requestCount === 1) {
+        await firstRequestGate;
+      }
+      activeRequests -= 1;
+      return {
+        server_time: "2026-04-26T08:00:00Z",
+        next_cursor: requestCount,
+        reset_required: false,
+        snapshot: null,
+        acks: [],
+        changes: [],
+      };
+    });
+
+    const firstSync = runSync();
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1));
+    const secondSync = runSync({ forceRetry: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    releaseFirstRequest();
+    await Promise.all([firstSync, secondSync]);
+
+    expect(apiFetchMock).toHaveBeenCalledTimes(2);
+    expect(maxActiveRequests).toBe(1);
+  });
+
+  it("coalesces overlapping automatic sync requests", async () => {
+    let releaseRequest!: () => void;
+    const requestGate = new Promise<void>((resolve) => {
+      releaseRequest = resolve;
+    });
+    apiFetchMock.mockImplementation(async () => {
+      await requestGate;
+      return {
+        server_time: "2026-04-26T08:00:00Z",
+        next_cursor: 1,
+        reset_required: false,
+        snapshot: null,
+        acks: [],
+        changes: [],
+      };
+    });
+
+    const firstSync = runSync();
+    const secondSync = runSync();
+    await vi.waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1));
+
+    expect(secondSync).toBe(firstSync);
+    releaseRequest();
+    await Promise.all([firstSync, secondSync]);
+
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("reapplies pending optimistic work after a cold resync snapshot", async () => {
@@ -878,6 +953,30 @@ describe("mobile sync service", () => {
     expect(updateCall?.[1]?.[6]).toBe("door-1");
   });
 
+  it("rejects a duplicate unresolved status event for the same door", async () => {
+    dbRef.current.getFirstAsync
+      .mockResolvedValueOnce({
+        status: "NOT_INSTALLED",
+        reason_id: "reason-1",
+        comment: "Waiting for frame",
+        project_id: "project-1",
+        is_locked: 0,
+        version: 4,
+      })
+      .mockResolvedValueOnce({ total: 1 });
+
+    await expect(
+      queueDoorStatusEvent({
+        projectId: "project-1",
+        doorId: "door-1",
+        status: "NOT_INSTALLED",
+        reasonId: "reason-2",
+      })
+    ).rejects.toThrow("already waiting in the sync queue");
+
+    expect(dbRef.current.runAsync).not.toHaveBeenCalled();
+  });
+
   it("rejects another door status when the previous offline install already locked it locally", async () => {
     dbRef.current.getFirstAsync.mockResolvedValueOnce({
       status: "INSTALLED",
@@ -1055,6 +1154,19 @@ describe("mobile sync service", () => {
       })
     ).rejects.toThrow("qty_done must be > 0");
 
+    expect(dbRef.current.runAsync).not.toHaveBeenCalled();
+  });
+
+  it("rejects add-on quantities that exceed the backend decimal contract", async () => {
+    await expect(
+      queueAddonFactEvent({
+        projectId: "project-1",
+        addonTypeId: "addon-1",
+        qtyDone: "1.234",
+      })
+    ).rejects.toThrow("at most 10 integer and 2 decimal digits");
+
+    expect(dbRef.current.getFirstAsync).not.toHaveBeenCalled();
     expect(dbRef.current.runAsync).not.toHaveBeenCalled();
   });
 

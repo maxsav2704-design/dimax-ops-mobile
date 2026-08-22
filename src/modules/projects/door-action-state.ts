@@ -1,9 +1,11 @@
 import type { InstallerDoor, ProjectAddonTypeOption } from "@/modules/projects/types";
+import { normalizeAddonQuantity } from "@/modules/addons/quantity";
 
 type DoorActionInput = {
   door: Pick<InstallerDoor, "status" | "is_locked">;
   busy: boolean;
   selectedReasonId?: string | null;
+  hasPendingStatusEvent?: boolean;
 };
 
 export type DoorActionState = {
@@ -11,6 +13,7 @@ export type DoorActionState = {
   needsNotInstalledReason: boolean;
   canMarkInstalled: boolean;
   canMarkNotInstalled: boolean;
+  hasPendingStatusEvent: boolean;
 };
 
 type AddonFactActionInput = {
@@ -30,21 +33,19 @@ export type AddonFactActionState = {
 
 export function buildDoorActionState(input: DoorActionInput): DoorActionState {
   const isLocked = input.door.is_locked || input.door.status === "LOCKED" || input.door.status === "INSTALLED";
+  const hasPendingStatusEvent = Boolean(input.hasPendingStatusEvent);
   const needsNotInstalledReason = !input.selectedReasonId?.trim();
   return {
     isLocked,
+    hasPendingStatusEvent,
     needsNotInstalledReason,
-    canMarkInstalled: !input.busy && !isLocked,
-    canMarkNotInstalled: !input.busy && !isLocked && !needsNotInstalledReason,
+    canMarkInstalled: !input.busy && !isLocked && !hasPendingStatusEvent,
+    canMarkNotInstalled: !input.busy && !isLocked && !hasPendingStatusEvent && !needsNotInstalledReason,
   };
 }
 
 export function normalizeAddonQty(value: string | null | undefined): string | null {
-  const normalized = value?.trim().replace(",", ".") || "";
-  if (!/^\d+(\.\d+)?$/.test(normalized) || Number.parseFloat(normalized) <= 0) {
-    return null;
-  }
-  return normalized;
+  return normalizeAddonQuantity(value);
 }
 
 export function buildAddonFactActionState(input: AddonFactActionInput): AddonFactActionState {

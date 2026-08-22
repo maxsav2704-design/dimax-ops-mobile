@@ -1,8 +1,10 @@
 import { resolveApiBaseUrl } from "@/lib/api-base-url";
+import packageMetadata from "../../package.json";
 
 const IS_DEV = typeof __DEV__ !== "undefined" ? __DEV__ : process.env.NODE_ENV !== "production";
 
 export const API_BASE_URL = resolveApiBaseUrl(process.env.EXPO_PUBLIC_API_BASE_URL, IS_DEV);
+export const MOBILE_APP_VERSION = packageMetadata.version;
 
 function asBool(value: string | undefined): boolean {
   if (!value) return false;

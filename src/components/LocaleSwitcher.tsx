@@ -1,5 +1,6 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { BrandText as Text } from "@/components/mobile-ui";
 import { installerTheme } from "@/lib/theme";
 import { useI18n } from "@/providers/AppProviders";
 
@@ -15,7 +16,9 @@ export function LocaleSwitcher({ dark = false }: { dark?: boolean }) {
             key={value}
             onPress={() => setLocale(value)}
             style={[styles.option, active && styles.optionActive]}
+            accessibilityRole="tab"
             accessibilityState={{ selected: active }}
+            accessibilityLabel={t(`locale.${value}`)}
           >
             <Text style={[styles.label, dark && styles.labelDark, active && styles.labelActive]}>
               {t(`locale.${value}`)}
@@ -38,12 +41,12 @@ const styles = StyleSheet.create({
     padding: 2,
   },
   shellDark: {
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: installerTheme.shellBorder,
+    backgroundColor: installerTheme.shellOverlay,
   },
   option: {
-    minWidth: 36,
-    minHeight: 28,
+    minWidth: 44,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: installerTheme.radius.pill,
@@ -54,14 +57,13 @@ const styles = StyleSheet.create({
   },
   label: {
     color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamily,
+    fontFamily: installerTheme.fontFamilyStrong,
     fontSize: 10,
-    fontWeight: "800",
   },
   labelDark: {
     color: installerTheme.textFaint,
   },
   labelActive: {
-    color: installerTheme.text,
+    color: installerTheme.textOnAccent,
   },
 });
