@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError, NetworkError } from "@/lib/errors";
 
 const {
   apiFetchMock,
@@ -594,7 +595,63 @@ describe("mobile sync service", () => {
     expect(failedCall?.[1]?.[0]).toBe("Sync response missed event acknowledgement");
   });
 
-  it("reverts optimistic door status when backend rejects the sync event", async () => {
+  it.each(["network", "server", "missing-ack"])(
+    "retries the identical event after %s response loss and accepts a duplicate acknowledgement",
+    async (failure) => {
+      const event = {
+        client_event_id: "persisted-installation", type: "DOOR_SET_STATUS", project_id: "project-1",
+        happened_at: "2026-09-11T10:00:00Z", created_at: "2026-09-11T10:00:00Z",
+        payload_json: JSON.stringify({
+          door_id: "door-1", status: "INSTALLED", previous_status: "IN_PROGRESS", previous_version: 0,
+        }),
+        status: "PENDING", error: null, attempts: 0, next_retry_at: null, last_attempt_at: null,
+      };
+      const original = structuredClone(event);
+      getStateMock.mockResolvedValue("7");
+      dbRef.current.getAllAsync.mockResolvedValue([event]);
+      dbRef.current.getFirstAsync.mockImplementation(async (sql: string) => (
+        sql.includes("SELECT attempts") ? { attempts: 1 } : event
+      ));
+      if (failure === "network") {
+        apiFetchMock.mockRejectedValueOnce(new NetworkError("Response connection lost"));
+      } else if (failure === "server") {
+        apiFetchMock.mockRejectedValueOnce(new ApiError("Gateway unavailable", 503, ""));
+      }
+
+      if (failure === "missing-ack") {
+        await runSync();
+      } else {
+        await expect(runSync()).rejects.toThrow();
+        expect(setStateMock).not.toHaveBeenCalled();
+      }
+      expect(event).toEqual(original);
+      expect(dbRef.current.runAsync.mock.calls.some(([sql]: [string]) => sql.includes("SET status = 'FAILED'"))).toBe(true);
+      expect(dbRef.current.runAsync.mock.calls.some(([sql]: [string]) => sql.includes("DELETE FROM pending_events"))).toBe(false);
+      expect(dbRef.current.runAsync.mock.calls.some(([sql]: [string]) => sql.includes("UPDATE doors"))).toBe(false);
+      const firstRequest = JSON.parse(apiFetchMock.mock.calls[0][1].body);
+
+      apiFetchMock.mockResolvedValueOnce({
+        server_time: "2026-09-11T10:01:00Z", next_cursor: 8, reset_required: false,
+        snapshot: null, changes: [],
+        acks: [{ client_event_id: event.client_event_id, ok: true, applied: false, error: null }],
+      });
+      await runSync({ forceRetry: true });
+
+      const retryRequest = JSON.parse(apiFetchMock.mock.calls[1][1].body);
+      expect(retryRequest.events).toEqual(firstRequest.events);
+      expect(retryRequest.events).toEqual([{
+        client_event_id: original.client_event_id, type: original.type, project_id: original.project_id,
+        happened_at: original.happened_at, payload: JSON.parse(original.payload_json),
+      }]);
+      expect(dbRef.current.runAsync.mock.calls.filter(([sql]: [string]) => sql.includes("DELETE FROM pending_events")))
+        .toEqual([["DELETE FROM pending_events WHERE client_event_id = ?", [event.client_event_id]]]);
+      expect(setStateMock).toHaveBeenCalledWith("sync_cursor", "8");
+      expect(setStateMock).toHaveBeenCalledWith("last_sync_at", "2026-09-11T10:01:00Z");
+    },
+  );
+
+  it.each(["CONFLICT_ASSIGNMENT_CHANGED", "CONFLICT_INVALID_TRANSITION"])(
+    "retains the queued payload when backend rejects the door event with %s", async (errorCode) => {
     dbRef.current.getAllAsync.mockResolvedValueOnce([
       {
         client_event_id: "event-1",
@@ -639,7 +696,7 @@ describe("mobile sync service", () => {
           client_event_id: "event-1",
           ok: false,
           applied: false,
-          error: "CONFLICT_ASSIGNMENT_CHANGED",
+          error: errorCode,
         },
       ],
       changes: [],
@@ -663,7 +720,8 @@ describe("mobile sync service", () => {
     const blockedCall = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) =>
       sql.includes("SET status = 'BLOCKED'")
     );
-    expect(blockedCall?.[1]).toEqual(["CONFLICT_ASSIGNMENT_CHANGED", "event-1"]);
+    expect(blockedCall?.[1]).toEqual([errorCode, "event-1"]);
+    expect(dbRef.current.runAsync.mock.calls.some(([sql]: [string]) => sql.includes("DELETE FROM pending_events"))).toBe(false);
   });
 
   it("applies door sync changes with reason and lock metadata", async () => {
