@@ -118,10 +118,33 @@ Preflight Android toolchain first:
 
 For the local installer E2E session on an attached Android device:
 
+Manual login is the default, including development builds. Automated test login
+requires explicit opt-in and a complete set of synthetic credentials. Configure
+these environment variables in the launching shell before using the E2E launcher:
+
+- `EXPO_PUBLIC_API_BASE_URL`: the isolated test API, for example
+  `http://127.0.0.1:8001` for the workspace acceptance stack;
+- `EXPO_PUBLIC_E2E_COMPANY_ID`: the synthetic company UUID;
+- `EXPO_PUBLIC_E2E_EMAIL`: the synthetic installer account;
+- `EXPO_PUBLIC_E2E_PASSWORD`: its test-only password.
+
+The launcher enables `EXPO_PUBLIC_E2E_AUTO_LOGIN=1` for that session. When starting
+Metro directly, set this flag explicitly only for an automated test session.
+These `EXPO_PUBLIC_*` values are embedded in the development bundle: never use
+real credentials, distribute a test-login bundle, or put them in release builds.
+The launcher accepts only loopback HTTP(S) targets routed through ADB reverse;
+it no longer selects the ordinary API or a seeded company automatically.
+
 ```powershell
 cd mobile
+.\start-expo-e2e.cmd -ValidateOnly
 .\start-expo-e2e.cmd
 ```
+
+`-ValidateOnly` checks configuration without starting Metro, changing ADB routing
+or contacting a device. It prints only API/Metro connection details, not account
+credentials. Test the launcher with `npm.cmd run test:e2e-launcher` (PowerShell
+required; use `pwsh` on non-Windows hosts).
 
 The E2E launcher uses one Metro worker by default so it remains reliable on
 low-memory development machines. Set `DIMAX_METRO_MAX_WORKERS` to a positive
