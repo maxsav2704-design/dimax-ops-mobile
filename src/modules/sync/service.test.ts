@@ -44,12 +44,14 @@ import {
   bootstrapOnlineData,
   dropPendingEvent,
   forceColdResync,
+  getSyncQueueSummary,
   queueAddonFactEvent,
   queueDoorStatusEvent,
   queueIssueCreateEvent,
   retryPendingEventNow,
   runSync,
 } from "@/modules/sync/service";
+import { MAX_AUTO_RETRY_ATTEMPTS } from "@/modules/sync/policy";
 
 function makeDb() {
   return {
@@ -75,6 +77,33 @@ describe("mobile sync service", () => {
       snapshot: null,
       acks: [],
       changes: [],
+    });
+  });
+
+  it.each([undefined, "project-1"])("excludes exhausted attempts from next retry for %s", async (projectId) => {
+    const counts = { total: 1, pending: 0, failed: 1, blocked: 0, ready_to_send: 0 };
+    dbRef.current.getFirstAsync.mockResolvedValueOnce(counts).mockResolvedValueOnce(null);
+
+    const summary = await getSyncQueueSummary(projectId);
+    const [sql, parameters] = dbRef.current.getFirstAsync.mock.calls[1];
+
+    expect(sql).toContain("status = 'FAILED'");
+    expect(sql).toContain("AND attempts < ?");
+    expect(sql).toContain("AND next_retry_at IS NOT NULL");
+    expect(sql).toContain("ORDER BY next_retry_at ASC");
+    expect(parameters).toEqual(projectId ? [projectId, MAX_AUTO_RETRY_ATTEMPTS] : [MAX_AUTO_RETRY_ATTEMPTS]);
+    if (projectId) expect(sql).toContain("WHERE project_id = ?");
+    else expect(sql).not.toContain("project_id = ?");
+    expect(summary).toEqual({ ...counts, next_retry_at: null });
+  });
+
+  it("preserves the next retry timestamp for eligible work", async () => {
+    const nextRetry = "2026-09-11T12:00:00.000Z";
+    dbRef.current.getFirstAsync
+      .mockResolvedValueOnce({ total: 1, failed: 1 })
+      .mockResolvedValueOnce({ next_retry_at: nextRetry });
+    expect(await getSyncQueueSummary()).toEqual({
+      total: 1, pending: 0, failed: 1, blocked: 0, ready_to_send: 0, next_retry_at: nextRetry,
     });
   });
 
@@ -649,6 +678,34 @@ describe("mobile sync service", () => {
       expect(setStateMock).toHaveBeenCalledWith("last_sync_at", "2026-09-11T10:01:00Z");
     },
   );
+
+  it.each([
+    { failure: new NetworkError("Offline"), attempts: 1, status: "FAILED", message: "Offline" },
+    { failure: new NetworkError("Offline"), attempts: MAX_AUTO_RETRY_ATTEMPTS, status: "BLOCKED", message: "Offline (auto retry limit reached)" },
+    { failure: new ApiError("Forbidden", 403, ""), attempts: 1, status: "BLOCKED", message: "Forbidden" },
+  ])("preserves the original $failure and records $status after deferred failure handling", async ({ failure, attempts, status, message }) => {
+    const event = {
+      client_event_id: "retained-work", type: "DOOR_SET_STATUS", project_id: "project-1",
+      happened_at: "2026-09-11T10:00:00Z", created_at: "2026-09-11T10:00:00Z",
+      payload_json: JSON.stringify({ door_id: "door-1", status: "INSTALLED" }),
+      status: "PENDING", error: null, attempts: attempts - 1, next_retry_at: null, last_attempt_at: null,
+    };
+    dbRef.current.getAllAsync.mockResolvedValue([event]);
+    dbRef.current.getFirstAsync.mockImplementation(async () => {
+      await Promise.resolve();
+      return { attempts };
+    });
+    apiFetchMock.mockRejectedValueOnce(failure);
+
+    await expect(runSync()).rejects.toBe(failure);
+
+    const updates = dbRef.current.runAsync.mock.calls;
+    const failureUpdate = updates.find(([sql]: [string]) => sql.includes(`SET status = '${status}'`));
+    expect(failureUpdate?.[1][0]).toBe(message);
+    expect(updates.some(([sql]: [string]) => sql.includes("DELETE FROM pending_events"))).toBe(false);
+    expect(updates.some(([sql]: [string]) => sql.includes("UPDATE doors"))).toBe(false);
+    expect(setStateMock).not.toHaveBeenCalled();
+  });
 
   it.each(["CONFLICT_ASSIGNMENT_CHANGED", "CONFLICT_INVALID_TRANSITION"])(
     "retains the queued payload when backend rejects the door event with %s", async (errorCode) => {

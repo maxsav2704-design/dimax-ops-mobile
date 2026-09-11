@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, StatusBar, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
@@ -16,12 +16,16 @@ import {
   StatusPill,
 } from "@/components/mobile-ui";
 import { translateEnum } from "@/lib/i18n";
+import { getDatabaseContext, withDatabaseContext } from "@/lib/db";
 import { installerTheme, toneColors, type InstallerTone } from "@/lib/theme";
 import { getProject, listProjects } from "@/modules/projects/repository";
+import { MAX_AUTO_RETRY_ATTEMPTS } from "@/modules/sync/policy";
 import {
   buildEventSummary,
   buildQueueResolution,
   canRetrySyncEvent,
+  getQueueReadState,
+  needsSyncAttention,
 } from "@/modules/sync/presentation";
 import {
   dropPendingEvent,
@@ -32,12 +36,13 @@ import {
   runSync,
 } from "@/modules/sync/service";
 import type { PendingSyncEvent, SyncQueueSummary } from "@/modules/sync/types";
-import { useI18n } from "@/providers/AppProviders";
+import { useAuth, useI18n } from "@/providers/AppProviders";
 
 type QueueFilter = "ALL" | "ATTENTION" | "WAITING";
 
 export default function SyncQueueScreen() {
   const { locale } = useI18n();
+  const { user, loading: authLoading, syncVersion } = useAuth();
   const [items, setItems] = useState<PendingSyncEvent[]>([]);
   const [summary, setSummary] = useState<SyncQueueSummary | null>(null);
   const [projectNames, setProjectNames] = useState<Record<string, string>>({});
@@ -47,26 +52,39 @@ export default function SyncQueueScreen() {
   const [dropCandidate, setDropCandidate] = useState<PendingSyncEvent | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reading, setReading] = useState(true);
+  const [readFailed, setReadFailed] = useState(false);
+  const readRequest = useRef(0);
+  const companyId = user?.company_id;
+  const userId = user?.id;
   const lt = (en: string, ru: string, he: string) => (locale === "ru" ? ru : locale === "he" ? he : en);
   const intlLocale = locale === "ru" ? "ru-RU" : locale === "he" ? "he-IL" : "en-GB";
 
-  const reload = async (): Promise<boolean> => {
+  const reload = useCallback(async (): Promise<boolean> => {
+    if (authLoading || !companyId || !userId) return false;
+    const request = ++readRequest.current;
+    setReading(true);
+    setReadFailed(false);
     try {
-      const [pending, queueSummary, projects, syncAt] = await Promise.all([
-        listPendingEvents(),
-        getSyncQueueSummary(),
-        listProjects(),
-        getLastSyncAt(),
-      ]);
-      const missingIds = pending
-        .map((event) => event.project_id)
-        .filter((projectId) => !projects.some((project) => project.id === projectId));
-      const extraProjects = await Promise.all(
-        Array.from(new Set(missingIds)).map(async (projectId) => getProject(projectId))
-      );
-      const names = Object.fromEntries(
-        [...projects, ...extraProjects.filter(Boolean)].map((project) => [project!.id, project!.name])
-      );
+      const { pending, queueSummary, names, syncAt } = await withDatabaseContext(getDatabaseContext(), async () => {
+        const [pending, queueSummary, projects, syncAt] = await Promise.all([
+          listPendingEvents(),
+          getSyncQueueSummary(),
+          listProjects(),
+          getLastSyncAt(),
+        ]);
+        const missingIds = pending
+          .map((event) => event.project_id)
+          .filter((projectId) => !projects.some((project) => project.id === projectId));
+        const extraProjects = await Promise.all(
+          Array.from(new Set(missingIds)).map(async (projectId) => getProject(projectId))
+        );
+        const names = Object.fromEntries(
+          [...projects, ...extraProjects.filter(Boolean)].map((project) => [project!.id, project!.name])
+        );
+        return { pending, queueSummary, names, syncAt };
+      });
+      if (request !== readRequest.current) return false;
       const priority = { BLOCKED: 0, FAILED: 1, PENDING: 2 } as const;
       pending.sort((left, right) =>
         priority[left.status] - priority[right.status] || right.created_at.localeCompare(left.created_at)
@@ -76,23 +94,41 @@ export default function SyncQueueScreen() {
       setProjectNames(names);
       setLastSyncAt(syncAt);
       return true;
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : lt("Unable to read sync queue", "Не удалось прочитать очередь синка", "לא ניתן לקרוא את תור הסנכרון"));
+    } catch {
+      if (request === readRequest.current) {
+        setReadFailed(true);
+        setSummary(null);
+        setItems([]);
+      }
       return false;
+    } finally {
+      if (request === readRequest.current) setReading(false);
     }
-  };
+  }, [authLoading, companyId, userId]);
 
   useEffect(() => {
+    setItems([]);
+    setSummary(null);
+    setProjectNames({});
+    setLastSyncAt(null);
+    setError(null);
+    setReadFailed(false);
+    setReading(authLoading || Boolean(userId));
     void reload();
-  }, []);
+    return () => { readRequest.current += 1; };
+  }, [authLoading, reload, syncVersion, userId]);
 
-  const attentionCount = (summary?.blocked || 0) + (summary?.failed || 0);
+  const readState = getQueueReadState(summary, reading || authLoading, readFailed);
+  const queueReady = readState === "ready";
+  const queueLoading = readState === "loading";
+  const attentionCount = items.filter(needsSyncAttention).length;
+  const waitingCount = items.length - attentionCount;
   const retryableBlocked = items.filter((item) => item.status === "BLOCKED" && canRetrySyncEvent(item));
   const visibleItems = useMemo(
     () =>
       items.filter((item) => {
-        if (filter === "ATTENTION") return item.status === "BLOCKED" || item.status === "FAILED";
-        if (filter === "WAITING") return item.status === "PENDING";
+        if (filter === "ATTENTION") return needsSyncAttention(item);
+        if (filter === "WAITING") return !needsSyncAttention(item);
         return true;
       }),
     [filter, items]
@@ -184,24 +220,29 @@ export default function SyncQueueScreen() {
               label={lt("Refresh queue", "Обновить очередь", "רענון התור")}
               tone="dark"
               onPress={() => void reload()}
+              disabled={queueLoading || !userId}
             />
           }
         >
           <View style={styles.connectionRow}>
-            <View style={[styles.connectionIcon, { backgroundColor: attentionCount ? installerTheme.warningGlow : installerTheme.successGlow }]}>
+            <View style={[styles.connectionIcon, { backgroundColor: !queueReady || attentionCount ? installerTheme.warningGlow : installerTheme.successGlow }]}>
               <Ionicons
-                name={attentionCount ? "warning-outline" : "cloud-done-outline"}
+                name={queueLoading ? "hourglass-outline" : !queueReady || attentionCount ? "warning-outline" : "cloud-done-outline"}
                 size={21}
-                color={attentionCount ? installerTheme.warningFill : installerTheme.successFill}
+                color={!queueReady || attentionCount ? installerTheme.warningFill : installerTheme.successFill}
               />
             </View>
             <View style={styles.connectionBody}>
-              <Text style={[styles.connectionTitle, { color: attentionCount ? installerTheme.warningFill : installerTheme.successBorder }]}>
-                {attentionCount
+              <Text style={[styles.connectionTitle, { color: !queueReady || attentionCount ? installerTheme.warningFill : installerTheme.successFill }]}>
+                {queueLoading
+                  ? lt("Reading queue", "Читаем очередь", "קוראים את התור")
+                  : !queueReady
+                    ? lt("Queue unavailable", "Очередь недоступна", "התור אינו זמין")
+                    : attentionCount
                   ? lt("Queue needs attention", "Очередь требует внимания", "התור דורש טיפול")
                   : summary?.total
                     ? lt("Work is stored safely", "Работы сохранены на телефоне", "העבודה שמורה במכשיר")
-                    : lt("Everything is synchronized", "Всё синхронизировано", "הכול מסונכרן")}
+                    : lt("No queued actions", "Нет действий в очереди", "אין פעולות בתור")}
               </Text>
               <Text style={styles.connectionMeta}>
                 {lt(
@@ -213,10 +254,10 @@ export default function SyncQueueScreen() {
             </View>
           </View>
           <View style={styles.heroStats}>
-            <HeroStat label={lt("Queued", "В очереди", "בתור")} value={summary?.pending || 0} tone="accent" />
-            <HeroStat label={lt("Failed", "Ошибки", "נכשל")} value={summary?.failed || 0} tone="warning" />
-            <HeroStat label={lt("Blocked", "Блоки", "חסום")} value={summary?.blocked || 0} tone="danger" />
-            <HeroStat label={lt("Ready", "Готово", "מוכן")} value={summary?.ready_to_send || 0} tone="success" />
+            <HeroStat label={lt("Queued", "В очереди", "בתור")} value={queueReady ? summary!.pending : "--"} tone="accent" />
+            <HeroStat label={lt("Failed", "Ошибки", "נכשל")} value={queueReady ? summary!.failed : "--"} tone="warning" />
+            <HeroStat label={lt("Blocked", "Блоки", "חסום")} value={queueReady ? summary!.blocked : "--"} tone="danger" />
+            <HeroStat label={lt("Ready to send", "К отправке", "מוכן לשליחה")} value={queueReady ? summary!.ready_to_send : "--"} tone="success" />
           </View>
         </ScreenHero>
 
@@ -232,9 +273,9 @@ export default function SyncQueueScreen() {
             value={filter}
             onChange={setFilter}
             options={[
-              { value: "ALL", label: lt("All", "Все", "הכול"), count: items.length },
-              { value: "ATTENTION", label: lt("Attention", "Внимание", "דורש טיפול"), count: attentionCount },
-              { value: "WAITING", label: lt("Waiting", "Ожидают", "ממתין"), count: summary?.pending || 0 },
+              { value: "ALL", label: lt("All", "Все", "הכול"), count: queueReady ? items.length : undefined },
+              { value: "ATTENTION", label: lt("Attention", "Внимание", "דורש טיפול"), count: queueReady ? attentionCount : undefined },
+              { value: "WAITING", label: lt("Waiting", "Ожидают", "ממתין"), count: queueReady ? waitingCount : undefined },
             ]}
           />
 
@@ -243,7 +284,7 @@ export default function SyncQueueScreen() {
               label={bulkBusy ? lt("Synchronizing…", "Синхронизация…", "מסנכרן…") : lt("Sync now", "Синхронизировать", "סנכרון עכשיו")}
               icon="cloud-upload-outline"
               loading={bulkBusy}
-              disabled={bulkBusy || !items.length}
+              disabled={!queueReady || bulkBusy || !items.length}
               style={styles.flex}
               onPress={() => void syncNow()}
             />
@@ -252,12 +293,24 @@ export default function SyncQueueScreen() {
                 icon="repeat"
                 label={lt("Retry blocked actions", "Повторить заблокированные", "ניסיון חוזר לפעולות חסומות")}
                 onPress={() => void retryBlockedNow()}
-                disabled={bulkBusy}
+                disabled={!queueReady || bulkBusy}
               />
             ) : null}
           </View>
 
-          {visibleItems.length ? (
+          {!queueReady ? (
+            <SectionCard>
+              <EmptyState
+                icon={queueLoading ? "hourglass-outline" : "alert-circle-outline"}
+                title={queueLoading
+                  ? lt("Loading queue", "Загружаем очередь", "טוענים את התור")
+                  : lt("Unable to read queue", "Не удалось прочитать очередь", "לא ניתן לקרוא את התור")}
+                description={queueLoading
+                  ? lt("Reading saved actions on this phone.", "Читаем сохранённые действия на телефоне.", "קוראים את הפעולות השמורות במכשיר.")
+                  : lt("Refresh the queue. Saved actions have not been deleted.", "Обновите очередь. Сохранённые действия не удалены.", "רעננו את התור. הפעולות השמורות לא נמחקו.")}
+              />
+            </SectionCard>
+          ) : visibleItems.length ? (
             <View style={styles.queueList}>
               <SectionHeader title={lt("Queued actions", "Действия в очереди", "פעולות בתור")} meta={visibleItems.length} />
               {visibleItems.map((item) => (
@@ -266,7 +319,7 @@ export default function SyncQueueScreen() {
                   item={item}
                   locale={locale}
                   projectName={projectNames[item.project_id] || item.project_id}
-                  busy={busyId === item.client_event_id}
+                  busy={bulkBusy || busyId === item.client_event_id}
                   timeLabel={timeLabel}
                   retryLabel={lt("Retry now", "Повторить", "ניסיון נוסף")}
                   discardLabel={lt("Discard", "Удалить", "מחיקה")}
@@ -280,11 +333,9 @@ export default function SyncQueueScreen() {
               <EmptyState
                 icon="cloud-done-outline"
                 title={filter === "ALL" ? lt("Queue is empty", "Очередь пуста", "התור ריק") : lt("Nothing in this filter", "В этом фильтре ничего нет", "אין פריטים במסנן")}
-                description={lt(
-                  "All accepted work has reached the server.",
-                  "Все принятые действия уже отправлены на сервер.",
-                  "כל הפעולות שהתקבלו הגיעו לשרת."
-                )}
+                description={filter === "ALL"
+                  ? lt("No unsent actions on this phone.", "На телефоне нет неотправленных действий.", "אין פעולות שלא נשלחו במכשיר זה.")
+                  : lt("Choose another filter to see saved actions.", "Выберите другой фильтр, чтобы увидеть сохранённые действия.", "בחרו מסנן אחר כדי לראות פעולות שמורות.")}
               />
             </SectionCard>
           )}
@@ -316,7 +367,7 @@ export default function SyncQueueScreen() {
   );
 }
 
-function HeroStat({ label, value, tone }: { label: string; value: number; tone: InstallerTone }) {
+function HeroStat({ label, value, tone }: { label: string; value: number | string; tone: InstallerTone }) {
   const colors = toneColors(tone);
   return (
     <View style={styles.heroStat}>
@@ -348,7 +399,7 @@ function QueueCard({
   onDrop: () => void;
 }) {
   const resolution = buildQueueResolution(item, locale);
-  const tone: InstallerTone = item.status === "BLOCKED" ? "danger" : item.status === "FAILED" ? "warning" : "neutral";
+  const tone: InstallerTone = item.status === "BLOCKED" ? "danger" : needsSyncAttention(item) ? "warning" : "neutral";
   const colors = toneColors(tone);
   const icon =
     item.type === "DOOR_SET_STATUS"
@@ -378,7 +429,9 @@ function QueueCard({
       <View style={styles.queueFacts}>
         <Text style={styles.queueFact}>{timeLabel(item.created_at)}</Text>
         <Text style={styles.queueFact}>{item.attempts}×</Text>
-        {item.next_retry_at ? <Text style={styles.queueFact}>{timeLabel(item.next_retry_at)}</Text> : null}
+        {item.status === "FAILED" && item.attempts < MAX_AUTO_RETRY_ATTEMPTS && item.next_retry_at
+          ? <Text style={styles.queueFact}>{timeLabel(item.next_retry_at)}</Text>
+          : null}
       </View>
       <View style={styles.itemActions}>
         <ActionButton

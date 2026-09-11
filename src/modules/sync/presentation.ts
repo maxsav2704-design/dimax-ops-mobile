@@ -1,5 +1,15 @@
 import { translateEnum, type MobileLocale } from "@/lib/i18n";
-import type { PendingSyncEvent } from "@/modules/sync/types";
+import { MAX_AUTO_RETRY_ATTEMPTS } from "@/modules/sync/policy";
+import type { PendingSyncEvent, SyncQueueSummary } from "@/modules/sync/types";
+
+export function getQueueReadState(
+  summary: SyncQueueSummary | null,
+  loading: boolean,
+  failed: boolean,
+): "loading" | "error" | "ready" {
+  if (loading) return "loading";
+  return failed || summary === null ? "error" : "ready";
+}
 
 type QueueResolution = {
   title: string;
@@ -8,6 +18,10 @@ type QueueResolution = {
   retryAllowed: boolean;
   dropAllowed: boolean;
 };
+
+export function needsSyncAttention(event: PendingSyncEvent): boolean {
+  return event.status !== "PENDING" || event.attempts >= MAX_AUTO_RETRY_ATTEMPTS;
+}
 
 function text(locale: MobileLocale, en: string, ru: string, he: string): string {
   if (locale === "ru") return ru;
@@ -139,7 +153,7 @@ export function buildQueueResolution(
     };
   }
 
-  if (event.status === "FAILED") {
+  if (event.status === "FAILED" && event.attempts < MAX_AUTO_RETRY_ATTEMPTS) {
     return {
       title: text(locale, "Temporary sync failure", "Временная ошибка синхронизации", "שגיאת סנכרון זמנית"),
       detail: text(
@@ -159,7 +173,10 @@ export function buildQueueResolution(
     };
   }
 
-  if (event.status === "BLOCKED" && isAutoRetryLimit(event.error)) {
+  if (
+    (event.status === "BLOCKED" && isAutoRetryLimit(event.error)) ||
+    (event.status !== "BLOCKED" && event.attempts >= MAX_AUTO_RETRY_ATTEMPTS)
+  ) {
     return {
       title: text(locale, "Retry limit reached", "Лимит повторов исчерпан", "הגעתם למגבלת הניסיונות"),
       detail: text(
@@ -175,7 +192,7 @@ export function buildQueueResolution(
         "בדקו את החיבור ונסו ידנית. אם השגיאה חוזרת, פנו למשרד."
       ),
       retryAllowed: true,
-      dropAllowed: true,
+      dropAllowed: event.status === "BLOCKED",
     };
   }
 

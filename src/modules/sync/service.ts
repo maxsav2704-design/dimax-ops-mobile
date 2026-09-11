@@ -210,10 +210,11 @@ export async function getSyncQueueSummary(projectId?: string): Promise<SyncQueue
      FROM pending_events
      ${where ? `${where} AND` : "WHERE"}
        status = 'FAILED'
+       AND attempts < ?
        AND next_retry_at IS NOT NULL
      ORDER BY next_retry_at ASC
      LIMIT 1`,
-    params
+    [...params, MAX_AUTO_RETRY_ATTEMPTS]
   );
 
   return {
@@ -1221,16 +1222,16 @@ async function executeSync(context: SyncContext, options?: {
       }),
     });
   } catch (error) {
-    if (pendingEventIds.length && !(error instanceof SessionChangedError)) {
-      await withSyncDatabase(context, async () => {
-        if (isRetryableSyncError(error)) {
-          await scheduleRetry(pendingEventIds, getSyncErrorMessage(error));
-        } else {
-          await markEventsBlocked(pendingEventIds, getSyncErrorMessage(error));
-        }
-      });
+    // Keep catch bindings out of deferred native async/generator callbacks.
+    const failure = error;
+    if (pendingEventIds.length && !(failure instanceof SessionChangedError)) {
+      const retryable = isRetryableSyncError(failure);
+      const message = getSyncErrorMessage(failure);
+      await withSyncDatabase(context, () => retryable
+        ? scheduleRetry(pendingEventIds, message)
+        : markEventsBlocked(pendingEventIds, message));
     }
-    throw error;
+    throw failure;
   }
 
   return withSyncDatabase(context, async () => {
