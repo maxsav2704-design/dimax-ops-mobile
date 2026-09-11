@@ -96,6 +96,14 @@ function canApplyPendingDoorStatus(row: LocalDoorSyncState, payload: Record<stri
   return !isLocalDoorLocked(row) || isLocalOptimisticDoorLock(row, payload);
 }
 
+function isPendingDoorVersionCompatible(row: LocalDoorSyncState, payload: Record<string, unknown>): boolean {
+  const previousVersion = payload.previous_version == null ? null : toNullableNumber(payload.previous_version);
+  const currentVersion = toNullableNumber(row.version);
+  return previousVersion === null || currentVersion === previousVersion || (
+    currentVersion === previousVersion + 1 && row.status === payload.status
+  );
+}
+
 async function getLocalDoorSyncState(
   db: Awaited<ReturnType<typeof getDb>>,
   doorId: string
@@ -222,7 +230,12 @@ async function getPendingEventRow(clientEventId: string): Promise<{
   )) ?? null;
 }
 
-async function markAckResult(clientEventId: string, ok: boolean, error: string | null): Promise<void> {
+async function markAckResult(
+  clientEventId: string,
+  ok: boolean,
+  error: string | null,
+  options?: { preserveServerDoorState: boolean },
+): Promise<void> {
   const db = await getDb();
   const eventRow = await getPendingEventRow(clientEventId);
   if (ok) {
@@ -237,7 +250,7 @@ async function markAckResult(clientEventId: string, ok: boolean, error: string |
 
   const payload = eventRow ? parsePendingPayload(eventRow.payload_json) : {};
   await db.withTransactionAsync(async () => {
-    if (eventRow?.type === "DOOR_SET_STATUS") {
+    if (eventRow?.type === "DOOR_SET_STATUS" && !options?.preserveServerDoorState) {
       await revertDoorStatus(db, payload);
     } else if (eventRow?.type === "ADDON_FACT_CREATE") {
       await deleteLocalAddonFact(db, clientEventId);
@@ -355,7 +368,9 @@ async function revertDoorStatus(
   }
 
   const currentDoor = await getLocalDoorSyncState(db, doorId);
-  if (currentDoor && !canApplyPendingDoorStatus(currentDoor, payload)) {
+  if (currentDoor && (
+    !canApplyPendingDoorStatus(currentDoor, payload) || !isPendingDoorVersionCompatible(currentDoor, payload)
+  )) {
     return;
   }
 
@@ -640,18 +655,21 @@ async function blockPendingEventsForRemovedAssignment(
   );
 }
 
-async function isPendingEventScopeStillLocal(
+async function getPendingEventRetryError(
   db: Awaited<ReturnType<typeof getDb>>,
   eventRow: NonNullable<Awaited<ReturnType<typeof getPendingEventRow>>>,
   payload: Record<string, unknown>
-): Promise<boolean> {
+): Promise<string | null> {
   if (eventRow.type === "DOOR_SET_STATUS") {
     const doorId = typeof payload.door_id === "string" ? payload.door_id : null;
     if (!doorId) {
-      return true;
+      return null;
     }
     const row = await getLocalDoorSyncState(db, doorId);
-    return Boolean(row && canApplyPendingDoorStatus(row, payload));
+    if (!row || !canApplyPendingDoorStatus(row, payload)) {
+      return ASSIGNMENT_CHANGED_ERROR;
+    }
+    return isPendingDoorVersionCompatible(row, payload) ? null : "CONFLICT_INVALID_TRANSITION";
   }
 
   if (eventRow.type === "ADDON_FACT_CREATE") {
@@ -659,22 +677,22 @@ async function isPendingEventScopeStillLocal(
       "SELECT COUNT(*) as total FROM projects WHERE id = ?",
       [eventRow.project_id]
     );
-    return Number(row?.total || 0) > 0;
+    return Number(row?.total || 0) > 0 ? null : ASSIGNMENT_CHANGED_ERROR;
   }
 
   if (eventRow.type === "ISSUE_CREATE") {
     const doorId = typeof payload.door_id === "string" ? payload.door_id : null;
     if (!doorId) {
-      return false;
+      return ASSIGNMENT_CHANGED_ERROR;
     }
     const row = await db.getFirstAsync<{ total: number }>(
       "SELECT COUNT(*) as total FROM doors WHERE id = ? AND project_id = ?",
       [doorId, eventRow.project_id]
     );
-    return Number(row?.total || 0) > 0;
+    return Number(row?.total || 0) > 0 ? null : ASSIGNMENT_CHANGED_ERROR;
   }
 
-  return true;
+  return null;
 }
 
 export async function retryPendingEventNow(clientEventId: string): Promise<void> {
@@ -685,14 +703,15 @@ export async function retryPendingEventNow(clientEventId: string): Promise<void>
 
   const db = await getDb();
   const payload = parsePendingPayload(eventRow.payload_json);
-  if (!(await isPendingEventScopeStillLocal(db, eventRow, payload))) {
+  const retryError = await getPendingEventRetryError(db, eventRow, payload);
+  if (retryError) {
     await db.runAsync(
       `UPDATE pending_events
        SET status = 'BLOCKED',
            error = ?,
            next_retry_at = NULL
        WHERE client_event_id = ?`,
-      [ASSIGNMENT_CHANGED_ERROR, clientEventId]
+      [retryError, clientEventId]
     );
     return;
   }
@@ -742,21 +761,39 @@ export async function dropPendingEvent(clientEventId: string): Promise<void> {
   });
 }
 
-async function reapplyPendingOptimisticChanges(events: PendingSyncEvent[]): Promise<void> {
+async function reapplyPendingOptimisticChanges(snapshot: SyncSnapshot): Promise<void> {
+  // Read the remaining outbox after acknowledgements, including deferred and newly queued work.
+  const events = (await listPendingEvents())
+    .filter((event) => event.status === "PENDING" || event.status === "FAILED")
+    .reverse();
   if (!events.length) {
     return;
   }
 
+  const projectIds = new Set(snapshot.projects.map((project) => project.id));
+  const doors = new Map(snapshot.doors.map((door) => [door.id, door]));
   const db = await getDb();
   await db.withTransactionAsync(async () => {
     for (const event of events) {
+      const doorId = typeof event.payload.door_id === "string" ? event.payload.door_id : null;
+      const door = doorId ? doors.get(doorId) : undefined;
+      const doorScoped = event.type === "DOOR_SET_STATUS" || event.type === "ISSUE_CREATE";
+      if (!projectIds.has(event.project_id) || (doorScoped && door?.project_id !== event.project_id)) {
+        await markEventsBlocked([event.client_event_id], ASSIGNMENT_CHANGED_ERROR);
+        continue;
+      }
       if (event.type === "DOOR_SET_STATUS") {
-        const doorId = typeof event.payload.door_id === "string" ? event.payload.door_id : null;
         if (!doorId) {
           continue;
         }
         const row = await getLocalDoorSyncState(db, doorId);
-        if (!row || isLocalDoorLocked(row)) {
+        const previousVersion = event.payload.previous_version == null
+          ? null
+          : toNullableNumber(event.payload.previous_version);
+        if (
+          !row || isLocalDoorLocked(row) ||
+          (previousVersion !== null && previousVersion !== Number(row.version ?? 0))
+        ) {
           continue;
         }
         await applyLocalDoorStatus(db, event.payload);
@@ -1176,7 +1213,6 @@ async function executeSync(options?: {
       throw new Error(error);
     }
     await upsertSnapshot(response.snapshot);
-    await reapplyPendingOptimisticChanges(pendingEvents);
   }
 
   for (const change of response.changes) {
@@ -1184,13 +1220,19 @@ async function executeSync(options?: {
   }
 
   for (const ack of response.acks) {
-    await markAckResult(ack.client_event_id, ack.ok, ack.error);
+    await markAckResult(ack.client_event_id, ack.ok, ack.error, {
+      preserveServerDoorState: response.reset_required,
+    });
   }
 
   const ackedEventIds = new Set(response.acks.map((ack) => ack.client_event_id));
   const missingAckEventIds = pendingEventIds.filter((clientEventId) => !ackedEventIds.has(clientEventId));
   if (missingAckEventIds.length) {
     await scheduleRetry(missingAckEventIds, "Sync response missed event acknowledgement");
+  }
+
+  if (response.reset_required && response.snapshot) {
+    await reapplyPendingOptimisticChanges(response.snapshot);
   }
 
   await setState(CURSOR_KEY, String(response.next_cursor));

@@ -210,7 +210,9 @@ describe("mobile sync service", () => {
     await forceColdResync();
 
     expect(setStateMock).toHaveBeenNthCalledWith(1, "sync_cursor", "0");
-    expect(dbRef.current.getAllAsync).not.toHaveBeenCalled();
+    expect(dbRef.current.getAllAsync).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("ORDER BY created_at DESC"),
+    );
     expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/sync", expect.objectContaining({
       method: "POST",
     }));
@@ -315,7 +317,7 @@ describe("mobile sync service", () => {
       is_locked: 0,
       attempts: 1,
     });
-    dbRef.current.getAllAsync.mockResolvedValueOnce([
+    dbRef.current.getAllAsync.mockResolvedValue([
       {
         client_event_id: "door-event-1",
         type: "DOOR_SET_STATUS",
@@ -446,7 +448,7 @@ describe("mobile sync service", () => {
   });
 
   it("does not reapply a pending door status after cold resync when the door is locked", async () => {
-    dbRef.current.getAllAsync.mockResolvedValueOnce([
+    dbRef.current.getAllAsync.mockResolvedValue([
       {
         client_event_id: "door-event-1",
         type: "DOOR_SET_STATUS",
