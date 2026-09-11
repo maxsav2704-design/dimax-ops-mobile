@@ -78,6 +78,46 @@ describe("loadInstallerEarnings", () => {
     expect(saveEarningsSnapshotMock).toHaveBeenCalledWith(result.snapshot);
   });
 
+  it("preserves a cancellation debit and zero month total online and from cache", async () => {
+    const payload = {
+      period_key: "2026-09",
+      currency: "ILS",
+      today_total: "-300.00",
+      month_total: "0.00",
+      days: [
+        { date: "2026-09-10", amount: "300.00", jobs_count: 1 },
+        { date: "2026-09-11", amount: "-300.00", jobs_count: 1 },
+      ],
+      install_types: [],
+      rows: [{
+        id: "cancellation-row",
+        work_date: "2026-09-11",
+        project_id: "project-1",
+        project_name: "Project 1",
+        door_label: "A-101",
+        install_type_code: "DOOR",
+        install_type_label: "Entrance",
+        quantity: "1.00",
+        rate: "-300.00",
+        amount: "-300.00",
+      }],
+      generated_at: "2026-09-11T10:00:00Z",
+    };
+    apiFetchMock.mockResolvedValueOnce(payload);
+    const online = await loadInstallerEarnings("month", "2026-09-11");
+    expect(online.source).toBe("online");
+    expect(online.snapshot?.month_total).toBe("0.00");
+    expect(online.snapshot?.rows[0].amount).toBe("-300.00");
+    expect(saveEarningsSnapshotMock).toHaveBeenCalledWith(online.snapshot);
+
+    apiFetchMock.mockRejectedValueOnce(new NetworkError("Offline"));
+    getEarningsSnapshotMock.mockResolvedValueOnce(online.snapshot);
+    const offline = await loadInstallerEarnings("month", "2026-09-11");
+    expect(offline.source).toBe("cache");
+    expect(offline.snapshot).toEqual(online.snapshot);
+    expect(getEarningsSnapshotMock).toHaveBeenCalledWith("2026-09");
+  });
+
   it("keeps fresh earnings when the offline snapshot cannot be saved", async () => {
     const payload = {
       period_key: "2026-06",
