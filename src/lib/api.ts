@@ -1,6 +1,6 @@
 import { API_BASE_URL } from "@/lib/config";
 import { getOrCreateDeviceId } from "@/lib/device-id";
-import { ApiError, NetworkError } from "@/lib/errors";
+import { ApiError, NetworkError, SessionChangedError } from "@/lib/errors";
 import {
   clearSession,
   getStoredSession,
@@ -26,6 +26,7 @@ type TokenPair = {
 
 type ApiRequestInit = RequestInit & {
   timeoutMs?: number;
+  expectedAuthGeneration?: number;
 };
 
 const refreshInFlight = new Map<string, Promise<SessionSnapshot>>();
@@ -35,11 +36,8 @@ const AUTH_LOGIN_TIMEOUT_MS = 30000;
 const AUTH_IDENTITY_TIMEOUT_MS = 30000;
 const AUTH_REFRESH_TIMEOUT_MS = 30000;
 
-class SessionChangedError extends Error {
-  constructor() {
-    super("Mobile session changed while the request was in progress");
-    this.name = "SessionChangedError";
-  }
+export function getAuthSessionGeneration(): number {
+  return authGeneration;
 }
 
 function normalizeSessionEmail(email: string): string {
@@ -308,17 +306,27 @@ async function refreshSessionForRetry(
 }
 
 export async function apiFetch<T>(path: string, init?: ApiRequestInit): Promise<T> {
-  const generation = authGeneration;
+  const { expectedAuthGeneration = authGeneration, ...requestInit } = init || {};
+  const generation = expectedAuthGeneration;
+  if (generation !== authGeneration) {
+    throw new SessionChangedError();
+  }
   const stored = await getStoredSession();
+  if (generation !== authGeneration) {
+    throw new SessionChangedError();
+  }
   if (!stored) {
     throw new Error("No mobile session");
   }
 
   const doRequest = async (token: string) => {
+    if (generation !== authGeneration) {
+      throw new SessionChangedError();
+    }
     return rawFetch<T>(path, {
-      ...init,
+      ...requestInit,
       headers: {
-        ...(init?.headers || {}),
+        ...(requestInit.headers || {}),
         Authorization: `Bearer ${token}`,
       },
     });

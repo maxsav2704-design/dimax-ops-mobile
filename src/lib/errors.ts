@@ -16,3 +16,10 @@ export class NetworkError extends Error {
     this.name = "NetworkError";
   }
 }
+
+export class SessionChangedError extends Error {
+  constructor() {
+    super("Mobile session changed while the request was in progress");
+    this.name = "SessionChangedError";
+  }
+}

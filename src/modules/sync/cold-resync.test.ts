@@ -7,10 +7,12 @@ const { apiFetchMock, dbRef, setStateMock } = vi.hoisted(() => ({
   setStateMock: vi.fn(),
 }));
 
-vi.mock("@/lib/api", () => ({ apiFetch: apiFetchMock }));
+vi.mock("@/lib/api", () => ({ apiFetch: apiFetchMock, getAuthSessionGeneration: () => 0 }));
 vi.mock("@/lib/device-id", () => ({ getOrCreateDeviceId: async () => "reset-test-device" }));
 vi.mock("@/lib/db", () => ({
   getDb: async () => dbRef.current,
+  getDatabaseContext: () => dbRef.current,
+  withDatabaseContext: async (_context: unknown, operation: () => Promise<unknown>) => operation(),
   getState: async () => "1",
   initDb: async () => undefined,
   setState: setStateMock,

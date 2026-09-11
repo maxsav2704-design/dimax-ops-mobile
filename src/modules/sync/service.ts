@@ -1,7 +1,8 @@
-import { apiFetch } from "@/lib/api";
+import { apiFetch, getAuthSessionGeneration } from "@/lib/api";
 import { MOBILE_APP_VERSION } from "@/lib/config";
 import { getOrCreateDeviceId } from "@/lib/device-id";
-import { getDb, getState, initDb, setState } from "@/lib/db";
+import { getDatabaseContext, getDb, getState, initDb, setState, withDatabaseContext } from "@/lib/db";
+import { SessionChangedError } from "@/lib/errors";
 import { normalizeAddonQuantity } from "@/modules/addons/quantity";
 import {
   MAX_AUTO_RETRY_ATTEMPTS,
@@ -14,7 +15,24 @@ import type { PendingSyncEvent, SyncChange, SyncQueueSummary, SyncResponse, Sync
 const CURSOR_KEY = "sync_cursor";
 const LAST_SYNC_AT_KEY = "last_sync_at";
 let syncExecutionTail: Promise<void> = Promise.resolve();
-let automaticSyncInFlight: Promise<SyncResponse> | null = null;
+type SyncContext = {
+  database: ReturnType<typeof getDatabaseContext>;
+  authGeneration: number;
+};
+let automaticSyncInFlight: (SyncContext & { operation: Promise<SyncResponse> }) | null = null;
+
+function captureSyncContext(): SyncContext {
+  return { database: getDatabaseContext(), authGeneration: getAuthSessionGeneration() };
+}
+
+function withSyncDatabase<T>(context: SyncContext, operation: () => Promise<T>): Promise<T> {
+  return withDatabaseContext(context.database, () => {
+    if (context.authGeneration !== getAuthSessionGeneration()) {
+      throw new SessionChangedError();
+    }
+    return operation();
+  });
+}
 
 type PendingSyncEventRow = Omit<PendingSyncEvent, "payload"> & {
   payload_json: string;
@@ -1118,14 +1136,17 @@ export async function bootstrapOnlineData(): Promise<void> {
 }
 
 export function forceColdResync(): Promise<SyncResponse> {
+  const context = captureSyncContext();
   return enqueueSync(async () => {
-    await initDb();
-    const unresolvedEventCount = await countPendingEvents();
-    if (unresolvedEventCount > 0) {
-      throw new Error("Cold resync is blocked while unsynced work remains on this device.");
-    }
-    await setState(CURSOR_KEY, "0");
-    return executeSync({ sinceCursor: 0, includeEvents: false });
+    await withSyncDatabase(context, async () => {
+      await initDb();
+      const unresolvedEventCount = await countPendingEvents();
+      if (unresolvedEventCount > 0) {
+        throw new Error("Cold resync is blocked while unsynced work remains on this device.");
+      }
+      await setState(CURSOR_KEY, "0");
+    });
+    return executeSync(context, { sinceCursor: 0, includeEvents: false });
   });
 }
 
@@ -1134,21 +1155,25 @@ export function runSync(options?: {
   sinceCursor?: number;
   includeEvents?: boolean;
 }): Promise<SyncResponse> {
+  const context = captureSyncContext();
   const isAutomaticSync =
     !options?.forceRetry &&
     options?.sinceCursor === undefined &&
     options?.includeEvents === undefined;
   if (!isAutomaticSync) {
-    return enqueueSync(() => executeSync(options));
+    return enqueueSync(() => executeSync(context, options));
   }
-  if (automaticSyncInFlight) {
-    return automaticSyncInFlight;
+  if (
+    automaticSyncInFlight?.database === context.database &&
+    automaticSyncInFlight?.authGeneration === context.authGeneration
+  ) {
+    return automaticSyncInFlight.operation;
   }
 
-  const operation = enqueueSync(() => executeSync(options));
-  automaticSyncInFlight = operation;
+  const operation = enqueueSync(() => executeSync(context, options));
+  automaticSyncInFlight = { ...context, operation };
   const clearAutomaticSync = () => {
-    if (automaticSyncInFlight === operation) {
+    if (automaticSyncInFlight?.operation === operation) {
       automaticSyncInFlight = null;
     }
   };
@@ -1156,29 +1181,31 @@ export function runSync(options?: {
   return operation;
 }
 
-async function executeSync(options?: {
+async function executeSync(context: SyncContext, options?: {
   forceRetry?: boolean;
   sinceCursor?: number;
   includeEvents?: boolean;
 }): Promise<SyncResponse> {
-  await initDb();
-  const sinceCursor = options?.sinceCursor ?? Number((await getState(CURSOR_KEY)) || "0");
-  const pendingEvents =
-    options?.includeEvents === false
+  const { sinceCursor, pendingEvents, pendingEventIds } = await withSyncDatabase(context, async () => {
+    await initDb();
+    const sinceCursor = options?.sinceCursor ?? Number((await getState(CURSOR_KEY)) || "0");
+    const pendingEvents = options?.includeEvents === false
       ? []
       : await getPendingEvents(500, Boolean(options?.forceRetry));
-  const pendingEventIds = pendingEvents.map((event) => event.client_event_id);
-  const deviceId = await getOrCreateDeviceId();
-
-  if (pendingEventIds.length) {
-    await markEventsAttempted(pendingEventIds);
-  }
+    const pendingEventIds = pendingEvents.map((event) => event.client_event_id);
+    if (pendingEventIds.length) {
+      await markEventsAttempted(pendingEventIds);
+    }
+    return { sinceCursor, pendingEvents, pendingEventIds };
+  });
 
   let response: SyncResponse;
   try {
+    const deviceId = await getOrCreateDeviceId();
     response = await apiFetch<SyncResponse>("/api/v1/installer/sync", {
       method: "POST",
       timeoutMs: 30000,
+      expectedAuthGeneration: context.authGeneration,
       body: JSON.stringify({
         since_cursor: sinceCursor,
         ack_cursor: sinceCursor,
@@ -1194,50 +1221,54 @@ async function executeSync(options?: {
       }),
     });
   } catch (error) {
-    if (pendingEventIds.length) {
-      if (isRetryableSyncError(error)) {
-        await scheduleRetry(pendingEventIds, getSyncErrorMessage(error));
-      } else {
-        await markEventsBlocked(pendingEventIds, getSyncErrorMessage(error));
-      }
+    if (pendingEventIds.length && !(error instanceof SessionChangedError)) {
+      await withSyncDatabase(context, async () => {
+        if (isRetryableSyncError(error)) {
+          await scheduleRetry(pendingEventIds, getSyncErrorMessage(error));
+        } else {
+          await markEventsBlocked(pendingEventIds, getSyncErrorMessage(error));
+        }
+      });
     }
     throw error;
   }
 
-  if (response.reset_required) {
-    if (!response.snapshot) {
-      const error = "Sync reset requested without snapshot";
-      if (pendingEventIds.length) {
-        await scheduleRetry(pendingEventIds, error);
+  return withSyncDatabase(context, async () => {
+    if (response.reset_required) {
+      if (!response.snapshot) {
+        const error = "Sync reset requested without snapshot";
+        if (pendingEventIds.length) {
+          await scheduleRetry(pendingEventIds, error);
+        }
+        throw new Error(error);
       }
-      throw new Error(error);
+      await upsertSnapshot(response.snapshot);
     }
-    await upsertSnapshot(response.snapshot);
-  }
 
-  for (const change of response.changes) {
-    await applyChange(change);
-  }
+    for (const change of response.changes) {
+      await applyChange(change);
+    }
 
-  for (const ack of response.acks) {
-    await markAckResult(ack.client_event_id, ack.ok, ack.error, {
-      preserveServerDoorState: response.reset_required,
-    });
-  }
+    for (const ack of response.acks) {
+      await markAckResult(ack.client_event_id, ack.ok, ack.error, {
+        preserveServerDoorState: response.reset_required,
+      });
+    }
 
-  const ackedEventIds = new Set(response.acks.map((ack) => ack.client_event_id));
-  const missingAckEventIds = pendingEventIds.filter((clientEventId) => !ackedEventIds.has(clientEventId));
-  if (missingAckEventIds.length) {
-    await scheduleRetry(missingAckEventIds, "Sync response missed event acknowledgement");
-  }
+    const ackedEventIds = new Set(response.acks.map((ack) => ack.client_event_id));
+    const missingAckEventIds = pendingEventIds.filter((clientEventId) => !ackedEventIds.has(clientEventId));
+    if (missingAckEventIds.length) {
+      await scheduleRetry(missingAckEventIds, "Sync response missed event acknowledgement");
+    }
 
-  if (response.reset_required && response.snapshot) {
-    await reapplyPendingOptimisticChanges(response.snapshot);
-  }
+    if (response.reset_required && response.snapshot) {
+      await reapplyPendingOptimisticChanges(response.snapshot);
+    }
 
-  await setState(CURSOR_KEY, String(response.next_cursor));
-  await setState(LAST_SYNC_AT_KEY, response.server_time);
-  return response;
+    await setState(CURSOR_KEY, String(response.next_cursor));
+    await setState(LAST_SYNC_AT_KEY, response.server_time);
+    return response;
+  });
 }
 
 export async function queueDoorStatusEvent(input: {

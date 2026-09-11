@@ -25,7 +25,7 @@ vi.mock("@/modules/auth/session", () => ({
   clearSession: clearSessionMock,
 }));
 
-import { apiFetch, authMe, login, logout, refreshSession } from "@/lib/api";
+import { apiFetch, authMe, getAuthSessionGeneration, login, logout, refreshSession } from "@/lib/api";
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
@@ -51,6 +51,48 @@ describe("mobile api auth payloads", () => {
     persistSessionMock.mockResolvedValue(undefined);
     persistStoredUserMock.mockResolvedValue(undefined);
     clearSessionMock.mockResolvedValue(undefined);
+  });
+
+  it("refuses an outgoing sync payload captured by an older login generation", async () => {
+    const generation = getAuthSessionGeneration();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal("fetch", fetchMock);
+    await logout();
+    fetchMock.mockClear();
+    getStoredSessionMock.mockResolvedValue({
+      accessToken: "account-b-access", refreshToken: "account-b-refresh",
+      companyId: "company-b", email: "installer-b@example.invalid",
+    });
+
+    await expect(apiFetch("/api/v1/installer/sync", {
+      method: "POST", body: JSON.stringify({ events: [{ client_event_id: "account-a-work" }] }),
+      expectedAuthGeneration: generation,
+    })).rejects.toThrow("session changed");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not dispatch when logout happens during the session storage read", async () => {
+    const read = createDeferred<any>();
+    getStoredSessionMock.mockImplementationOnce(() => read.promise);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal("fetch", fetchMock);
+    const request = apiFetch("/api/v1/installer/sync", { method: "POST" }).catch((error: unknown) => error);
+    await logout();
+    read.resolve({
+      accessToken: "old-access", refreshToken: "old-refresh", companyId: "company-1", email: "old@example.invalid",
+    });
+
+    expect(await request).toMatchObject({ name: "SessionChangedError" });
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["http://127.0.0.1:8000/api/v1/auth/logout-refresh"]);
+  });
+
+  it("keeps the local generation guard out of the HTTP request options", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true }) });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(apiFetch("/api/v1/installer/sync", {
+      method: "POST", expectedAuthGeneration: getAuthSessionGeneration(),
+    })).resolves.toEqual({ ok: true });
+    expect(fetchMock.mock.calls[0][1]).not.toHaveProperty("expectedAuthGeneration");
   });
 
   it("sends device_id during login", async () => {

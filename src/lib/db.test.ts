@@ -158,4 +158,78 @@ describe("mobile SQLite schema and account isolation", () => {
         .state.get("database_owner"),
     ).toBe("company-a:user-b");
   });
+
+  it("refuses a database operation without an active identity", async () => {
+    const db = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    const operation = vi.fn();
+    await expect(db.withDatabaseContext(db.getDatabaseContext(), operation)).rejects.toThrow("session changed");
+    expect(operation).not.toHaveBeenCalled();
+  });
+
+  it("keeps a context valid when refreshing the same active identity", async () => {
+    const db = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    await db.activateDbForIdentity("company-a", "user-a");
+    const context = db.getDatabaseContext();
+    await db.activateDbForIdentity("company-a", "user-a");
+    await expect(db.withDatabaseContext(context, async () => "same identity")).resolves.toBe("same identity");
+    expect(db.getDatabaseContext()).toBe(context);
+  });
+
+  it.each(["user", "company", "logout", "return"])("invalidates the old context after a %s change", async (change) => {
+    const db = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    await db.activateDbForIdentity("company-a", "user-a");
+    const oldContext = db.getDatabaseContext();
+    const oldDatabase = await db.getDb() as any;
+    oldDatabase.pendingEvents.add("unsent-work");
+    if (change === "logout") {
+      await db.deactivateDb();
+    } else {
+      await db.activateDbForIdentity(change === "company" ? "company-b" : "company-a", "user-b");
+      if (change === "return") await db.activateDbForIdentity("company-a", "user-a");
+    }
+    const operation = vi.fn();
+    await expect(db.withDatabaseContext(oldContext, operation)).rejects.toThrow("session changed");
+    expect(operation).not.toHaveBeenCalled();
+    expect(oldDatabase.pendingEvents).toEqual(new Set(["unsent-work"]));
+  });
+
+  it("finishes the local phase before closing its connection and rejects old work queued after a switch", async () => {
+    const db = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    await db.activateDbForIdentity("company-a", "user-a");
+    const context = db.getDatabaseContext();
+    const databaseA = await db.getDb() as any;
+    let release!: () => void;
+    let started!: () => void;
+    const pause = new Promise<void>((resolve) => { release = resolve; });
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const phase = db.withDatabaseContext(context, async () => {
+      started();
+      await pause;
+      await db.setState("sync_cursor", "33");
+    });
+    await entered;
+    const switching = db.activateDbForIdentity("company-a", "user-b");
+    const lateOperation = vi.fn();
+    const late = db.withDatabaseContext(context, lateOperation).catch((error: unknown) => error);
+    expect(databaseA.closeAsync).not.toHaveBeenCalled();
+    release();
+    await phase;
+    await switching;
+
+    expect(await late).toBeInstanceOf(Error);
+    expect(lateOperation).not.toHaveBeenCalled();
+    expect(databaseA.state.get("sync_cursor")).toBe("33");
+    expect(await db.getState("sync_cursor")).toBeNull();
+    expect(databaseA.closeAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows a later account activation after a failed local operation", async () => {
+    const db = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    await db.activateDbForIdentity("company-a", "user-a");
+    await expect(db.withDatabaseContext(db.getDatabaseContext(), async () => {
+      throw new Error("Simulated database failure");
+    })).rejects.toThrow("Simulated database failure");
+    await db.activateDbForIdentity("company-a", "user-b");
+    await expect(db.withDatabaseContext(db.getDatabaseContext(), async () => "ready")).resolves.toBe("ready");
+  });
 });

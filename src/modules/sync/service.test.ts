@@ -18,6 +18,7 @@ const {
 
 vi.mock("@/lib/api", () => ({
   apiFetch: apiFetchMock,
+  getAuthSessionGeneration: () => 0,
 }));
 
 vi.mock("@/lib/device-id", () => ({
@@ -26,6 +27,8 @@ vi.mock("@/lib/device-id", () => ({
 
 vi.mock("@/lib/db", () => ({
   getDb: async () => dbRef.current,
+  getDatabaseContext: () => dbRef.current,
+  withDatabaseContext: async (_context: unknown, operation: () => Promise<unknown>) => operation(),
   getState: getStateMock,
   initDb: initDbMock,
   setState: setStateMock,
