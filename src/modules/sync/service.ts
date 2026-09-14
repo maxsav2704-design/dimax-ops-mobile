@@ -235,6 +235,7 @@ async function getPendingEventRow(clientEventId: string): Promise<{
   project_id: string;
   happened_at: string | null;
   payload_json: string;
+  server_state_received: number;
 } | null> {
   const db = await getDb();
   return (await db.getFirstAsync<{
@@ -243,8 +244,9 @@ async function getPendingEventRow(clientEventId: string): Promise<{
     project_id: string;
     happened_at: string | null;
     payload_json: string;
+    server_state_received: number;
   }>(
-    `SELECT client_event_id, type, project_id, happened_at, payload_json
+    `SELECT client_event_id, type, project_id, happened_at, payload_json, server_state_received
      FROM pending_events
      WHERE client_event_id = ?`,
     [clientEventId]
@@ -271,7 +273,7 @@ async function markAckResult(
 
   const payload = eventRow ? parsePendingPayload(eventRow.payload_json) : {};
   await db.withTransactionAsync(async () => {
-    if (eventRow?.type === "DOOR_SET_STATUS" && !options?.preserveServerDoorState) {
+    if (eventRow?.type === "DOOR_SET_STATUS" && !options?.preserveServerDoorState && !eventRow.server_state_received) {
       await revertDoorStatus(db, payload);
     } else if (eventRow?.type === "ADDON_FACT_CREATE") {
       await deleteLocalAddonFact(db, clientEventId);
@@ -738,7 +740,7 @@ export async function retryPendingEventNow(clientEventId: string): Promise<void>
   }
 
   await db.withTransactionAsync(async () => {
-    if (eventRow.type === "DOOR_SET_STATUS") {
+    if (eventRow.type === "DOOR_SET_STATUS" && !eventRow.server_state_received) {
       await applyLocalDoorStatus(db, payload);
     } else if (eventRow.type === "ADDON_FACT_CREATE") {
       await restoreLocalAddonFactFromEvent(db, eventRow);
@@ -771,7 +773,7 @@ export async function dropPendingEvent(clientEventId: string): Promise<void> {
   const payload = parsePendingPayload(eventRow.payload_json);
   const db = await getDb();
   await db.withTransactionAsync(async () => {
-    if (eventRow.type === "DOOR_SET_STATUS") {
+    if (eventRow.type === "DOOR_SET_STATUS" && !eventRow.server_state_received) {
       await revertDoorStatus(db, payload);
     } else if (eventRow.type === "ADDON_FACT_CREATE") {
       await deleteLocalAddonFact(db, clientEventId);
@@ -818,6 +820,10 @@ async function reapplyPendingOptimisticChanges(snapshot: SyncSnapshot): Promise<
           continue;
         }
         await applyLocalDoorStatus(db, event.payload);
+        await db.runAsync(
+          "UPDATE pending_events SET server_state_received = 0 WHERE client_event_id = ?",
+          [event.client_event_id],
+        );
       } else if (event.type === "ADDON_FACT_CREATE") {
         await restoreLocalAddonFactFromPayload(db, {
           clientEventId: event.client_event_id,
@@ -839,6 +845,10 @@ async function reapplyPendingOptimisticChanges(snapshot: SyncSnapshot): Promise<
 async function upsertSnapshot(snapshot: SyncSnapshot): Promise<void> {
   const db = await getDb();
   await db.withTransactionAsync(async () => {
+    // A server version can equal an optimistic version; persist its authority across restarts.
+    await db.runAsync(
+      "UPDATE pending_events SET server_state_received = 1 WHERE type = 'DOOR_SET_STATUS'",
+    );
     await db.runAsync("DELETE FROM projects");
     await db.runAsync("DELETE FROM doors");
     await db.runAsync("DELETE FROM reasons");
@@ -994,44 +1004,53 @@ async function applyChange(change: SyncChange): Promise<void> {
 
   switch (change.change_type) {
     case "DOOR":
-      await db.runAsync(
-        `INSERT INTO doors(id, project_id, door_type_id, unit_label, order_number, house_number, floor_label, apartment_number, location_code, door_marking, status, reason_id, comment, is_locked, version, updated_at)
-         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           project_id = excluded.project_id,
-           door_type_id = excluded.door_type_id,
-           unit_label = excluded.unit_label,
-           status = excluded.status,
-           reason_id = excluded.reason_id,
-           comment = excluded.comment,
-           is_locked = excluded.is_locked,
-           order_number = excluded.order_number,
-           house_number = excluded.house_number,
-           floor_label = excluded.floor_label,
-           apartment_number = excluded.apartment_number,
-           location_code = excluded.location_code,
-           door_marking = excluded.door_marking,
-           version = excluded.version,
-           updated_at = excluded.updated_at`,
-        [
-          payload.id,
-          payload.project_id,
-          payload.door_type_id,
-          payload.unit_label,
-          payload.order_number,
-          payload.house_number,
-          payload.floor_label,
-          payload.apartment_number,
-          payload.location_code,
-          payload.door_marking,
-          payload.status,
-          payload.reason_id ?? null,
-          payload.comment,
-          payload.is_locked ? 1 : 0,
-          Number(payload.version ?? 0),
-          payload.updated_at,
-        ]
-      );
+      await db.withTransactionAsync(async () => {
+        await db.runAsync(
+          `UPDATE pending_events SET server_state_received = 1
+           WHERE type = 'DOOR_SET_STATUS'
+             AND json_valid(payload_json)
+             AND json_extract(payload_json, '$.door_id') = ?`,
+          [payload.id],
+        );
+        await db.runAsync(
+          `INSERT INTO doors(id, project_id, door_type_id, unit_label, order_number, house_number, floor_label, apartment_number, location_code, door_marking, status, reason_id, comment, is_locked, version, updated_at)
+           VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             project_id = excluded.project_id,
+             door_type_id = excluded.door_type_id,
+             unit_label = excluded.unit_label,
+             status = excluded.status,
+             reason_id = excluded.reason_id,
+             comment = excluded.comment,
+             is_locked = excluded.is_locked,
+             order_number = excluded.order_number,
+             house_number = excluded.house_number,
+             floor_label = excluded.floor_label,
+             apartment_number = excluded.apartment_number,
+             location_code = excluded.location_code,
+             door_marking = excluded.door_marking,
+             version = excluded.version,
+             updated_at = excluded.updated_at`,
+          [
+            payload.id,
+            payload.project_id,
+            payload.door_type_id,
+            payload.unit_label,
+            payload.order_number,
+            payload.house_number,
+            payload.floor_label,
+            payload.apartment_number,
+            payload.location_code,
+            payload.door_marking,
+            payload.status,
+            payload.reason_id ?? null,
+            payload.comment,
+            payload.is_locked ? 1 : 0,
+            Number(payload.version ?? 0),
+            payload.updated_at,
+          ]
+        );
+      });
       break;
     case "ADDON_FACT":
       await db.runAsync(

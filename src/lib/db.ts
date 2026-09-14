@@ -3,7 +3,7 @@ import { SessionChangedError } from "@/lib/errors";
 
 const LEGACY_DB_NAME = "dimax_mobile.db";
 const DB_OWNER_STATE_KEY = "database_owner";
-const DB_SCHEMA_VERSION = 10;
+const DB_SCHEMA_VERSION = 11;
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 let activeOwnerKey: string | null = null;
@@ -142,6 +142,7 @@ async function createBaseSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       attempts INTEGER NOT NULL DEFAULT 0,
       next_retry_at TEXT,
       last_attempt_at TEXT,
+      server_state_received INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
 
@@ -316,6 +317,15 @@ async function migrateDb(db: SQLite.SQLiteDatabase): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_installer_journal_snapshots_project
         ON installer_journal_snapshots(project_id, updated_at);
     `);
+  }
+
+  if (currentVersion < 11) {
+    await ensureColumn(
+      db,
+      "pending_events",
+      "server_state_received",
+      "server_state_received INTEGER NOT NULL DEFAULT 0",
+    );
   }
 
   if (currentVersion !== DB_SCHEMA_VERSION) {
