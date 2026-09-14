@@ -1,6 +1,6 @@
 import { API_BASE_URL } from "@/lib/config";
 import { getOrCreateDeviceId } from "@/lib/device-id";
-import { ApiError, NetworkError, SessionChangedError } from "@/lib/errors";
+import { ApiError, NetworkError, SessionChangedError, SessionStorageError } from "@/lib/errors";
 import {
   clearSession,
   getStoredSession,
@@ -38,6 +38,14 @@ const AUTH_REFRESH_TIMEOUT_MS = 30000;
 
 export function getAuthSessionGeneration(): number {
   return authGeneration;
+}
+
+export async function clearAuthenticatedSession(expectedGeneration: number): Promise<void> {
+  if (expectedGeneration !== authGeneration) {
+    throw new SessionChangedError();
+  }
+  const generation = ++authGeneration;
+  await enqueueAuthStorageMutation(generation, clearSession);
 }
 
 function normalizeSessionEmail(email: string): string {
@@ -393,11 +401,11 @@ export async function refreshSession(refreshToken?: string): Promise<SessionSnap
 
 export async function logout(): Promise<void> {
   const generation = ++authGeneration;
-  const stored = await getStoredSession();
-  if (generation !== authGeneration) {
-    return;
-  }
   try {
+    const stored = await getStoredSession();
+    if (generation !== authGeneration) {
+      return;
+    }
     if (stored) {
       await rawFetch("/api/v1/auth/logout-refresh", {
         method: "POST",
@@ -409,7 +417,7 @@ export async function logout(): Promise<void> {
       await enqueueAuthStorageMutation(generation, clearSession);
     } catch (error) {
       if (!(error instanceof SessionChangedError)) {
-        throw error;
+        throw new SessionStorageError();
       }
     }
   }

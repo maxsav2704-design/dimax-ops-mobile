@@ -9,7 +9,8 @@ import React, {
   useState,
 } from "react";
 import * as SecureStore from "expo-secure-store";
-import { ActivityIndicator, AppState, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Alert, AppState, StyleSheet, View } from "react-native";
+import { SessionStorageError } from "@/lib/errors";
 import { LOCALE_STORAGE_KEY } from "@/lib/config";
 import { installerTheme } from "@/lib/theme";
 import {
@@ -26,13 +27,13 @@ import {
   persistAuthenticatedUser,
   type AuthMe,
 } from "@/lib/api";
-import { activateDbForIdentity, deactivateDb } from "@/lib/db";
+import { activateDbForIdentity } from "@/lib/db";
 import {
-  clearSession,
   getStoredSession,
   getStoredUser,
   isValidCachedInstaller,
 } from "@/modules/auth/session";
+import { clearAuthWorkspace } from "@/modules/auth/workspace";
 import { runSync } from "@/modules/sync/service";
 
 type AuthContextValue = {
@@ -62,6 +63,26 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const [syncVersion, setSyncVersion] = useState(0);
   const authEpoch = useRef(0);
 
+  const clearWorkspace = (expectedEpoch: number, forgetSessionGeneration?: number) =>
+    clearAuthWorkspace({
+      isCurrent: () => authEpoch.current === expectedEpoch,
+      forgetSessionGeneration,
+      onCleared: () => {
+        queryClient.clear();
+        setUser(null);
+        setSyncVersion(0);
+      },
+    });
+
+  const clearWorkspaceIfSessionMissing = async (expectedEpoch: number) => {
+    if (authEpoch.current !== expectedEpoch) return;
+    try {
+      if (!(await getStoredSession())) await clearWorkspace(expectedEpoch);
+    } catch {
+      // Uncertain storage reads must not discard a verified offline identity.
+    }
+  };
+
   const refreshUserFromServer = async (expectedEpoch = authEpoch.current) => {
     const generation = getAuthSessionGeneration();
     const session = await getStoredSession();
@@ -69,11 +90,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       return;
     }
     if (!session) {
-      if (authEpoch.current === expectedEpoch) {
-        queryClient.clear();
-        setUser(null);
-        await deactivateDb();
-      }
+      await clearWorkspace(expectedEpoch);
       return;
     }
 
@@ -86,10 +103,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       me.role !== "INSTALLER" ||
       me.company_id !== session.companyId
     ) {
-      await clearSession();
-      queryClient.clear();
-      setUser(null);
-      await deactivateDb();
+      await clearWorkspace(expectedEpoch, generation);
       throw new Error("The authenticated account cannot use the installer application");
     }
 
@@ -106,6 +120,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const expectedEpoch = authEpoch.current;
+    const generation = getAuthSessionGeneration();
     (async () => {
       try {
         const [storedLocale, session, cachedUser] = await Promise.all([
@@ -121,10 +136,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           return;
         }
         if (!isValidCachedInstaller(session, cachedUser)) {
-          await clearSession();
-          await deactivateDb();
-          queryClient.clear();
-          setUser(null);
+          await clearWorkspace(expectedEpoch, generation);
           return;
         }
 
@@ -133,36 +145,33 @@ export function AppProviders({ children }: { children: ReactNode }) {
           return;
         }
         setUser(cachedUser);
-        void refreshUserFromServer(expectedEpoch).catch(async () => {
-          // Network failures keep the verified cached identity available offline.
-          if (!(await getStoredSession()) && authEpoch.current === expectedEpoch) {
-            queryClient.clear();
-            setUser(null);
-            await deactivateDb();
-          }
-        });
+        void refreshUserFromServer(expectedEpoch).catch(() =>
+          clearWorkspaceIfSessionMissing(expectedEpoch),
+        );
       } catch {
-        queryClient.clear();
-        setUser(null);
-        await deactivateDb().catch(() => undefined);
+        await clearWorkspace(expectedEpoch).catch(() => undefined);
       } finally {
         if (authEpoch.current === expectedEpoch) {
           setLoading(false);
         }
       }
     })();
+    return () => { authEpoch.current += 1; };
   }, []);
 
   useEffect(() => {
-    if (!user) {
+    if (!user || loading) {
       return;
     }
 
     let active = true;
+    const expectedEpoch = authEpoch.current;
+    const isCurrent = () => active && authEpoch.current === expectedEpoch;
     const syncSafe = async () => {
+      if (!isCurrent()) return;
       try {
         await runSync();
-        if (active) {
+        if (isCurrent()) {
           setSyncVersion((version) => version + 1);
         }
       } catch {
@@ -170,12 +179,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
         // clears SecureStore in the API layer, so return to login immediately.
         try {
           const session = await getStoredSession();
-          if (active && !session) {
-            authEpoch.current += 1;
-            queryClient.clear();
-            setUser(null);
-            setSyncVersion(0);
-            await deactivateDb();
+          if (isCurrent() && !session) {
+            const cleanupEpoch = ++authEpoch.current;
+            await clearWorkspace(cleanupEpoch).finally(() => {
+              if (authEpoch.current === cleanupEpoch) setLoading(false);
+            });
           }
         } catch {
           // A temporary SecureStore read failure must not destroy the offline session.
@@ -200,7 +208,36 @@ export function AppProviders({ children }: { children: ReactNode }) {
       subscription.remove();
       clearInterval(interval);
     };
-  }, [user]);
+  }, [user, loading]);
+
+  const signOut = async (): Promise<void> => {
+    const expectedEpoch = ++authEpoch.current;
+    setLoading(true);
+    let storageFailed = false;
+    try {
+      await logoutRequest();
+    } catch (error) {
+      storageFailed = error instanceof SessionStorageError;
+    } finally {
+      await clearWorkspace(expectedEpoch).catch(() => undefined);
+      if (authEpoch.current === expectedEpoch) setLoading(false);
+    }
+    if (storageFailed && authEpoch.current === expectedEpoch) {
+      Alert.alert(
+        translate(locale, "logout.storageTitle"),
+        translate(locale, "logout.storageMessage"),
+        [
+          { text: translate(locale, "logout.dismiss"), style: "cancel" },
+          {
+            text: translate(locale, "logout.retry"),
+            onPress: () => {
+              if (authEpoch.current === expectedEpoch) void signOut();
+            },
+          },
+        ],
+      );
+    }
+  };
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -210,8 +247,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
       signIn: async (companyId, email, password) => {
         const expectedEpoch = ++authEpoch.current;
         setLoading(true);
+        const request = loginRequest({ companyId, email, password });
+        const generation = getAuthSessionGeneration();
         try {
-          const me = await loginRequest({ companyId, email, password });
+          const me = await request;
           if (authEpoch.current !== expectedEpoch) {
             return;
           }
@@ -229,12 +268,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           queryClient.clear();
           setUser(me);
         } catch (error) {
-          if (authEpoch.current === expectedEpoch) {
-            await clearSession();
-            await deactivateDb().catch(() => undefined);
-            queryClient.clear();
-            setUser(null);
-          }
+          await clearWorkspace(expectedEpoch, generation).catch(() => undefined);
           throw error;
         } finally {
           if (authEpoch.current === expectedEpoch) {
@@ -242,26 +276,15 @@ export function AppProviders({ children }: { children: ReactNode }) {
           }
         }
       },
-      signOut: async () => {
-        const expectedEpoch = ++authEpoch.current;
-        setLoading(true);
-        try {
-          await logoutRequest().catch(() => undefined);
-        } finally {
-          if (authEpoch.current === expectedEpoch) {
-            queryClient.clear();
-            setUser(null);
-            setSyncVersion(0);
-            await deactivateDb().catch(() => undefined);
-            setLoading(false);
-          }
-        }
-      },
+      signOut,
       refreshUser: async () => {
         const expectedEpoch = authEpoch.current;
         setLoading(true);
         try {
           await refreshUserFromServer(expectedEpoch);
+        } catch (error) {
+          await clearWorkspaceIfSessionMissing(expectedEpoch);
+          throw error;
         } finally {
           if (authEpoch.current === expectedEpoch) {
             setLoading(false);
@@ -269,7 +292,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         }
       },
     }),
-    [user, loading, syncVersion]
+    [user, loading, syncVersion, locale]
   );
 
   const i18nValue = useMemo<I18nContextValue>(

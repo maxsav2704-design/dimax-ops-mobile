@@ -1,9 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("expo-secure-store", () => ({}));
+const secureStore = vi.hoisted(() => ({ setItemAsync: vi.fn(), deleteItemAsync: vi.fn() }));
+vi.mock("expo-secure-store", () => secureStore);
 
 import {
   isValidCachedInstaller,
+  clearSession,
+  persistSession,
   type CachedAuthUser,
   type SessionSnapshot,
 } from "@/modules/auth/session";
@@ -51,5 +54,30 @@ describe("offline installer identity", () => {
   it("does not consider two blank email values a valid identity match", () => {
     expect(isValidCachedInstaller({ ...session, email: " " }, { ...user, email: " " }))
       .toBe(false);
+  });
+});
+
+describe("credential mutation completion", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    secureStore.setItemAsync.mockResolvedValue(undefined);
+    secureStore.deleteItemAsync.mockResolvedValue(undefined);
+  });
+
+  it.each(["write", "clear"])("waits for every %s operation before reporting a failure", async (kind) => {
+    let finish!: () => void;
+    const late = new Promise<void>((resolve) => { finish = resolve; });
+    const operation = kind === "write" ? secureStore.setItemAsync : secureStore.deleteItemAsync;
+    operation.mockRejectedValueOnce(new Error("Storage unavailable")).mockReturnValueOnce(late);
+    let settled = false;
+    const result = (kind === "write" ? persistSession(session) : clearSession())
+      .catch((error: unknown) => error).finally(() => { settled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const settledBeforeLastOperation = settled;
+    finish();
+
+    expect(await result).toMatchObject({ message: "Storage unavailable" });
+    expect(settledBeforeLastOperation).toBe(false);
+    expect(operation).toHaveBeenCalledTimes(kind === "write" ? 4 : 5);
   });
 });

@@ -838,4 +838,37 @@ describe("mobile api auth payloads", () => {
     await signingOut;
     expect(clearSessionMock).toHaveBeenCalledTimes(1);
   });
+
+  it("clears local credentials even when logout cannot read the stored session", async () => {
+    getStoredSessionMock.mockRejectedValueOnce(new Error("SecureStore read failed"));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(logout()).rejects.toThrow("SecureStore read failed");
+    expect(clearSessionMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes failed credential removal from an offline logout", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Network offline")));
+    await expect(logout()).rejects.toMatchObject({ name: "NetworkError" });
+    expect(clearSessionMock).toHaveBeenCalledTimes(1);
+
+    clearSessionMock.mockRejectedValueOnce(new Error("Private native storage details"));
+    const error = await logout().catch((reason: unknown) => reason);
+    expect(error).toMatchObject({
+      name: "SessionStorageError",
+      message: "Could not remove the saved sign-in data from this device",
+    });
+    expect(String(error)).not.toContain("Private native storage details");
+  });
+
+  it("clears residual profile data even when no complete session exists", async () => {
+    getStoredSessionMock.mockResolvedValueOnce(null);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await logout();
+    expect(clearSessionMock).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

@@ -14,6 +14,7 @@ vi.mock("@/lib/device-id", () => ({
 }));
 
 import {
+  clearAuthenticatedSession,
   getAuthSessionGeneration,
   login,
   logout,
@@ -202,5 +203,68 @@ describe("authenticated profile storage isolation", () => {
     expect(storedUser).toEqual(userA);
     expect(storedSession.accessToken).toBe("rotated-access");
     expect(storage.persistSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("local session invalidation", () => {
+  it("does not clear a newer login on behalf of an earlier failed operation", async () => {
+    const generation = getAuthSessionGeneration();
+    await login({ companyId: userB.company_id, email: userB.email, password: "test" });
+    await expect(clearAuthenticatedSession(generation))
+      .rejects.toMatchObject({ name: "SessionChangedError" });
+    expect(storage.clearSession).not.toHaveBeenCalled();
+    expect(storedUser).toEqual(userB);
+  });
+
+  it("serializes cleanup before the newer login writes its credentials", async () => {
+    const clearing = deferred<void>();
+    const started = deferred<void>();
+    storage.clearSession.mockImplementationOnce(async () => {
+      started.resolve();
+      await clearing.promise;
+      storedSession = null;
+      storedUser = null;
+    });
+    const cleanup = clearAuthenticatedSession(getAuthSessionGeneration())
+      .catch((error: unknown) => error);
+    await started.promise;
+    const enter = login({ companyId: userB.company_id, email: userB.email, password: "test" });
+    clearing.resolve();
+
+    expect(await cleanup).toMatchObject({ name: "SessionChangedError" });
+    await enter;
+    expect(storedSession?.email).toBe(userB.email);
+    expect(storedUser).toEqual(userB);
+  });
+
+  it("invalidates a pending profile write before clearing credentials without HTTP", async () => {
+    const write = deferred<void>();
+    const started = deferred<void>();
+    storage.persistStoredUser.mockImplementationOnce(async () => {
+      started.resolve();
+      await write.promise;
+      storedUser = userA;
+    });
+    const generation = getAuthSessionGeneration();
+    const update = persistAuthenticatedUser(userA, generation).catch((error: unknown) => error);
+    await started.promise;
+    const cleanup = clearAuthenticatedSession(generation);
+    expect(getAuthSessionGeneration()).toBeGreaterThan(generation);
+    write.resolve();
+
+    expect(await update).toMatchObject({ name: "SessionChangedError" });
+    await cleanup;
+    expect(storedUser).toBeNull();
+    expect(storedSession).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a new login possible after cleanup fails", async () => {
+    storage.clearSession.mockRejectedValueOnce(new Error("SecureStore delete failed"));
+    await expect(clearAuthenticatedSession(getAuthSessionGeneration()))
+      .rejects.toThrow("SecureStore delete failed");
+    await login({ companyId: userB.company_id, email: userB.email, password: "test" });
+    expect(storedUser).toEqual(userB);
+    expect(storedSession?.email).toBe(userB.email);
   });
 });

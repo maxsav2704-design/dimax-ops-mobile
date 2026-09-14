@@ -23,3 +23,10 @@ export class SessionChangedError extends Error {
     this.name = "SessionChangedError";
   }
 }
+
+export class SessionStorageError extends Error {
+  constructor() {
+    super("Could not remove the saved sign-in data from this device");
+    this.name = "SessionStorageError";
+  }
+}

@@ -47,8 +47,16 @@ export async function getStoredSession(): Promise<SessionSnapshot | null> {
   return { accessToken, refreshToken, companyId, email };
 }
 
+async function settleCredentialMutations(operations: Promise<void>[]): Promise<void> {
+  // A rejected operation must not release the auth queue while other writes run.
+  const results = await Promise.allSettled(operations);
+  for (const result of results) {
+    if (result.status === "rejected") throw result.reason;
+  }
+}
+
 export async function persistSession(session: SessionSnapshot): Promise<void> {
-  await Promise.all([
+  await settleCredentialMutations([
     SecureStore.setItemAsync(AUTH_STORAGE_KEYS.accessToken, session.accessToken),
     SecureStore.setItemAsync(AUTH_STORAGE_KEYS.refreshToken, session.refreshToken),
     SecureStore.setItemAsync(AUTH_STORAGE_KEYS.companyId, session.companyId),
@@ -85,7 +93,7 @@ export async function persistStoredUser(user: CachedAuthUser): Promise<void> {
 }
 
 export async function clearSession(): Promise<void> {
-  await Promise.all([
+  await settleCredentialMutations([
     SecureStore.deleteItemAsync(AUTH_STORAGE_KEYS.accessToken),
     SecureStore.deleteItemAsync(AUTH_STORAGE_KEYS.refreshToken),
     SecureStore.deleteItemAsync(AUTH_STORAGE_KEYS.companyId),
