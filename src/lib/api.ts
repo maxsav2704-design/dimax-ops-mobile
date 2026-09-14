@@ -83,13 +83,36 @@ function enqueueAuthStorageMutation<T>(
     if (generation !== authGeneration) {
       throw new SessionChangedError();
     }
-    return operation();
+    const value = await operation();
+    if (generation !== authGeneration) {
+      throw new SessionChangedError();
+    }
+    return value;
   });
   authStorageTail = result.then(
     () => undefined,
     () => undefined,
   );
   return result;
+}
+
+export async function persistAuthenticatedUser(
+  user: AuthMe,
+  expectedAuthGeneration: number,
+): Promise<void> {
+  await enqueueAuthStorageMutation(expectedAuthGeneration, async () => {
+    const current = await getStoredSession();
+    if (
+      expectedAuthGeneration !== authGeneration ||
+      !current ||
+      current.companyId !== user.company_id ||
+      normalizeSessionEmail(current.email) !== normalizeSessionEmail(user.email)
+    ) {
+      throw new SessionChangedError();
+    }
+    // Serialize profile refreshes with login/logout so a late write cannot win.
+    await persistStoredUser(user);
+  });
 }
 
 async function assertSessionContextCurrent(

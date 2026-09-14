@@ -17,6 +17,21 @@ export type CachedAuthUser = {
   is_active: boolean;
 };
 
+export function isValidCachedInstaller(
+  session: SessionSnapshot | null,
+  user: CachedAuthUser | null,
+): user is CachedAuthUser {
+  return Boolean(
+    session && user &&
+    user.id.trim() &&
+    user.is_active &&
+    user.role === "INSTALLER" &&
+    user.company_id === session.companyId &&
+    session.email.trim() &&
+    user.email.trim().toLowerCase() === session.email.trim().toLowerCase(),
+  );
+}
+
 export async function getStoredSession(): Promise<SessionSnapshot | null> {
   const [accessToken, refreshToken, companyId, email] = await Promise.all([
     SecureStore.getItemAsync(AUTH_STORAGE_KEYS.accessToken),

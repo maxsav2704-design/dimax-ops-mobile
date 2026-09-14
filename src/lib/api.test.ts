@@ -808,4 +808,34 @@ describe("mobile api auth payloads", () => {
       expect.objectContaining({ id: "installer-b", company_id: "company-b" })
     );
   });
+
+  it("rejects a login that finishes writing its profile after logout starts", async () => {
+    const profileWrite = createDeferred<void>();
+    const writeStarted = createDeferred<void>();
+    persistStoredUserMock.mockImplementationOnce(async () => {
+      writeStarted.resolve();
+      await profileWrite.promise;
+    });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.endsWith("/auth/logout-refresh")) return { ok: true, status: 204 };
+      return {
+        ok: true, status: 200,
+        json: async () => url.endsWith("/auth/login")
+          ? { access_token: "access", refresh_token: "refresh", token_type: "bearer" }
+          : { id: "user-1", company_id: "company-1", email: "installer@dimax.dev",
+              full_name: "Installer", role: "INSTALLER", is_active: true },
+      };
+    }));
+
+    const signingIn = login({
+      companyId: "company-1", email: "installer@dimax.dev", password: "test-password",
+    }).catch((error: unknown) => error);
+    await writeStarted.promise;
+    const signingOut = logout();
+    profileWrite.resolve();
+
+    expect(await signingIn).toMatchObject({ name: "SessionChangedError" });
+    await signingOut;
+    expect(clearSessionMock).toHaveBeenCalledTimes(1);
+  });
 });

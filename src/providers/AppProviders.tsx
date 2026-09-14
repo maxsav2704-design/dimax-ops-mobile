@@ -18,13 +18,20 @@ import {
   type MobileLocale,
   type MobileTranslationKey,
 } from "@/lib/i18n";
-import { authMe, login as loginRequest, logout as logoutRequest, type AuthMe } from "@/lib/api";
+import {
+  authMe,
+  getAuthSessionGeneration,
+  login as loginRequest,
+  logout as logoutRequest,
+  persistAuthenticatedUser,
+  type AuthMe,
+} from "@/lib/api";
 import { activateDbForIdentity, deactivateDb } from "@/lib/db";
 import {
   clearSession,
   getStoredSession,
   getStoredUser,
-  persistStoredUser,
+  isValidCachedInstaller,
 } from "@/modules/auth/session";
 import { runSync } from "@/modules/sync/service";
 
@@ -56,7 +63,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
   const authEpoch = useRef(0);
 
   const refreshUserFromServer = async (expectedEpoch = authEpoch.current) => {
+    const generation = getAuthSessionGeneration();
     const session = await getStoredSession();
+    if (authEpoch.current !== expectedEpoch) {
+      return;
+    }
     if (!session) {
       if (authEpoch.current === expectedEpoch) {
         queryClient.clear();
@@ -82,11 +93,14 @@ export function AppProviders({ children }: { children: ReactNode }) {
       throw new Error("The authenticated account cannot use the installer application");
     }
 
+    await persistAuthenticatedUser(me, generation);
+    if (authEpoch.current !== expectedEpoch) {
+      return;
+    }
     await activateDbForIdentity(me.company_id, me.id);
     if (authEpoch.current !== expectedEpoch) {
       return;
     }
-    await persistStoredUser(me);
     setUser(me);
   };
 
@@ -103,13 +117,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
           setLocaleState(storedLocale);
         }
 
-        const hasValidCachedIdentity =
-          session !== null &&
-          cachedUser !== null &&
-          cachedUser.is_active &&
-          cachedUser.role === "INSTALLER" &&
-          cachedUser.company_id === session.companyId;
-        if (!hasValidCachedIdentity) {
+        if (authEpoch.current !== expectedEpoch) {
+          return;
+        }
+        if (!isValidCachedInstaller(session, cachedUser)) {
           await clearSession();
           await deactivateDb();
           queryClient.clear();
@@ -201,6 +212,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
         setLoading(true);
         try {
           const me = await loginRequest({ companyId, email, password });
+          if (authEpoch.current !== expectedEpoch) {
+            return;
+          }
           if (
             !me.is_active ||
             me.role !== "INSTALLER" ||
@@ -213,7 +227,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
             return;
           }
           queryClient.clear();
-          await persistStoredUser(me);
           setUser(me);
         } catch (error) {
           if (authEpoch.current === expectedEpoch) {
