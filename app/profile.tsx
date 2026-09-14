@@ -1,6 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, StatusBar, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
@@ -17,19 +17,27 @@ import {
   StatusPill,
 } from "@/components/mobile-ui";
 import { translateEnum } from "@/lib/i18n";
+import { SessionChangedError } from "@/lib/errors";
+import { assertWorkspaceContext, captureWorkspaceContext } from "@/lib/workspace-context";
 import { installerTheme } from "@/lib/theme";
-import { getLastSyncAt, getSyncQueueSummary, runSync } from "@/modules/sync/service";
-import type { SyncQueueSummary } from "@/modules/sync/types";
+import { getSyncStatusSnapshot, runSync } from "@/modules/sync/service";
+import { buildProfileQueuePresentation } from "@/modules/sync/presentation";
 import { useAuth, useI18n } from "@/providers/AppProviders";
 
 export default function ProfileScreen() {
-  const { user, signOut, refreshUser } = useAuth();
+  const { user, loading: authLoading, syncVersion, signOut, refreshUser } = useAuth();
   const { locale } = useI18n();
-  const [queue, setQueue] = useState<SyncQueueSummary | null>(null);
-  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+  const [snapshot, setSnapshot] = useState<(Awaited<ReturnType<typeof getSyncStatusSnapshot>> & { ownerKey: string }) | null>(null);
+  const [reading, setReading] = useState(true);
+  const [readFailed, setReadFailed] = useState(false);
+  const readRequest = useRef(0);
   const [busy, setBusy] = useState(false);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const ownerKey = user ? `${user.company_id}:${user.id}` : null;
+  const queue = snapshot?.ownerKey === ownerKey ? snapshot?.queue ?? null : null;
+  const lastSyncAt = snapshot?.ownerKey === ownerKey ? snapshot?.lastSyncAt ?? null : null;
+  const queueView = buildProfileQueuePresentation(queue, reading || authLoading, readFailed, locale);
   const lt = (en: string, ru: string, he: string) => (locale === "ru" ? ru : locale === "he" ? he : en);
   const intlLocale = locale === "ru" ? "ru-RU" : locale === "he" ? "he-IL" : "en-GB";
   const formatSyncTime = (value: string | null) =>
@@ -42,34 +50,76 @@ export default function ProfileScreen() {
         }).format(new Date(value))
       : lt("Not yet", "Ещё не было", "עדיין לא");
 
-  const reload = async () => {
-    const [queueRow, syncAt] = await Promise.all([getSyncQueueSummary(), getLastSyncAt()]);
-    setQueue(queueRow);
-    setLastSyncAt(syncAt);
-  };
+  const reload = useCallback(async (): Promise<"ready" | "error" | "stale"> => {
+    if (authLoading || !ownerKey) return "stale";
+    const context = captureWorkspaceContext();
+    if (context.database?.ownerKey !== ownerKey) return "stale";
+    const request = ++readRequest.current;
+    setReading(true);
+    setReadFailed(false);
+    try {
+      const value = await getSyncStatusSnapshot();
+      assertWorkspaceContext(context);
+      if (request !== readRequest.current) return "stale";
+      setSnapshot({ ...value, ownerKey });
+      return "ready";
+    } catch (reason) {
+      if (request !== readRequest.current || reason instanceof SessionChangedError) return "stale";
+      setSnapshot(null);
+      setReadFailed(true);
+      return "error";
+    } finally {
+      if (request === readRequest.current) setReading(false);
+    }
+  }, [authLoading, ownerKey]);
 
   useEffect(() => {
-    void reload().catch((reason) => {
-      setError(reason instanceof Error ? reason.message : lt("Unable to load profile state", "Не удалось загрузить состояние профиля", "לא ניתן לטעון את מצב הפרופיל"));
-    });
-  }, []);
+    setSnapshot(null);
+    setError(null);
+    setBusy(false);
+    setReadFailed(false);
+    setReading(true);
+    setShowSignOutConfirm(false);
+    return () => { readRequest.current += 1; };
+  }, [ownerKey]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload, syncVersion]);
 
   const syncNow = async () => {
+    if (busy || reading || authLoading) return;
+    const context = captureWorkspaceContext();
     setBusy(true);
     setError(null);
     try {
-      const response = await runSync({ forceRetry: true });
+      await runSync({ forceRetry: true });
+      assertWorkspaceContext(context);
       await refreshUser();
-      await reload();
-      setLastSyncAt(response.server_time);
+      assertWorkspaceContext(context);
     } catch (reason) {
+      try { assertWorkspaceContext(context); } catch { return; }
+      if (reason instanceof SessionChangedError) return;
       setError(reason instanceof Error ? reason.message : lt("Sync failed", "Ошибка синхронизации", "הסנכרון נכשל"));
     } finally {
-      setBusy(false);
+      try {
+        assertWorkspaceContext(context);
+        await reload();
+        assertWorkspaceContext(context);
+        setBusy(false);
+      } catch {
+        // The next identity owns its own loading and error state.
+      }
     }
   };
 
-  const confirmSignOut = () => setShowSignOutConfirm(true);
+  const confirmSignOut = async () => {
+    if (busy || reading || authLoading) return;
+    const context = captureWorkspaceContext();
+    const result = await reload();
+    try { assertWorkspaceContext(context); } catch { return; }
+    if (result !== "stale") setShowSignOutConfirm(true);
+  };
 
   const initials = (user?.full_name || user?.email || "D")
     .split(/\s+/)
@@ -93,7 +143,7 @@ export default function ProfileScreen() {
               label={lt("Sync now", "Синхронизировать", "סנכרן")}
               tone="dark"
               onPress={() => void syncNow()}
-              disabled={busy}
+              disabled={busy || reading || authLoading}
             />
           }
         >
@@ -134,24 +184,30 @@ export default function ProfileScreen() {
             <Row
               icon="cloud-upload-outline"
               title={lt("Sync queue", "Очередь синка", "תור סנכרון")}
-              subtitle={
-                queue?.total
-                  ? lt(`${queue.total} actions waiting`, `Ожидают действий: ${queue.total}`, `${queue.total} פעולות ממתינות`)
-                  : lt("All local work is synchronized", "Все локальные действия синхронизированы", "כל הפעולות מסונכרנות")
-              }
-              tone={queue?.blocked ? "danger" : queue?.total ? "warning" : "success"}
+              subtitle={queueView.subtitle}
+              tone={queueView.tone}
               onPress={() => router.push("/sync-queue" as never)}
             />
             <Row
               icon="time-outline"
               title={lt("Last sync", "Последняя синхронизация", "סנכרון אחרון")}
-              value={formatSyncTime(lastSyncAt)}
+              value={queueView.state === "ready" ? formatSyncTime(lastSyncAt) : lt("Unknown", "Неизвестно", "לא ידוע")}
             />
+            {queueView.state === "error" ? (
+              <ActionButton
+                label={lt("Check saved work again", "Проверить сохранённые работы", "בדוק שוב עבודות שמורות")}
+                icon="refresh-outline"
+                variant="secondary"
+                disabled={busy || reading || authLoading}
+                style={styles.sectionAction}
+                onPress={() => void reload()}
+              />
+            ) : null}
             <ActionButton
               label={lt("Sync now", "Синхронизировать сейчас", "סנכרן עכשיו")}
               icon="sync"
               loading={busy}
-              disabled={busy}
+              disabled={busy || reading || authLoading}
               style={styles.sectionAction}
               onPress={() => void syncNow()}
             />
@@ -178,7 +234,8 @@ export default function ProfileScreen() {
             label={lt("Sign out", "Выйти", "יציאה")}
             icon="log-out-outline"
             variant="danger"
-            onPress={confirmSignOut}
+            disabled={busy || reading || authLoading}
+            onPress={() => void confirmSignOut()}
           />
 
           <Text style={styles.version}>DIMAX Installer · v0.1.0</Text>
@@ -187,18 +244,11 @@ export default function ProfileScreen() {
       <ConfirmDialog
         visible={showSignOutConfirm}
         title={lt("Sign out", "Выйти", "יציאה")}
-        message={
-          queue?.total
-            ? lt(
-                `${queue.total} queued actions remain on this phone. Sign out only after they sync.`,
-                `На телефоне осталось действий в очереди: ${queue.total}. Лучше выйти после синхронизации.`,
-                `${queue.total} פעולות עדיין בתור. מומלץ לצאת לאחר הסנכרון.`
-              )
-            : lt("Sign out of DIMAX Installer?", "Выйти из DIMAX Installer?", "לצאת מ-DIMAX Installer?")
-        }
+        message={queueView.signOutMessage}
         confirmLabel={lt("Sign out", "Выйти", "יציאה")}
         cancelLabel={lt("Cancel", "Отмена", "ביטול")}
         danger
+        busy={reading || authLoading || busy}
         confirmIcon="log-out-outline"
         onCancel={() => setShowSignOutConfirm(false)}
         onConfirm={() => {

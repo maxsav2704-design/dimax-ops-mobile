@@ -4,6 +4,7 @@ import { getOrCreateDeviceId } from "@/lib/device-id";
 import { getDb, getState, initDb, setState } from "@/lib/db";
 import { SessionChangedError } from "@/lib/errors";
 import {
+  assertWorkspaceContext,
   captureWorkspaceContext as captureSyncContext,
   withWorkspaceDatabase as withSyncDatabase,
   type WorkspaceContext as SyncContext,
@@ -213,6 +214,19 @@ export async function getSyncQueueSummary(projectId?: string): Promise<SyncQueue
     ready_to_send: Number(counts?.ready_to_send || 0),
     next_retry_at: nextRetry?.next_retry_at ?? null,
   };
+}
+
+export async function getSyncStatusSnapshot(): Promise<{
+  queue: SyncQueueSummary;
+  lastSyncAt: string | null;
+}> {
+  const context = captureSyncContext();
+  const snapshot = await withSyncDatabase(context, async () => ({
+    queue: await getSyncQueueSummary(),
+    lastSyncAt: await getLastSyncAt(),
+  }));
+  assertWorkspaceContext(context);
+  return snapshot;
 }
 
 async function getPendingEventRow(clientEventId: string): Promise<{

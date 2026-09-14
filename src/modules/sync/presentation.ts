@@ -29,6 +29,54 @@ function text(locale: MobileLocale, en: string, ru: string, he: string): string 
   return en;
 }
 
+export function buildProfileQueuePresentation(
+  summary: SyncQueueSummary | null,
+  loading: boolean,
+  failed: boolean,
+  locale: MobileLocale,
+): {
+  state: ReturnType<typeof getQueueReadState>;
+  tone: "neutral" | "danger" | "warning" | "success";
+  subtitle: string;
+  signOutMessage: string;
+} {
+  const state = getQueueReadState(summary, loading, failed);
+  if (state !== "ready" || summary === null) {
+    return {
+      state,
+      tone: state === "loading" ? "neutral" : "warning",
+      subtitle: state === "loading"
+        ? text(locale, "Checking saved work...", "Проверяем сохранённые работы...", "בודקים עבודות שמורות...")
+        : text(locale, "Could not check saved work. Try again.", "Не удалось проверить сохранённые работы. Повторите проверку.", "לא ניתן לבדוק עבודות שמורות. נסו שוב."),
+      signOutMessage: text(
+        locale,
+        "The queue could not be verified. Work may still be waiting on this phone. Signing out will not send or delete it; return with the same account to continue. Sign out?",
+        "Очередь не удалось проверить. На телефоне могут оставаться неотправленные работы. Выход не отправит и не удалит их; для продолжения потребуется войти в тот же аккаунт. Выйти?",
+        "לא ניתן לאמת את התור. ייתכן שעבודות עדיין ממתינות במכשיר. יציאה לא תשלח או תמחק אותן; יש להתחבר שוב לאותו חשבון כדי להמשיך. לצאת?",
+      ),
+    };
+  }
+  if (summary.total > 0) {
+    return {
+      state,
+      tone: summary.blocked > 0 ? "danger" : "warning",
+      subtitle: text(locale, `${summary.total} actions waiting`, `Ожидают действий: ${summary.total}`, `${summary.total} פעולות ממתינות`),
+      signOutMessage: text(
+        locale,
+        `${summary.total} actions have not been sent. They will stay on this phone for this account. Signing out will not sync them; sign in again with the same account to continue. Sign out?`,
+        `Не отправлено действий: ${summary.total}. Они останутся на этом телефоне в текущем аккаунте. Выход не отправит их; для продолжения потребуется войти в тот же аккаунт. Выйти?`,
+        `${summary.total} פעולות טרם נשלחו. הן יישארו במכשיר עבור החשבון הזה. יציאה לא תסנכרן אותן; יש להתחבר שוב לאותו חשבון כדי להמשיך. לצאת?`,
+      ),
+    };
+  }
+  return {
+    state,
+    tone: "success",
+    subtitle: text(locale, "No actions waiting to be sent", "Нет действий, ожидающих отправки", "אין פעולות הממתינות לשליחה"),
+    signOutMessage: text(locale, "Sign out of DIMAX Installer?", "Выйти из DIMAX Installer?", "לצאת מ-DIMAX Installer?"),
+  };
+}
+
 export function buildEventSummary(event: PendingSyncEvent, locale: MobileLocale = "en"): string {
   if (event.type === "DOOR_SET_STATUS") {
     const doorId =

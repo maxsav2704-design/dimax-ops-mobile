@@ -27,7 +27,7 @@ vi.mock("@/lib/db", () => ({
   setState: setStateMock,
 }));
 
-import { forceColdResync, runSync } from "./service";
+import { forceColdResync, getSyncStatusSnapshot, runSync } from "./service";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -161,5 +161,34 @@ describe("sync account isolation during asynchronous requests", () => {
     expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/sync", expect.objectContaining({
       expectedAuthGeneration: 42,
     }));
+  });
+
+  it("reads the profile snapshot locally and includes failed and blocked work", async () => {
+    dbRef.current.getFirstAsync.mockResolvedValueOnce({ total: 3, pending: 1, failed: 1, blocked: 1, ready_to_send: 1 });
+    const snapshot = await getSyncStatusSnapshot();
+    expect(snapshot.queue).toMatchObject({ total: 3, pending: 1, failed: 1, blocked: 1 });
+    expect(snapshot.lastSyncAt).toBe("1");
+    expect(apiFetchMock).not.toHaveBeenCalled();
+    expect(dbRef.current.runAsync).not.toHaveBeenCalled();
+  });
+
+  it("propagates a queue read failure instead of returning an empty profile summary", async () => {
+    dbRef.current.getFirstAsync.mockRejectedValueOnce(new Error("SQLite read failed"));
+    await expect(getSyncStatusSnapshot()).rejects.toThrow("SQLite read failed");
+    expect(apiFetchMock).not.toHaveBeenCalled();
+    expect(dbRef.current.runAsync).not.toHaveBeenCalled();
+  });
+
+  it("rejects a profile snapshot when login changes while SQLite is reading", async () => {
+    const started = deferred<void>();
+    const reply = deferred<{ total: number }>();
+    dbRef.current.getFirstAsync.mockImplementationOnce(() => { started.resolve(); return reply.promise; });
+    const result = getSyncStatusSnapshot().catch((error: unknown) => error);
+    await started.promise;
+    authRef.generation += 1;
+    reply.resolve({ total: 1 });
+    expect(await result).toBeInstanceOf(SessionChangedError);
+    expect(apiFetchMock).not.toHaveBeenCalled();
+    expect(dbRef.current.runAsync).not.toHaveBeenCalled();
   });
 });
