@@ -118,6 +118,19 @@ Preflight Android toolchain first:
 
 For the local installer E2E session on an attached Android device:
 
+Keep the device on the same API and company as the admin under verification.
+The acceptance admin on port 4173 uses API port 8001; the normal workspace API
+on port 8000 is a different database. Installer visibility remains assignment-based,
+not a copy of the administrator's access. A local `.env.local` may pin
+`EXPO_PUBLIC_API_BASE_URL` and disable `EXPO_PUBLIC_E2E_AUTO_LOGIN`. Local environment
+files are ignored by Git; only example files belong in source control.
+Before changing environments, sign out on the device while preserving its outbox.
+Never erase SQLite or replay an old environment's events into the new server.
+Verify the built bundle URL and USB reverse port, then sign in to the matching
+company and compare assigned project/door IDs with the admin. After a temporary
+automated test login, restart Metro with the test credentials removed and automatic
+login disabled. An old offline cache is not evidence of a successful connection.
+
 Manual login is the default, including development builds. Automated test login
 requires explicit opt-in and a complete set of synthetic credentials. Configure
 these environment variables in the launching shell before using the E2E launcher:
