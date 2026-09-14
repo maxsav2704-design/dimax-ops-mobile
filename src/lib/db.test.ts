@@ -56,11 +56,15 @@ vi.mock("expo-sqlite", () => ({
   openDatabaseAsync: openDatabaseAsyncMock,
 }));
 
+const auth = vi.hoisted(() => ({ generation: 0 }));
+vi.mock("@/lib/api", () => ({ getAuthSessionGeneration: () => auth.generation }));
+
 describe("mobile SQLite schema and account isolation", () => {
   beforeEach(() => {
     vi.resetModules();
     databases.clear();
     openDatabaseAsyncMock.mockClear();
+    auth.generation = 0;
   });
 
   it("keeps add-on plans price-free and binds the legacy database to its first owner", async () => {
@@ -231,5 +235,46 @@ describe("mobile SQLite schema and account isolation", () => {
     })).rejects.toThrow("Simulated database failure");
     await db.activateDbForIdentity("company-a", "user-b");
     await expect(db.withDatabaseContext(db.getDatabaseContext(), async () => "ready")).resolves.toBe("ready");
+  });
+
+  it("rejects a workspace cache write queued behind another account activation", async () => {
+    const db = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    const workspace = await vi.importActual<typeof import("@/lib/workspace-context")>("@/lib/workspace-context");
+    await db.activateDbForIdentity("company-a", "user-a");
+    const context = workspace.captureWorkspaceContext();
+    const databaseA = await db.getDb() as any;
+    databaseA.pendingEvents.add("unsent-work-a");
+
+    const switching = db.activateDbForIdentity("company-a", "user-b");
+    const write = vi.fn(async () => db.setState("cached-document", "account-a-document"));
+    const result = workspace.withWorkspaceDatabase(context, write).catch((error: unknown) => error);
+    await switching;
+
+    expect(await result).toBeInstanceOf(Error);
+    expect(write).not.toHaveBeenCalled();
+    expect(await db.getState("cached-document")).toBeNull();
+    expect(databaseA.pendingEvents).toEqual(new Set(["unsent-work-a"]));
+  });
+
+  it("checks login generation when a queued local phase starts, not just when it is scheduled", async () => {
+    const db = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    const workspace = await vi.importActual<typeof import("@/lib/workspace-context")>("@/lib/workspace-context");
+    await db.activateDbForIdentity("company-a", "user-a");
+    const context = workspace.captureWorkspaceContext();
+    let release!: () => void;
+    let started!: () => void;
+    const pause = new Promise<void>((resolve) => { release = resolve; });
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const first = workspace.withWorkspaceDatabase(context, async () => { started(); await pause; });
+    await entered;
+    const write = vi.fn(async () => db.setState("cached-document", "account-a-document"));
+    const queued = workspace.withWorkspaceDatabase(context, write).catch((error: unknown) => error);
+    auth.generation += 1;
+    release();
+    await first;
+
+    expect(await queued).toBeInstanceOf(Error);
+    expect(write).not.toHaveBeenCalled();
+    expect(await db.getState("cached-document")).toBeNull();
   });
 });

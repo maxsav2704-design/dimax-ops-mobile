@@ -8,7 +8,16 @@ const saveCalendarSnapshotMock = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+  getAuthSessionGeneration: () => 0,
 }));
+
+vi.mock("@/lib/db", () => {
+  const context = { ownerKey: "company:installer" };
+  return {
+    getDatabaseContext: () => context,
+    withDatabaseContext: async (_context: unknown, operation: () => Promise<unknown>) => operation(),
+  };
+});
 
 vi.mock("@/modules/calendar/repository", () => ({
   getCalendarSnapshot: (...args: unknown[]) => getCalendarSnapshotMock(...args),

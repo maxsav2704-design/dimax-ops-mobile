@@ -1,6 +1,7 @@
 import { apiFetch } from "@/lib/api";
 import { addLocalDays } from "@/lib/date-key";
-import { ApiError, NetworkError } from "@/lib/errors";
+import { ApiError, NetworkError, SessionChangedError } from "@/lib/errors";
+import { assertWorkspaceContext, captureWorkspaceContext, withWorkspaceDatabase } from "@/lib/workspace-context";
 import { getCalendarSnapshot, saveCalendarSnapshot } from "@/modules/calendar/repository";
 import type { InstallerCalendarSnapshot, InstallerCalendarViewModel } from "@/modules/calendar/types";
 
@@ -63,6 +64,8 @@ function buildRange(days: number) {
 }
 
 export async function loadInstallerCalendar(rangeKey = "7d"): Promise<InstallerCalendarViewModel> {
+  const context = captureWorkspaceContext();
+  assertWorkspaceContext(context);
   const days = rangeKey === "today" ? 1 : rangeKey === "30d" ? 30 : 7;
   const range = buildRange(days);
   const path =
@@ -70,7 +73,8 @@ export async function loadInstallerCalendar(rangeKey = "7d"): Promise<InstallerC
     `&ends_at=${encodeURIComponent(range.ends_at)}`;
 
   try {
-    const response = await apiFetch<unknown>(path);
+    const response = await apiFetch<unknown>(path, { expectedAuthGeneration: context.authGeneration });
+    assertWorkspaceContext(context);
     if (!isCalendarEventsResponse(response)) {
       throw new Error("Calendar response does not match the mobile contract.");
     }
@@ -82,8 +86,11 @@ export async function loadInstallerCalendar(rangeKey = "7d"): Promise<InstallerC
       generated_at: new Date().toISOString(),
     };
     try {
-      await saveCalendarSnapshot(snapshot);
-    } catch {
+      await withWorkspaceDatabase(context, () => saveCalendarSnapshot(snapshot));
+      assertWorkspaceContext(context);
+    } catch (error) {
+      assertWorkspaceContext(context);
+      if (error instanceof SessionChangedError) throw error;
       return {
         snapshot,
         source: "online",
@@ -96,10 +103,15 @@ export async function loadInstallerCalendar(rangeKey = "7d"): Promise<InstallerC
       message: null,
     };
   } catch (error) {
+    assertWorkspaceContext(context);
+    if (error instanceof SessionChangedError) throw error;
     let cached: InstallerCalendarSnapshot | null = null;
     try {
-      cached = await getCalendarSnapshot(rangeKey);
-    } catch {
+      cached = await withWorkspaceDatabase(context, () => getCalendarSnapshot(rangeKey));
+      assertWorkspaceContext(context);
+    } catch (cacheError) {
+      assertWorkspaceContext(context);
+      if (cacheError instanceof SessionChangedError) throw cacheError;
       return {
         snapshot: null,
         source: "unavailable",

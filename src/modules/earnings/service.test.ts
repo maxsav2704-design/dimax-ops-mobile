@@ -8,7 +8,16 @@ const saveEarningsSnapshotMock = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+  getAuthSessionGeneration: () => 0,
 }));
+
+vi.mock("@/lib/db", () => {
+  const context = { ownerKey: "company:installer" };
+  return {
+    getDatabaseContext: () => context,
+    withDatabaseContext: async (_context: unknown, operation: () => Promise<unknown>) => operation(),
+  };
+});
 
 vi.mock("@/modules/earnings/repository", () => ({
   getEarningsSnapshot: (...args: unknown[]) => getEarningsSnapshotMock(...args),
@@ -37,7 +46,7 @@ describe("loadInstallerEarnings", () => {
 
     const result = await loadInstallerEarnings("month");
 
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/earnings/summary?period=month");
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/earnings/summary?period=month", { expectedAuthGeneration: 0 });
     expect(saveEarningsSnapshotMock).toHaveBeenCalledWith(payload);
     expect(result).toEqual({
       snapshot: payload,
@@ -157,7 +166,8 @@ describe("loadInstallerEarnings", () => {
     const result = await loadInstallerEarnings("month", "2026-03-11");
 
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/v1/installer/earnings/summary?period=month&date=2026-03-11"
+      "/api/v1/installer/earnings/summary?period=month&date=2026-03-11",
+      { expectedAuthGeneration: 0 },
     );
     expect(getEarningsSnapshotMock).toHaveBeenCalledWith("2026-03");
     expect(result.source).toBe("cache");
@@ -207,7 +217,8 @@ describe("loadInstallerEarnings", () => {
     const result = await loadInstallerEarnings("month", "2026-05-03");
 
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/v1/installer/earnings/summary?period=month&date=2026-05-03"
+      "/api/v1/installer/earnings/summary?period=month&date=2026-05-03",
+      { expectedAuthGeneration: 0 },
     );
     expect(result.source).toBe("online");
   });
@@ -219,7 +230,8 @@ describe("loadInstallerEarnings", () => {
     const result = await loadInstallerEarnings("month", "2026-05-03");
 
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/v1/installer/earnings/summary?period=month&date=2026-05-03"
+      "/api/v1/installer/earnings/summary?period=month&date=2026-05-03",
+      { expectedAuthGeneration: 0 },
     );
     expect(getEarningsSnapshotMock).toHaveBeenCalledWith("2026-05");
     expect(result).toEqual({
@@ -255,7 +267,7 @@ describe("loadInstallerEarnings", () => {
 
     const result = await loadInstallerEarnings();
 
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/earnings/summary?period=month");
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/earnings/summary?period=month", { expectedAuthGeneration: 0 });
     expect(result).toEqual({
       snapshot: null,
       source: "unavailable",
@@ -275,7 +287,7 @@ describe("loadInstallerEarnings", () => {
 
     const result = await loadInstallerEarnings();
 
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/earnings/summary?period=month");
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/earnings/summary?period=month", { expectedAuthGeneration: 0 });
     expect(saveEarningsSnapshotMock).not.toHaveBeenCalled();
     expect(result).toEqual({
       snapshot: null,

@@ -12,7 +12,16 @@ const hydrateProjectDetailsMock = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+  getAuthSessionGeneration: () => 0,
 }));
+
+vi.mock("@/lib/db", () => {
+  const context = { ownerKey: "company:installer" };
+  return {
+    getDatabaseContext: () => context,
+    withDatabaseContext: async (_context: unknown, operation: () => Promise<unknown>) => operation(),
+  };
+});
 
 vi.mock("@/modules/projects/repository", () => ({
   hydrateProjectDetails: (...args: unknown[]) => hydrateProjectDetailsMock(...args),
@@ -49,7 +58,7 @@ describe("refreshProjectDetails", () => {
 
     await refreshProjectDetails("project-1");
 
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/projects/project-1");
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/projects/project-1", { expectedAuthGeneration: 0 });
     expect(hydrateProjectDetailsMock).toHaveBeenCalledWith(payload);
   });
 

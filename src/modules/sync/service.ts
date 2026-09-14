@@ -1,8 +1,13 @@
-import { apiFetch, getAuthSessionGeneration } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { MOBILE_APP_VERSION } from "@/lib/config";
 import { getOrCreateDeviceId } from "@/lib/device-id";
-import { getDatabaseContext, getDb, getState, initDb, setState, withDatabaseContext } from "@/lib/db";
+import { getDb, getState, initDb, setState } from "@/lib/db";
 import { SessionChangedError } from "@/lib/errors";
+import {
+  captureWorkspaceContext as captureSyncContext,
+  withWorkspaceDatabase as withSyncDatabase,
+  type WorkspaceContext as SyncContext,
+} from "@/lib/workspace-context";
 import { normalizeAddonQuantity } from "@/modules/addons/quantity";
 import {
   MAX_AUTO_RETRY_ATTEMPTS,
@@ -15,24 +20,7 @@ import type { PendingSyncEvent, SyncChange, SyncQueueSummary, SyncResponse, Sync
 const CURSOR_KEY = "sync_cursor";
 const LAST_SYNC_AT_KEY = "last_sync_at";
 let syncExecutionTail: Promise<void> = Promise.resolve();
-type SyncContext = {
-  database: ReturnType<typeof getDatabaseContext>;
-  authGeneration: number;
-};
 let automaticSyncInFlight: (SyncContext & { operation: Promise<SyncResponse> }) | null = null;
-
-function captureSyncContext(): SyncContext {
-  return { database: getDatabaseContext(), authGeneration: getAuthSessionGeneration() };
-}
-
-function withSyncDatabase<T>(context: SyncContext, operation: () => Promise<T>): Promise<T> {
-  return withDatabaseContext(context.database, () => {
-    if (context.authGeneration !== getAuthSessionGeneration()) {
-      throw new SessionChangedError();
-    }
-    return operation();
-  });
-}
 
 type PendingSyncEventRow = Omit<PendingSyncEvent, "payload"> & {
   payload_json: string;

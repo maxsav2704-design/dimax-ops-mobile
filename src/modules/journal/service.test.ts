@@ -20,7 +20,16 @@ const saveJournalSnapshotsMock = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+  getAuthSessionGeneration: () => 0,
 }));
+
+vi.mock("@/lib/db", () => {
+  const context = { ownerKey: "company:installer" };
+  return {
+    getDatabaseContext: () => context,
+    withDatabaseContext: async (_context: unknown, operation: () => Promise<unknown>) => operation(),
+  };
+});
 
 vi.mock("expo-linking", () => ({
   openURL: (...args: unknown[]) => openUrlMock(...args),
@@ -123,7 +132,7 @@ describe("installer journal service", () => {
     expect(response.signing_url).toContain("/acceptance/");
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/v1/installer/journals/journal-1/mark-ready",
-      { method: "POST" },
+      { method: "POST", expectedAuthGeneration: 0 },
     );
   });
 
@@ -147,7 +156,7 @@ describe("installer journal service", () => {
 
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/v1/installer/journals/journal-1/pdf-link",
-      { method: "POST" },
+      { method: "POST", expectedAuthGeneration: 0 },
     );
     expect(openUrlMock).toHaveBeenCalledWith(
       "https://api.dimax.test/api/v1/public/files/token",

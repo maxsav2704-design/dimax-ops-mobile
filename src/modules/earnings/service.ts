@@ -1,6 +1,7 @@
 import { apiFetch } from "@/lib/api";
 import { addLocalDays, currentLocalDateKey, dateKeyToLocalDate, formatLocalDateKey } from "@/lib/date-key";
-import { ApiError, NetworkError } from "@/lib/errors";
+import { ApiError, NetworkError, SessionChangedError } from "@/lib/errors";
+import { assertWorkspaceContext, captureWorkspaceContext, withWorkspaceDatabase } from "@/lib/workspace-context";
 import { getEarningsSnapshot, saveEarningsSnapshot } from "@/modules/earnings/repository";
 import type { InstallerEarningsSummary, InstallerEarningsViewModel } from "@/modules/earnings/types";
 
@@ -74,6 +75,8 @@ export async function loadInstallerEarnings(
   period: "day" | "week" | "month" = "month",
   anchorDate?: string | null
 ): Promise<InstallerEarningsViewModel> {
+  const context = captureWorkspaceContext();
+  assertWorkspaceContext(context);
   const requestedPeriodKey = periodKeyFor(period, anchorDate);
   const params = new URLSearchParams({ period });
   if (anchorDate) {
@@ -83,8 +86,10 @@ export async function loadInstallerEarnings(
 
   try {
     const snapshot = await apiFetch<unknown>(
-      `/api/v1/installer/earnings/summary${suffix}`
+      `/api/v1/installer/earnings/summary${suffix}`,
+      { expectedAuthGeneration: context.authGeneration },
     );
+    assertWorkspaceContext(context);
     if (!isInstallerEarningsSummary(snapshot)) {
       return {
         snapshot: null,
@@ -94,8 +99,11 @@ export async function loadInstallerEarnings(
     }
     const normalizedSnapshot = normalizeInstallerEarningsSummary(snapshot);
     try {
-      await saveEarningsSnapshot(normalizedSnapshot);
-    } catch {
+      await withWorkspaceDatabase(context, () => saveEarningsSnapshot(normalizedSnapshot));
+      assertWorkspaceContext(context);
+    } catch (error) {
+      assertWorkspaceContext(context);
+      if (error instanceof SessionChangedError) throw error;
       return {
         snapshot: normalizedSnapshot,
         source: "online",
@@ -108,10 +116,15 @@ export async function loadInstallerEarnings(
       message: null,
     };
   } catch (error) {
+    assertWorkspaceContext(context);
+    if (error instanceof SessionChangedError) throw error;
     let cached: InstallerEarningsSummary | null = null;
     try {
-      cached = await getEarningsSnapshot(requestedPeriodKey);
-    } catch {
+      cached = await withWorkspaceDatabase(context, () => getEarningsSnapshot(requestedPeriodKey));
+      assertWorkspaceContext(context);
+    } catch (cacheError) {
+      assertWorkspaceContext(context);
+      if (cacheError instanceof SessionChangedError) throw cacheError;
       return {
         snapshot: null,
         source: "unavailable",
