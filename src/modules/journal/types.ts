@@ -20,6 +20,7 @@ export type InstallerJournalSummary = {
 
 export type InstallerJournalDetails = InstallerJournalSummary & {
   title: string | null;
+  pdf_locale?: "en" | "ru" | "he";
   snapshot_version: number;
   public_token_expires_at: string | null;
   signing_url: string | null;

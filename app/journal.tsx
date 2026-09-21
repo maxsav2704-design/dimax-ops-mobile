@@ -172,7 +172,7 @@ export default function JournalScreen() {
     setBusyProjectId(projectId);
     setError(null);
     try {
-      const journal = await prepareInstallerJournal(projectId);
+      const journal = await prepareInstallerJournal(projectId, locale);
       setJournals((current) => [
         journal,
         ...current.filter((item) => item.id !== journal.id),

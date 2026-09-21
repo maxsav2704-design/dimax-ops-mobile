@@ -113,12 +113,13 @@ export async function loadInstallerJournal(
 
 export async function prepareInstallerJournal(
   projectId: string,
+  pdfLocale: "en" | "ru" | "he" = "en",
 ): Promise<InstallerJournalDetails> {
   const context = captureWorkspaceContext();
   assertWorkspaceContext(context);
   const details = await apiFetch<InstallerJournalDetails>(
     "/api/v1/installer/journals/prepare",
-    { method: "POST", body: JSON.stringify({ project_id: projectId }), expectedAuthGeneration: context.authGeneration },
+    { method: "POST", body: JSON.stringify({ project_id: projectId, pdf_locale: pdfLocale }), expectedAuthGeneration: context.authGeneration },
   );
   await withWorkspaceDatabase(context, () => saveJournalSnapshot(details)).catch((error: unknown) => {
     if (error instanceof SessionChangedError) throw error;

@@ -136,6 +136,17 @@ describe("installer journal service", () => {
     );
   });
 
+  it.each(["en", "ru", "he"] as const)("prepares the PDF in %s without changing the workspace guard", async (locale) => {
+    const localized = { ...journal, pdf_locale: locale };
+    apiFetchMock.mockResolvedValue(localized);
+    await prepareInstallerJournal("project-1", locale);
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/v1/installer/journals/prepare",
+      { method: "POST", body: JSON.stringify({ project_id: "project-1", pdf_locale: locale }), expectedAuthGeneration: 0 },
+    );
+    expect(saveJournalSnapshotMock).toHaveBeenCalledWith(localized);
+  });
+
   it("opens only HTTP(S) journal links", async () => {
     await openJournalUrl("https://app.dimax.test/acceptance/token");
     await expect(
