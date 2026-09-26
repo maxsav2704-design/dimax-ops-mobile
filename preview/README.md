@@ -43,4 +43,30 @@ list, tab navigation works with Expo Link, all language fonts remain legible,
 press cancellation during scrolling never saves work, and reduced motion disables
 transitions. Use only the isolated acceptance company for any saved work.
 
-No backend, payroll, assignment, signed-document or outbox service was changed.
+The September 26 component pass did not change backend, payroll, assignments,
+signed documents or outbox services.
+
+## September 27 project execution screen
+
+Open `/project.html` on the same preview server to render the actual
+`app/project/[id].tsx` screen with isolated in-memory fixtures. The fixture controls
+can reset work or fail the next local save. Language selection covers EN/RU/HE.
+Navigation destinations are displayed instead of opening real account screens.
+All service aliases live only in this Vite configuration; Expo/Metro is unchanged.
+This validates layout and UI feedback, not native SQLite, network sync or device behavior.
+
+Verified on the actual screen at measured CSS widths of 322 and 393 px:
+door selection scroll, inline save failure and retry, installed and not-installed
+results, add-on submission, readable action buttons and loaded door image.
+RU, EN and Hebrew RTL were checked without horizontal overflow.
+
+The execution pass adds same-frame submission locking, focus/background-sync
+refresh, and inline acknowledgements that distinguish a committed local save from
+a failed view reload. Server detail hydration rechecks pending/failed work inside
+the workspace database queue; door and add-on writes use that same existing queue.
+Public APIs, database schema, pay calculation and server acceptance remain unchanged.
+
+Automated coverage includes 10 actual-screen tests, 6 field-write serialization
+tests and 4 additional project refresh cases. Full run: 443 tests in 35 files.
+The mobile quality gate and Android export passed. No APK was installed and no
+phone was attached; device/offline acceptance is still required.

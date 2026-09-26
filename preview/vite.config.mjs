@@ -23,10 +23,27 @@ const stripRegistryFlow = {
   },
 };
 
+const projectFixtures = fileURLToPath(new URL("./project-fixtures.tsx", import.meta.url));
+const nativePreviewAssets = {
+  name: "native-preview-assets",
+  enforce: "pre",
+  transform(code, id) {
+    if (!id.replaceAll("\\", "/").includes("/app/")) return;
+    const imports = [];
+    const body = code.replace(/require\(("|')([^"']+\.(?:png|jpg))\1\)/g, (_match, _quote, path) => {
+      const name = `previewAsset${imports.length}`;
+      imports.push(`import ${name} from ${JSON.stringify(path)};`);
+      return `{ uri: ${name} }`;
+    });
+    if (imports.length) return `${imports.join("\n")}\n${body}`;
+  },
+};
+
 export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
   resolve: {
     alias: [
+      ...["expo-router", "@/providers/AppProviders", "@/components/installer-ui", "@/modules/projects/local-workspace", "@/modules/projects/service", "@/modules/projects/external-actions", "@/modules/doors/actions", "@/modules/earnings/service", "@/modules/sync/service"].map((find) => ({ find, replacement: projectFixtures })),
       { find: /^react-native$/, replacement: "react-native-web" },
       { find: /^react-native-svg$/, replacement: fileURLToPath(new URL("../node_modules/react-native-svg/lib/module/elements.web.js", import.meta.url)) },
       { find: "@", replacement: fileURLToPath(new URL("../src", import.meta.url)) },
@@ -34,7 +51,7 @@ export default defineConfig({
     extensions: [".web.tsx", ".tsx", ".web.ts", ".ts", ".web.js", ".js", ".mjs", ".json"],
   },
   define: { "process.env.EXPO_OS": '"web"', __DEV__: "true", global: "globalThis" },
-  plugins: [{ ...webPlatform, enforce: "pre" }, stripRegistryFlow, {
+  plugins: [{ ...webPlatform, enforce: "pre" }, stripRegistryFlow, nativePreviewAssets, {
     name: "expo-web-jsx", enforce: "pre",
     transform(code, id) {
       if (/node_modules.*\.js$/.test(id)) return transformWithOxc(code, id, { lang: "jsx" });
