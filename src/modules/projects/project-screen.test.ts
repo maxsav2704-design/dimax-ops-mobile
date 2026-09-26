@@ -1,0 +1,259 @@
+import React from "react";
+import { createRequire } from "node:module";
+import { act, create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { LocalProjectWorkspace } from "./local-workspace";
+
+const mocks = vi.hoisted(() => ({
+  params: { id: "project-a" },
+  focused: true,
+  syncVersion: 0,
+  load: vi.fn(), refresh: vi.fn(), earnings: vi.fn(), sync: vi.fn(),
+  install: vi.fn(), notInstalled: vi.fn(), addon: vi.fn(), push: vi.fn(),
+}));
+
+vi.mock("react-native", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  const flatten = (style: any): any => Array.isArray(style)
+    ? Object.assign({}, ...style.map(flatten)) : style || {};
+  const host = (name: string) => React.forwardRef((props: any, ref) => React.createElement(name, { ...props, ref }));
+  class Value {
+    constructor(public value: number) {}
+    setValue(value: number) { this.value = value; }
+    interpolate() { return this; }
+  }
+  return {
+    Pressable: host("pressable"), View: host("view"), ScrollView: host("scroll"),
+    Text: "text", TextInput: "input", Image: "image", StatusBar: "statusbar",
+    Modal: "modal", ActivityIndicator: "spinner", Platform: { OS: "android" },
+    StyleSheet: { create: (value: unknown) => value, flatten, absoluteFillObject: {} },
+    Easing: { out: (value: unknown) => value, cubic: "cubic" },
+    Animated: {
+      Value, View: "animated-view", createAnimatedComponent: (component: unknown) => component,
+      timing: (value: Value, options: { toValue: number }) => ({ start: () => value.setValue(options.toValue), stop: vi.fn() }),
+    },
+  };
+});
+vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "icon" }));
+vi.mock("expo-linear-gradient", () => ({ LinearGradient: "gradient" }));
+vi.mock("react-native-svg", () => ({
+  default: "svg", Circle: "circle", Defs: "defs", LinearGradient: "svg-gradient", Path: "path", Stop: "stop",
+}));
+vi.mock("react-native-safe-area-context", () => ({ SafeAreaView: "safe-area" }));
+vi.mock("@/components/installer-ui", () => ({ InstallerBottomNav: () => null }));
+vi.mock("expo-router", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  return {
+    router: { push: mocks.push, back: vi.fn() },
+    useLocalSearchParams: () => mocks.params,
+    useFocusEffect: (effect: () => void | (() => void)) => {
+      React.useEffect(() => mocks.focused ? effect() : undefined, [effect, mocks.focused]);
+    },
+  };
+});
+vi.mock("@/providers/AppProviders", () => ({
+  useI18n: () => ({ locale: "en" }),
+  useAuth: () => ({ syncVersion: mocks.syncVersion }),
+}));
+vi.mock("@/modules/projects/local-workspace", async (original) => ({
+  ...await original<typeof import("./local-workspace")>(), loadLocalProjectWorkspace: mocks.load,
+}));
+vi.mock("@/modules/projects/repository", () => ({}));
+vi.mock("@/modules/projects/service", () => ({
+  canRefreshProjectDetails: (pending: number) => pending === 0,
+  isProjectAccessRevoked: () => false,
+  refreshProjectDetails: mocks.refresh,
+}));
+vi.mock("@/modules/projects/external-actions", () => ({ buildProjectExternalActions: () => [], openProjectExternalAction: vi.fn() }));
+vi.mock("@/modules/doors/actions", () => ({
+  markDoorInstalled: mocks.install, markDoorNotInstalled: mocks.notInstalled, addAddonFact: mocks.addon,
+}));
+vi.mock("@/modules/earnings/service", () => ({ loadInstallerEarnings: mocks.earnings }));
+vi.mock("@/modules/sync/service", () => ({ runSync: mocks.sync }));
+
+import ProjectDetailsScreen from "../../../app/project/[id]";
+import { createEmptyLocalProjectWorkspace } from "./local-workspace";
+
+const require = createRequire(__filename);
+const originalImageLoader = require.extensions[".jpg"];
+beforeAll(() => { require.extensions[".jpg"] = (module) => { module.exports = 1; }; });
+afterAll(() => {
+  if (originalImageLoader) require.extensions[".jpg"] = originalImageLoader;
+  else delete require.extensions[".jpg"];
+});
+
+let tree: ReactTestRenderer;
+let workspace: LocalProjectWorkspace;
+const event = {} as never;
+const buttons = (label: string) => tree.root.findAllByType("pressable" as never)
+  .filter((node) => node.props.accessibilityLabel === label && node.props.accessibilityRole === "button");
+const button = (label: string) => {
+  const node = buttons(label)[0];
+  if (!node) throw new Error(`Button not found: ${label}`);
+  return node;
+};
+const input = (label: string) => tree.root.findAllByType("input" as never)
+  .find((node) => node.props.accessibilityLabel === label)!;
+const text = (node: ReactTestInstance = tree.root) => node.findAllByType("text" as never)
+  .flatMap((node) => node.children.filter((child) => typeof child === "string")).join(" ");
+const deferred = () => {
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<void>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
+};
+async function mount() {
+  await act(async () => { tree = create(React.createElement(ProjectDetailsScreen)); });
+}
+async function focus(value: boolean) {
+  mocks.focused = value;
+  await act(async () => { tree.update(React.createElement(ProjectDetailsScreen)); });
+}
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  mocks.params = { id: "project-a" };
+  mocks.focused = true;
+  mocks.syncVersion = 0;
+  workspace = {
+    ...createEmptyLocalProjectWorkspace("project-a"),
+    project: { id: "project-a", name: "Tower A", address: "Test address", status: "ACTIVE", lifecycle_status: "ACTIVE", health_status: "NORMAL", waze_url: null },
+    doors: [{ id: "door-a", project_id: "project-a", door_type_id: "entrance", unit_label: "A-201", floor_label: "2", apartment_number: "201", house_number: "A", order_number: null, location_code: null, door_marking: null, status: "PENDING", is_locked: false, reason_id: null, comment: null, version: 1, updated_at: null }],
+    doorTypes: [{ id: "entrance", code: "ENTRANCE", name: "Entrance" }],
+    reasons: [{ id: "reason-a", code: "NO_ACCESS", name: "No access" }],
+    addonTypes: [{ id: "addon-a", name: "Adjustment", unit: "pcs", qty_planned: "3" }],
+    queueSummary: { total: 0, pending: 0, failed: 0, blocked: 0, ready_to_send: 0, next_retry_at: null },
+  };
+  mocks.load.mockImplementation(async () => workspace);
+  mocks.earnings.mockResolvedValue({ snapshot: null, source: "unavailable", message: null });
+});
+afterEach(() => { if (tree) act(() => tree.unmount()); });
+
+describe("project execution screen", () => {
+  it("queues an add-on once for a double tap before React rerenders", async () => {
+    const pending = deferred();
+    mocks.addon.mockReturnValue(pending.promise);
+    await mount();
+    const press = button("Save completed add-on").props.onPress;
+    act(() => { press(event); press(event); });
+    expect(mocks.addon).toHaveBeenCalledExactlyOnceWith("project-a", "addon-a", "1", "");
+    expect(button("Save completed add-on").props.disabled).toBe(true);
+    await act(async () => pending.resolve());
+    expect(text()).toContain("Saved on this device");
+  });
+
+  it("queues the selected door once and blocks sync until saving finishes", async () => {
+    const pending = deferred();
+    mocks.install.mockReturnValue(pending.promise);
+    await mount();
+    const install = button("Installed").props.onPress;
+    const sync = button("Sync now").props.onPress;
+    act(() => { install(event); install(event); sync(event); });
+    expect(mocks.install).toHaveBeenCalledExactlyOnceWith("project-a", "door-a");
+    expect(mocks.sync).not.toHaveBeenCalled();
+    await act(async () => pending.resolve());
+  });
+
+  it("keeps failed add-on input for retry and shows the error next to the action", async () => {
+    mocks.addon.mockRejectedValueOnce(new Error("Local storage unavailable"));
+    await mount();
+    act(() => {
+      input("Completed quantity").props.onChangeText("2");
+      input("Add-on comment").props.onChangeText("Second visit");
+    });
+    await act(async () => button("Save completed add-on").props.onPress(event));
+    expect(input("Completed quantity").props.value).toBe("2");
+    const notice = tree.root.findByProps({ testID: "project-action-addon" });
+    expect(text(notice)).toContain("Local storage unavailable");
+    await act(async () => button("Save completed add-on").props.onPress(event));
+    expect(mocks.addon).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not report an already saved add-on as failed when reloading the view fails", async () => {
+    await mount();
+    mocks.load.mockRejectedValueOnce(new Error("View reload failed"));
+    await act(async () => button("Save completed add-on").props.onPress(event));
+    expect(mocks.addon).toHaveBeenCalledOnce();
+    expect(text()).toContain("Saved on this device");
+    expect(text()).toContain("Could not refresh the view");
+    expect(input("Completed quantity").props.value).toBe("1");
+  });
+
+  it("submits the not-installed reason and comment once", async () => {
+    const pending = deferred();
+    mocks.notInstalled.mockReturnValue(pending.promise);
+    await mount();
+    act(() => button("Not installed").props.onPress(event));
+    act(() => input("Door comment").props.onChangeText("Apartment closed"));
+    const press = button("Confirm not installed").props.onPress;
+    act(() => { press(event); press(event); });
+    expect(mocks.notInstalled).toHaveBeenCalledExactlyOnceWith("project-a", "door-a", "reason-a", "Apartment closed");
+    await act(async () => pending.resolve());
+    expect(buttons("Confirm not installed")).toHaveLength(0);
+  });
+
+  it("reloads local status when returning from the sync queue", async () => {
+    await mount();
+    expect(buttons("Installed")).toHaveLength(1);
+    act(() => button("Open queue").props.onPress(event));
+    expect(mocks.push).toHaveBeenCalledWith("/sync-queue");
+    await focus(false);
+    workspace = { ...workspace, doors: workspace.doors.map((door) => ({ ...door, status: "INSTALLED", is_locked: true })) };
+    await focus(true);
+    expect(buttons("Installed")).toHaveLength(0);
+  });
+
+  it("updates the focused project after background sync", async () => {
+    await mount();
+    workspace = { ...workspace, doors: workspace.doors.map((door) => ({ ...door, status: "INSTALLED", is_locked: true })) };
+    mocks.syncVersion += 1;
+    await act(async () => tree.update(React.createElement(ProjectDetailsScreen)));
+    expect(buttons("Installed")).toHaveLength(0);
+  });
+
+  it("shows the saved door and queued action without requesting a server snapshot", async () => {
+    await mount();
+    mocks.refresh.mockClear();
+    mocks.install.mockImplementation(async () => {
+      workspace = {
+        ...workspace,
+        doors: workspace.doors.map((door) => ({ ...door, status: "INSTALLED", is_locked: true })),
+        pendingEvents: [{ client_event_id: "local-1", type: "DOOR_SET_STATUS", project_id: "project-a", payload: { door_id: "door-a", status: "INSTALLED" }, status: "PENDING", happened_at: null, error: null, attempts: 0, next_retry_at: null, last_attempt_at: null, created_at: "2026-09-26T10:00:00Z" }],
+        queueSummary: { total: 1, pending: 1, failed: 0, blocked: 0, ready_to_send: 1, next_retry_at: null },
+      };
+    });
+    await act(async () => button("Installed").props.onPress(event));
+    expect(buttons("Installed")).toHaveLength(0);
+    expect(text()).toContain("1 queued");
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    act(() => button("Open queue").props.onPress(event));
+    expect(mocks.push).toHaveBeenCalledWith("/sync-queue");
+  });
+
+  it("keeps a completed save acknowledgement when navigation hides the screen", async () => {
+    const pending = deferred();
+    mocks.addon.mockReturnValue(pending.promise);
+    await mount();
+    act(() => input("Completed quantity").props.onChangeText("2"));
+    act(() => button("Save completed add-on").props.onPress(event));
+    await focus(false);
+    await act(async () => pending.resolve());
+    await focus(true);
+    expect(text()).toContain("Saved on this device");
+    expect(input("Completed quantity").props.value).toBe("1");
+    expect(mocks.addon).toHaveBeenCalledOnce();
+  });
+
+  it("loads another project during a save without attaching the old result to it", async () => {
+    const pending = deferred();
+    mocks.addon.mockReturnValue(pending.promise);
+    await mount();
+    act(() => button("Save completed add-on").props.onPress(event));
+    mocks.params = { id: "project-b" };
+    workspace = { ...workspace, projectId: "project-b", project: { ...workspace.project!, id: "project-b", name: "Tower B" }, doors: [] };
+    await act(async () => tree.update(React.createElement(ProjectDetailsScreen)));
+    expect(text()).toContain("Tower B");
+    await act(async () => pending.resolve());
+    expect(text()).not.toContain("Saved on this device");
+  });
+});

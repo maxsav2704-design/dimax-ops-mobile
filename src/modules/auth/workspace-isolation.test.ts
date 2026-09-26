@@ -36,6 +36,7 @@ vi.mock("@/modules/journal/repository", () => ({
   saveJournalSnapshots: cacheWrite,
 }));
 vi.mock("@/modules/projects/repository", () => ({ hydrateProjectDetails: cacheWrite }));
+vi.mock("@/modules/sync/service", () => ({ getSyncQueueSummary: async () => ({ pending: 0, failed: 0, blocked: 0 }) }));
 
 import { loadInstallerCalendar } from "@/modules/calendar/service";
 import { loadInstallerEarnings } from "@/modules/earnings/service";

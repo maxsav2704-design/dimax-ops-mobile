@@ -1,7 +1,10 @@
 import { queueAddonFactEvent, queueDoorStatusEvent } from "@/modules/sync/service";
+import { captureWorkspaceContext, withWorkspaceDatabase } from "@/lib/workspace-context";
 
 export async function markDoorInstalled(projectId: string, doorId: string) {
-  return queueDoorStatusEvent({ projectId, doorId, status: "INSTALLED" });
+  return withWorkspaceDatabase(captureWorkspaceContext(), () =>
+    queueDoorStatusEvent({ projectId, doorId, status: "INSTALLED" })
+  );
 }
 
 export async function markDoorNotInstalled(
@@ -10,13 +13,13 @@ export async function markDoorNotInstalled(
   reasonId: string,
   comment?: string
 ) {
-  return queueDoorStatusEvent({
+  return withWorkspaceDatabase(captureWorkspaceContext(), () => queueDoorStatusEvent({
     projectId,
     doorId,
     status: "NOT_INSTALLED",
     reasonId,
     comment,
-  });
+  }));
 }
 
 export async function addAddonFact(
@@ -25,10 +28,10 @@ export async function addAddonFact(
   qtyDone: string,
   comment?: string
 ) {
-  return queueAddonFactEvent({
+  return withWorkspaceDatabase(captureWorkspaceContext(), () => queueAddonFactEvent({
     projectId,
     addonTypeId,
     qtyDone,
     comment,
-  });
+  }));
 }

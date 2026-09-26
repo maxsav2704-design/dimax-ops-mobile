@@ -9,6 +9,11 @@ import { ApiError, NetworkError } from "@/lib/errors";
 
 const apiFetchMock = vi.fn();
 const hydrateProjectDetailsMock = vi.fn();
+const queueSummaryMock = vi.fn();
+
+vi.mock("@/modules/sync/service", () => ({
+  getSyncQueueSummary: (...args: unknown[]) => queueSummaryMock(...args),
+}));
 
 vi.mock("@/lib/api", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
@@ -31,6 +36,7 @@ describe("refreshProjectDetails", () => {
   beforeEach(() => {
     apiFetchMock.mockReset();
     hydrateProjectDetailsMock.mockReset();
+    queueSummaryMock.mockReset().mockResolvedValue({ pending: 0, failed: 0, blocked: 0 });
   });
 
   it("hydrates the cached project with the latest backend detail payload", async () => {
@@ -66,6 +72,32 @@ describe("refreshProjectDetails", () => {
     expect(canRefreshProjectDetails(1)).toBe(false);
     expect(canRefreshProjectDetails(3)).toBe(false);
     expect(canRefreshProjectDetails(0)).toBe(true);
+  });
+
+  it.each(["pending", "failed"])("rechecks %s work after the server responds, before hydrating local data", async (status) => {
+    let respond!: (payload: unknown) => void;
+    apiFetchMock.mockImplementationOnce(() => new Promise((resolve) => { respond = resolve; }));
+    const refresh = refreshProjectDetails("project-1");
+    expect(queueSummaryMock).not.toHaveBeenCalled();
+    queueSummaryMock.mockResolvedValue({ pending: 0, failed: 0, [status]: 1 });
+    respond({ id: "project-1" });
+    await refresh;
+    expect(queueSummaryMock).toHaveBeenCalledExactlyOnceWith("project-1");
+    expect(hydrateProjectDetailsMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed if the local queue cannot be read", async () => {
+    apiFetchMock.mockResolvedValue({ id: "project-1" });
+    queueSummaryMock.mockRejectedValue(new Error("Storage unavailable"));
+    await expect(refreshProjectDetails("project-1")).rejects.toThrow("Storage unavailable");
+    expect(hydrateProjectDetailsMock).not.toHaveBeenCalled();
+  });
+
+  it("allows canonical data to replace rejected work after a conflict", async () => {
+    apiFetchMock.mockResolvedValue({ id: "project-1" });
+    queueSummaryMock.mockResolvedValue({ pending: 0, failed: 0, blocked: 1 });
+    await refreshProjectDetails("project-1");
+    expect(hydrateProjectDetailsMock).toHaveBeenCalledWith({ id: "project-1" });
   });
 
   it("uses the project cache only for a network failure with cached assignments", () => {

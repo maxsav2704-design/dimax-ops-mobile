@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
-import { router, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -45,9 +45,17 @@ import {
 } from "@/modules/projects/service";
 import type { InstallerDoor } from "@/modules/projects/types";
 import { runSync } from "@/modules/sync/service";
-import { useI18n } from "@/providers/AppProviders";
+import { useAuth, useI18n } from "@/providers/AppProviders";
 
 type IssueFilter = "OPEN" | "ALL";
+type ProjectActionTarget = "door" | "addon" | "sync";
+type ProjectActionFeedback = {
+  projectId: string;
+  target: ProjectActionTarget;
+  doorId?: string;
+  tone: "success" | "danger" | "warning";
+  message: string;
+};
 const EMPTY_LOCAL_PROJECT_WORKSPACE = createEmptyLocalProjectWorkspace();
 
 export default function ProjectDetailsScreen() {
@@ -63,6 +71,7 @@ export default function ProjectDetailsScreen() {
     });
   };
   const { locale } = useI18n();
+  const { syncVersion } = useAuth();
   const params = useLocalSearchParams<{
     id: string;
     issueStatus?: string;
@@ -72,10 +81,14 @@ export default function ProjectDetailsScreen() {
     locationCode?: string;
   }>();
   const projectId = typeof params.id === "string" ? params.id : "";
+  const initialDoorSearch = typeof params.doorSearch === "string" ? params.doorSearch.trim().toLowerCase() : "";
   const activeProjectId = useRef(projectId);
   activeProjectId.current = projectId;
   const localLoadRevision = useRef(0);
-  const lt = (en: string, ru: string, he: string) => (locale === "ru" ? ru : locale === "he" ? he : en);
+  const reloadRevision = useRef(0);
+  const focused = useRef(false);
+  const actionInFlight = useRef(false);
+  const lt = useCallback((en: string, ru: string, he: string) => (locale === "ru" ? ru : locale === "he" ? he : en), [locale]);
   const intlLocale = locale === "ru" ? "ru-RU" : locale === "he" ? "he-IL" : "en-GB";
 
   const [localWorkspace, setLocalWorkspace] = useState<LocalProjectWorkspace | null>(null);
@@ -101,6 +114,7 @@ export default function ProjectDetailsScreen() {
   });
   const [selectedDoorId, setSelectedDoorId] = useState("");
   const openDoor = (doorId: string) => {
+    if (actionInFlight.current) return;
     setSelectedDoorId(doorId);
     requestAnimationFrame(() => scrollToSection(doorDetailsRef));
   };
@@ -117,17 +131,19 @@ export default function ProjectDetailsScreen() {
   const [addonTypeId, setAddonTypeId] = useState("");
   const [addonQty, setAddonQty] = useState("1");
   const [addonComment, setAddonComment] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [activeAction, setActiveAction] = useState<ProjectActionTarget | null>(null);
+  const busy = activeAction !== null;
+  const [actionFeedback, setActionFeedback] = useState<ProjectActionFeedback | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const loadLocalProjectDetails = async () => {
+  const loadLocalProjectDetails = useCallback(async () => {
     const requestedProjectId = projectId;
     const revision = ++localLoadRevision.current;
     const workspace = await loadLocalProjectWorkspace(requestedProjectId);
     const pendingEventCount =
       (workspace.queueSummary?.pending || 0) + (workspace.queueSummary?.failed || 0);
     if (
-      activeProjectId.current !== requestedProjectId ||
+      !focused.current || activeProjectId.current !== requestedProjectId ||
       localLoadRevision.current !== revision
     ) {
       return pendingEventCount;
@@ -142,29 +158,30 @@ export default function ProjectDetailsScreen() {
     );
     setSelectedDoorId((current) => {
       if (workspace.doors.some((door) => door.id === current)) return current;
-      const search = typeof params.doorSearch === "string" ? params.doorSearch.trim().toLowerCase() : "";
-      const matched = search
-        ? workspace.doors.find((door) => door.unit_label.toLowerCase().includes(search))
+      const matched = initialDoorSearch
+        ? workspace.doors.find((door) => door.unit_label.toLowerCase().includes(initialDoorSearch))
         : null;
       return matched?.id || workspace.issues[0]?.door_id || workspace.doors[0]?.id || "";
     });
 
     return pendingEventCount;
-  };
+  }, [initialDoorSearch, projectId]);
 
-  const reload = async ({ refreshRemote = true }: { refreshRemote?: boolean } = {}) => {
+  const reload = useCallback(async ({ refreshRemote = true }: { refreshRemote?: boolean } = {}) => {
     if (!projectId) return;
+    const revision = ++reloadRevision.current;
+    const isCurrent = () => focused.current && activeProjectId.current === projectId && reloadRevision.current === revision;
 
     const pendingEventCount = await loadLocalProjectDetails();
-    if (!refreshRemote) return;
+    if (!refreshRemote || !isCurrent()) return;
 
-    const earningsPromise = loadInstallerEarnings("month", currentLocalDateKey());
     let refreshed = false;
     if (canRefreshProjectDetails(pendingEventCount)) {
       try {
         await refreshProjectDetails(projectId);
         refreshed = true;
       } catch (reason) {
+        if (!isCurrent()) return;
         if (isProjectAccessRevoked(reason)) {
           try {
             await runSync({ forceRetry: true });
@@ -172,7 +189,7 @@ export default function ProjectDetailsScreen() {
           } catch {
             // The confirmed access response still requires hiding stale in-memory data.
           }
-          if (activeProjectId.current === projectId) {
+          if (isCurrent()) {
             setLocalWorkspace(createEmptyLocalProjectWorkspace(projectId));
           }
           throw new Error(
@@ -190,17 +207,29 @@ export default function ProjectDetailsScreen() {
       }
     }
 
-    setEarningsState(await earningsPromise);
+    if (!isCurrent()) return;
     if (refreshed) {
       await loadLocalProjectDetails();
     }
-  };
+    if (!isCurrent()) return;
+    const earnings = await loadInstallerEarnings("month", currentLocalDateKey());
+    if (isCurrent()) setEarningsState(earnings);
+  }, [loadLocalProjectDetails, lt, projectId]);
 
-  useEffect(() => {
-    void reload().catch((reason) => {
-      setError(reason instanceof Error ? reason.message : lt("Unable to load project", "Не удалось загрузить проект", "לא ניתן לטעון את הפרויקט"));
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    focused.current = true;
+    setError(null);
+    void reload({ refreshRemote: !actionInFlight.current }).catch((reason) => {
+      if (active) setError(reason instanceof Error ? reason.message : lt("Unable to load project", "Не удалось загрузить проект", "לא ניתן לטעון את הפרויקט"));
     });
-  }, [projectId]);
+    return () => {
+      active = false;
+      focused.current = false;
+      localLoadRevision.current += 1;
+      reloadRevision.current += 1;
+    };
+  }, [lt, projectId, reload, syncVersion]));
 
   useEffect(() => {
     if (typeof params.doorSearch === "string") setDoorSearch(params.doorSearch.trim());
@@ -341,63 +370,86 @@ export default function ProjectDetailsScreen() {
     [addonQty, addonTypeId, addonTypes, busy]
   );
 
-  const handleInstall = async () => {
-    if (!selectedDoor) return;
-    setBusy(true);
+  const performAction = async (
+    target: ProjectActionTarget,
+    action: () => Promise<unknown>,
+    onSaved?: () => void,
+    doorId?: string,
+  ) => {
+    // State alone cannot block a second press in the same render frame.
+    if (actionInFlight.current) return;
+    actionInFlight.current = true;
+    reloadRevision.current += 1;
+    localLoadRevision.current += 1;
+    setActiveAction(target);
     setError(null);
+    setActionFeedback(null);
+    const isCurrent = () => activeProjectId.current === projectId && focused.current;
+    const savedMessage = target === "sync"
+      ? lt("Sync finished. Check the queue for pending or rejected actions.", "Обмен завершён. Проверьте в очереди ожидающие и отклонённые действия.", "הסנכרון הסתיים. בדקו בתור פעולות ממתינות או שנדחו.")
+      : lt("Saved on this device. Delivery status is in the sync queue.", "Сохранено на устройстве. Статус отправки доступен в очереди.", "נשמר במכשיר. מצב השליחה מופיע בתור הסנכרון.");
     try {
-      await markDoorInstalled(projectId, selectedDoor.id);
-      await reload({ refreshRemote: false });
+      await action();
+      if (activeProjectId.current !== projectId) return;
+      onSaved?.();
+      setActionFeedback({ projectId, target, doorId, tone: "success", message: savedMessage });
+      if (!focused.current) return;
+      try {
+        await reload({ refreshRemote: target === "sync" });
+      } catch {
+        if (isCurrent()) setActionFeedback({
+          projectId, target, doorId, tone: "warning",
+          message: `${savedMessage} ${lt("Could not refresh the view. Do not submit this work again.", "Не удалось обновить экран. Не сохраняйте эту работу повторно.", "לא ניתן לרענן את התצוגה. אין לשמור עבודה זו שוב.")}`,
+        });
+      }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : lt("Door update failed", "Не удалось обновить дверь", "עדכון הדלת נכשל"));
+      if (isCurrent()) setActionFeedback({
+        projectId, target, doorId, tone: "danger",
+        message: reason instanceof Error ? reason.message : lt("Action failed. Please try again.", "Действие не выполнено. Попробуйте ещё раз.", "הפעולה נכשלה. נסו שוב."),
+      });
     } finally {
-      setBusy(false);
+      actionInFlight.current = false;
+      setActiveAction(null);
     }
+  };
+
+  const handleInstall = async () => {
+    if (!selectedDoor || !doorActionState?.canMarkInstalled) return;
+    await performAction("door", () => markDoorInstalled(projectId, selectedDoor.id), undefined, selectedDoor.id);
   };
 
   const handleNotInstalled = async () => {
-    if (!selectedDoor || !selectedReasonId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await markDoorNotInstalled(projectId, selectedDoor.id, selectedReasonId, doorComment);
+    if (!selectedDoor || !doorActionState?.canMarkNotInstalled) return;
+    await performAction("door", () => markDoorNotInstalled(projectId, selectedDoor.id, selectedReasonId, doorComment), () => {
       setDoorComment("");
       setShowNotInstalledForm(false);
-      await reload({ refreshRemote: false });
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : lt("Door update failed", "Не удалось обновить дверь", "עדכון הדלת נכשל"));
-    } finally {
-      setBusy(false);
-    }
+    }, selectedDoor.id);
   };
 
   const handleAddonFact = async () => {
-    if (!addonActionState.canQueueAddonFact || !addonActionState.normalizedQtyDone) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await addAddonFact(projectId, addonTypeId, addonActionState.normalizedQtyDone, addonComment);
+    const qtyDone = addonActionState.normalizedQtyDone;
+    if (!addonActionState.canQueueAddonFact || !qtyDone) return;
+    await performAction("addon", () => addAddonFact(projectId, addonTypeId, qtyDone, addonComment), () => {
       setAddonQty("1");
       setAddonComment("");
-      await reload({ refreshRemote: false });
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : lt("Unable to save add-on", "Не удалось сохранить допработу", "שמירת העבודה הנוספת נכשלה"));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
-  const handleSync = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await runSync({ forceRetry: true });
-      await reload();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : lt("Sync failed", "Синхронизация не выполнена", "הסנכרון נכשל"));
-    } finally {
-      setBusy(false);
-    }
+  const handleSync = () => performAction("sync", () => runSync({ forceRetry: true }));
+
+  const renderActionFeedback = (target: ProjectActionTarget) => {
+    if (!actionFeedback || actionFeedback.projectId !== projectId || actionFeedback.target !== target) return null;
+    if (target === "door" && actionFeedback.doorId !== selectedDoorId) return null;
+    const colors = toneColors(actionFeedback.tone);
+    return (
+      <View testID={`project-action-${target}`} accessibilityLiveRegion="polite" style={[styles.actionFeedback, { borderColor: colors.border, backgroundColor: colors.background }]}>
+        <View style={styles.actionFeedbackMessage}>
+          <Ionicons name={actionFeedback.tone === "success" ? "checkmark-circle-outline" : "alert-circle-outline"} size={18} color={colors.text} />
+          <Text style={styles.actionFeedbackText}>{actionFeedback.message}</Text>
+        </View>
+        <ActionButton label={lt("Open queue", "Открыть очередь", "פתיחת התור")} icon="list-outline" variant="secondary" onPress={() => router.push("/sync-queue" as never)} />
+      </View>
+    );
   };
 
   const openExternal = async (action: ProjectExternalAction) => {
@@ -460,6 +512,7 @@ export default function ProjectDetailsScreen() {
               <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : null}
+          {renderActionFeedback("sync")}
 
           <SectionCard style={styles.progressCard}>
             <View style={styles.accentStrip} />
@@ -528,6 +581,7 @@ export default function ProjectDetailsScreen() {
                     <Pressable
                       key={issue.id}
                       accessibilityRole="button"
+                      disabled={busy}
                       accessibilityLabel={`${issue.title || lt("Reported issue", "Заявленная проблема", "תקלה שדווחה")}. ${issueDoor?.unit_label || lt("Door", "Дверь", "דלת")}`}
                       onPress={() => {
                         openDoor(issue.door_id);
@@ -710,6 +764,7 @@ export default function ProjectDetailsScreen() {
                               typeLabel={doorTypes.find((doorType) => doorType.id === door.door_type_id)?.name || door.door_type_id}
                               positionLabel={buildDoorPositionLabel(door, locale)}
                               selected={door.id === selectedDoorId}
+                              disabled={busy}
                               hasIssue={issueDoorIds.has(door.id)}
                               locale={locale}
                               onPress={() => openDoor(door.id)}
@@ -828,9 +883,9 @@ export default function ProjectDetailsScreen() {
                         <ActionButton
                           label={lt("Installed", "Установлено", "הותקנה")}
                           icon="checkmark"
-                          loading={busy}
+                          loading={activeAction === "door"}
                           disabled={!doorActionState?.canMarkInstalled}
-                          style={styles.flex}
+                          style={styles.actionButtonSlot}
                           onPress={() => void handleInstall()}
                         />
                         <ActionButton
@@ -838,7 +893,7 @@ export default function ProjectDetailsScreen() {
                           icon="close"
                           variant="secondary"
                           disabled={!doorActionState?.canMarkNotInstalled}
-                          style={styles.flex}
+                          style={styles.actionButtonSlot}
                           onPress={() => setShowNotInstalledForm(true)}
                         />
                       </View>
@@ -854,6 +909,7 @@ export default function ProjectDetailsScreen() {
                           <IconButton
                             icon="close"
                             label={lt("Close reason form", "Закрыть выбор причины", "סגירת בחירת סיבה")}
+                            disabled={busy}
                             onPress={() => setShowNotInstalledForm(false)}
                           />
                         </View>
@@ -862,6 +918,7 @@ export default function ProjectDetailsScreen() {
                             <FilterChip
                               key={reason.id}
                               active={selectedReasonId === reason.id}
+                              disabled={busy}
                               label={reason.name || reason.code}
                               onPress={() => setSelectedReasonId(reason.id)}
                             />
@@ -870,6 +927,7 @@ export default function ProjectDetailsScreen() {
                         {selectedReason ? <Text style={styles.reasonCode}>{selectedReason.code}</Text> : null}
                         <TextInput
                           value={doorComment}
+                          editable={!busy}
                           onChangeText={setDoorComment}
                           accessibilityLabel={lt("Door comment", "Комментарий по двери", "הערה לדלת")}
                           placeholder={lt("Comment for the office…", "Комментарий для офиса…", "הערה למשרד…")}
@@ -882,7 +940,7 @@ export default function ProjectDetailsScreen() {
                         label={lt("Confirm not installed", "Подтвердить: не установлено", "אישור: לא הותקנה")}
                         icon="checkmark-circle-outline"
                         variant="danger"
-                        loading={busy}
+                        loading={activeAction === "door"}
                         disabled={!doorActionState?.canMarkNotInstalled}
                         onPress={() => void handleNotInstalled()}
                       />
@@ -890,6 +948,7 @@ export default function ProjectDetailsScreen() {
                     ) : null}
                   </>
                 )}
+                {renderActionFeedback("door")}
                 <ActionButton
                   label={lt("Report issue for this door", "Сообщить о проблеме двери", "דיווח תקלה בדלת")}
                   icon="alert-circle-outline"
@@ -916,6 +975,7 @@ export default function ProjectDetailsScreen() {
                     <FilterChip
                       key={addon.id}
                       active={addonTypeId === addon.id}
+                      disabled={busy}
                       label={`${addon.name}${addon.qty_planned ? ` · ${addon.qty_planned} ${addon.unit}` : ""}`}
                       onPress={() => setAddonTypeId(addon.id)}
                     />
@@ -924,6 +984,7 @@ export default function ProjectDetailsScreen() {
                 <View style={styles.addonInputs}>
                   <TextInput
                     value={addonQty}
+                    editable={!busy}
                     onChangeText={setAddonQty}
                     accessibilityLabel={lt("Completed quantity", "Выполненное количество", "כמות שבוצעה")}
                     placeholder={lt("Quantity…", "Количество…", "כמות…")}
@@ -933,6 +994,7 @@ export default function ProjectDetailsScreen() {
                   />
                   <TextInput
                     value={addonComment}
+                    editable={!busy}
                     onChangeText={setAddonComment}
                     accessibilityLabel={lt("Add-on comment", "Комментарий к допработе", "הערה לעבודה נוספת")}
                     placeholder={lt("Comment…", "Комментарий…", "הערה…")}
@@ -943,6 +1005,7 @@ export default function ProjectDetailsScreen() {
                 <ActionButton
                   label={lt("Save completed add-on", "Сохранить допработу", "שמירת עבודה נוספת")}
                   icon="add"
+                  loading={activeAction === "addon"}
                   disabled={!addonActionState.canQueueAddonFact}
                   onPress={() => void handleAddonFact()}
                 />
@@ -950,6 +1013,7 @@ export default function ProjectDetailsScreen() {
             ) : (
               <Text style={styles.emptyCopy}>{lt("No add-on catalog is assigned to this project.", "Для объекта не назначен каталог допработ.", "לא הוגדר קטלוג עבודות נוספות לפרויקט.")}</Text>
             )}
+            {renderActionFeedback("addon")}
             {addonFacts.length ? (
               <View style={styles.factList}>
                 {addonFacts.slice(0, 6).map((fact) => (
@@ -1014,19 +1078,20 @@ export default function ProjectDetailsScreen() {
               <ActionButton
                 label={lt("Sync now", "Синхронизировать", "סנכרון עכשיו")}
                 icon="sync"
-                loading={busy}
+                loading={activeAction === "sync"}
                 disabled={busy || !pendingEvents.length}
-                style={styles.flex}
+                style={styles.actionButtonSlot}
                 onPress={() => void handleSync()}
               />
               <ActionButton
                 label={lt("Open queue", "Открыть очередь", "פתיחת התור")}
                 icon="list-outline"
                 variant="secondary"
-                style={styles.flex}
+                style={styles.actionButtonSlot}
                 onPress={() => router.push("/sync-queue" as never)}
               />
             </View>
+            {renderActionFeedback("sync")}
           </SectionCard>
         </View>
       </ScrollView>
@@ -1086,12 +1151,13 @@ function QuickAction({
   );
 }
 
-function FilterChip({ active, label, onPress }: { active: boolean; label: string; onPress: () => void }) {
+function FilterChip({ active, label, onPress, disabled = false }: { active: boolean; label: string; onPress: () => void; disabled?: boolean }) {
   return (
     <Pressable
       accessibilityRole="tab"
       accessibilityState={{ selected: active }}
       accessibilityLabel={label}
+      disabled={disabled}
       onPress={onPress}
       style={[styles.chip, active && styles.chipActive]}
     >
@@ -1124,6 +1190,7 @@ function DoorExplorerRow({
   typeLabel,
   positionLabel,
   selected,
+  disabled,
   hasIssue,
   locale,
   onPress,
@@ -1132,6 +1199,7 @@ function DoorExplorerRow({
   typeLabel: string;
   positionLabel: string;
   selected: boolean;
+  disabled: boolean;
   hasIssue: boolean;
   locale: "en" | "ru" | "he";
   onPress: () => void;
@@ -1141,6 +1209,7 @@ function DoorExplorerRow({
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected }}
+      disabled={disabled}
       accessibilityLabel={`${door.unit_label}, ${positionLabel}, ${translateEnum(locale, door.status)}`}
       onPress={onPress}
       style={({ pressed }) => [
@@ -1310,6 +1379,9 @@ const styles = StyleSheet.create({
     padding: 11,
   },
   errorText: { flex: 1, color: installerTheme.danger, fontSize: 11, lineHeight: 16 },
+  actionFeedback: { borderStartWidth: 3, padding: 12, gap: 10, marginTop: 10 },
+  actionFeedbackMessage: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  actionFeedbackText: { flex: 1, minWidth: 0, color: installerTheme.text, fontSize: 12, lineHeight: 18 },
   progressCard: { position: "relative", overflow: "hidden", paddingStart: 16 },
   accentStrip: { position: "absolute", top: 0, bottom: 0, start: 0, width: 4, backgroundColor: installerTheme.accent },
   progressHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
@@ -1769,7 +1841,8 @@ const styles = StyleSheet.create({
   notInstalledTitle: { color: installerTheme.text, fontSize: 12, fontWeight: "800" },
   notInstalledMeta: { color: installerTheme.danger, fontFamily: installerTheme.fontFamilyMono, fontSize: 8, marginTop: 3 },
   reasonCode: { color: installerTheme.textFaint, fontSize: 9, marginTop: 6 },
-  doorActions: { flexDirection: "row", gap: 7, marginTop: 11 },
+  doorActions: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 11 },
+  actionButtonSlot: { flexGrow: 1, flexBasis: 140 },
   reportButton: { marginTop: 9 },
   updatedText: { color: installerTheme.textFaint, fontSize: 9, textAlign: "center", marginTop: 9 },
   addonInputs: { flexDirection: "row", gap: 8, marginBottom: 10 },
@@ -1788,7 +1861,7 @@ const styles = StyleSheet.create({
   pendingBody: { flex: 1, minWidth: 0 },
   pendingTitle: { color: installerTheme.text, fontSize: 11, fontWeight: "800" },
   pendingMeta: { color: installerTheme.textMuted, fontSize: 9, marginTop: 3 },
-  syncActions: { flexDirection: "row", gap: 7, marginTop: 10 },
+  syncActions: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 10 },
   flex: { flex: 1 },
   pressed: { opacity: 0.68 },
 });
