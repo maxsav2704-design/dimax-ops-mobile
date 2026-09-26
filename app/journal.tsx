@@ -1,8 +1,8 @@
+import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Pressable,
   RefreshControl,
   ScrollView,
   StatusBar,
@@ -61,6 +61,7 @@ export default function JournalScreen() {
   const [filter, setFilter] = useState<JournalFilter>("ALL");
   const [loading, setLoading] = useState(true);
   const [busyProjectId, setBusyProjectId] = useState<string | null>(null);
+  const preparing = useRef(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -169,6 +170,8 @@ export default function JournalScreen() {
   );
 
   const prepare = async (projectId: string) => {
+    if (preparing.current) return;
+    preparing.current = true;
     setBusyProjectId(projectId);
     setError(null);
     try {
@@ -189,6 +192,7 @@ export default function JournalScreen() {
             ),
       );
     } finally {
+      preparing.current = false;
       setBusyProjectId(null);
     }
   };
@@ -291,22 +295,12 @@ export default function JournalScreen() {
         {lanes.length ? (
           <View style={styles.list}>
             {lanes.map(({ project, journal, installedLocally }) => {
+              const CardBody = journal ? Pressable : View;
               const completed = journal
                 ? journal.completed_doors + journal.completed_addons
                 : installedLocally;
               return (
-                <Pressable
-                  key={project.id}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${project.name}. ${statusLabel(journal?.status ?? null)}`}
-                  onPress={() =>
-                    journal
-                      ? router.push(`/journal/${journal.id}` as never)
-                      : void prepare(project.id)
-                  }
-                  style={({ pressed }) => pressed && styles.pressed}
-                >
-                  <SectionCard style={styles.projectCard}>
+                <SectionCard key={project.id} style={styles.projectCard}>
                     <View
                       style={[
                         styles.statusRail,
@@ -320,6 +314,15 @@ export default function JournalScreen() {
                         },
                       ]}
                     />
+                  <CardBody
+                    {...(journal ? {
+                      disabled: Boolean(busyProjectId),
+                      accessibilityRole: "button" as const,
+                      accessibilityLabel: `${project.name}. ${statusLabel(journal.status)}`,
+                      onPress: () => router.push(`/journal/${journal.id}` as never),
+                    } : {})}
+                    style={styles.cardBody}
+                  >
                     <View style={styles.cardHeader}>
                       <View style={styles.projectIcon}>
                         <Ionicons
@@ -345,11 +348,11 @@ export default function JournalScreen() {
                             )}
                         </Text>
                       </View>
-                      <Ionicons
+                      {journal ? <Ionicons
                         name="chevron-forward"
                         size={18}
                         color={installerTheme.textFaint}
-                      />
+                      /> : null}
                     </View>
                     <View style={styles.cardMetaRow}>
                       <StatusPill
@@ -380,21 +383,18 @@ export default function JournalScreen() {
                         )}
                       </Text>
                     ) : null}
-                    {!journal ? (
-                      <ActionButton
-                        label={lt(
-                          "Prepare acceptance",
-                          "Сформировать акт",
-                          "הכנת מסמך מסירה",
-                        )}
-                        icon="document-text-outline"
-                        variant="secondary"
-                        loading={busyProjectId === project.id}
-                        onPress={() => void prepare(project.id)}
-                      />
-                    ) : null}
-                  </SectionCard>
-                </Pressable>
+                  </CardBody>
+                  {!journal ? (
+                    <ActionButton
+                      label={lt("Prepare acceptance", "Сформировать акт", "הכנת מסמך מסירה")}
+                      icon="document-text-outline"
+                      variant="secondary"
+                      loading={busyProjectId === project.id}
+                      disabled={Boolean(busyProjectId)}
+                      onPress={() => void prepare(project.id)}
+                    />
+                  ) : null}
+                </SectionCard>
               );
             })}
           </View>
@@ -474,6 +474,7 @@ const styles = StyleSheet.create({
   },
   list: { gap: 12 },
   projectCard: { position: "relative", overflow: "hidden", gap: 14 },
+  cardBody: { gap: 14 },
   statusRail: { position: "absolute", top: 0, bottom: 0, start: 0, width: 3 },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
   projectIcon: {
@@ -526,5 +527,4 @@ const styles = StyleSheet.create({
     borderTopColor: installerTheme.border,
     paddingTop: 12,
   },
-  pressed: { opacity: 0.76, transform: [{ scale: 0.995 }] },
 });

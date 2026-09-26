@@ -4,7 +4,7 @@ import React, { type ReactNode } from "react";
 import {
   ActivityIndicator,
   Modal,
-  Pressable,
+  Platform,
   type PressableProps,
   StyleSheet,
   Text as NativeText,
@@ -21,6 +21,8 @@ import Svg, {
   Stop,
 } from "react-native-svg";
 import { installerTheme, toneColors, type InstallerTone } from "@/lib/theme";
+import { FeedbackPressable as Pressable } from "./feedback-pressable";
+import { Reveal, useReducedMotion } from "./motion";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -31,7 +33,7 @@ export function BrandText({ style, ...props }: TextProps) {
   const numericWeight = Number.parseInt(requestedWeight, 10);
   const strong = requestedWeight === "bold" || (Number.isFinite(numericWeight) && numericWeight >= 600);
   const medium = Number.isFinite(numericWeight) && numericWeight >= 500;
-  const fontFamily =
+  let fontFamily: string =
     requestedFamily === "monospace"
       ? installerTheme.fontFamilyMono
       : requestedFamily && requestedFamily !== installerTheme.fontFamily
@@ -41,11 +43,20 @@ export function BrandText({ style, ...props }: TextProps) {
           : medium
             ? installerTheme.fontFamilyMedium
             : installerTheme.fontFamily;
+  const text = React.Children.toArray(props.children).filter((child) => typeof child === "string").join("");
+  let fontWeight: TextStyle["fontWeight"];
+  // Sora has no Cyrillic or Hebrew glyphs; choose a deliberate sans fallback.
+  if (/[\u0400-\u04ff]/.test(text) && fontFamily.startsWith("Sora_")) {
+    fontFamily = installerTheme.fontFamilyStrong;
+  } else if (/[\u0590-\u05ff]/.test(text)) {
+    fontWeight = strong || /(?:SemiBold|Bold)/.test(fontFamily) ? "700" : "400";
+    fontFamily = Platform.OS === "ios" ? "System" : Platform.OS === "web" ? "system-ui, sans-serif" : "sans-serif";
+  }
 
   return (
     <NativeText
       {...props}
-      style={[styles.brandText, style, { fontFamily, fontWeight: undefined }]}
+      style={[styles.brandText, style, { fontFamily, fontWeight }]}
     />
   );
 }
@@ -56,7 +67,8 @@ export function BrandMark({ compact = false }: { compact?: boolean }) {
   const size = compact ? 24 : 32;
   return (
     <View style={[styles.brandMark, compact && styles.brandMarkCompact]}>
-      <Svg width={size} height={size} viewBox="0 0 32 32" accessibilityElementsHidden>
+      <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <Svg width={size} height={size} viewBox="0 0 32 32">
         <Defs>
           <SvgLinearGradient id="dimaxGold" x1="0" y1="0" x2="1" y2="1">
             <Stop offset="0" stopColor={installerTheme.accent} />
@@ -71,6 +83,7 @@ export function BrandMark({ compact = false }: { compact?: boolean }) {
         />
         <Path d="M12 9h3c3.6 0 5.6 2.6 5.6 7s-2 7-5.6 7h-3z" fill="url(#dimaxGold)" opacity={0.55} />
       </Svg>
+      </View>
       <View>
         <Text style={[styles.brandName, compact && styles.brandNameCompact]}>DIMAX</Text>
         <Text style={[styles.brandProduct, compact && styles.brandProductCompact]}>INSTALLER</Text>
@@ -97,7 +110,7 @@ export function ScreenHero({
   showMark?: boolean;
 }) {
   return (
-    <View style={styles.hero}>
+    <Reveal style={styles.hero}>
       {showMark || right ? (
         <View style={[styles.heroTop, !showMark && styles.heroTopActionsOnly]}>
           {showMark ? <BrandMark /> : null}
@@ -108,7 +121,7 @@ export function ScreenHero({
       <Text style={styles.heroTitle}>{title}</Text>
       {subtitle ? <Text style={styles.heroSubtitle}>{subtitle}</Text> : null}
       {children}
-    </View>
+    </Reveal>
   );
 }
 
@@ -121,9 +134,10 @@ export function SectionCard({
 }) {
   return (
     <LinearGradient
-      colors={["rgba(255,255,255,0.035)", "rgba(8,14,21,0.82)"]}
-      start={{ x: 0.1, y: 0 }}
-      end={{ x: 0.9, y: 1 }}
+      colors={["#1D2530", installerTheme.shellRaised, "#101720"]}
+      locations={[0, 0.45, 1]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0.8, y: 1 }}
       style={[styles.card, style]}
     >
       {children}
@@ -232,20 +246,29 @@ export function MetricTile({
   meta,
   tone = "accent",
   style,
+  onPress,
 }: {
   label: string;
   value: string | number;
   meta?: string | null;
   tone?: InstallerTone;
   style?: ViewStyle | ViewStyle[];
+  onPress?: () => void;
 }) {
   const colors = toneColors(tone);
-  return (
-    <View style={[styles.metric, { borderStartColor: colors.text }, style]}>
+  const content = (
+    <>
       <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={styles.metricValue} numberOfLines={1}>{value}</Text>
+      <Text style={styles.metricValue} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.85}>{value}</Text>
       {meta ? <Text style={styles.metricMeta} numberOfLines={2}>{meta}</Text> : null}
-    </View>
+      {onPress ? <Ionicons name="chevron-forward" size={14} color={colors.text} style={styles.metricChevron} /> : null}
+    </>
+  );
+  const containerStyle = [styles.metric, { borderStartColor: colors.text }, style];
+  return onPress ? (
+    <Pressable accessibilityRole="button" accessibilityLabel={[label, String(value), meta].filter(Boolean).join(". ")} onPress={onPress} style={[containerStyle, { paddingEnd: 24 }]}>{content}</Pressable>
+  ) : (
+    <View style={containerStyle}>{content}</View>
   );
 }
 
@@ -289,7 +312,7 @@ export function ActionButton({
         variant === "danger" && styles.actionDanger,
         variant === "dark" && styles.actionDark,
         pressed && styles.actionPressed,
-        props.disabled && styles.actionDisabled,
+        (props.disabled || loading) && styles.actionDisabled,
         style,
       ]}
     >
@@ -341,16 +364,19 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const reducedMotion = useReducedMotion();
   return (
     <Modal
-      animationType="fade"
+      animationType={reducedMotion ? "none" : "fade"}
       transparent
       visible={visible}
       statusBarTranslucent
-      onRequestClose={onCancel}
+      onRequestClose={() => { if (!busy) onCancel(); }}
     >
       <View style={styles.dialogRoot}>
         <Pressable
+          feedback="none"
+          disabled={busy}
           accessibilityRole="button"
           accessibilityLabel={cancelLabel}
           style={styles.dialogBackdrop}
@@ -416,11 +442,13 @@ export function IconButton({
       accessibilityRole={props.accessibilityRole ?? "button"}
       accessibilityState={{ ...props.accessibilityState, disabled: Boolean(props.disabled) }}
       hitSlop={props.hitSlop ?? 6}
-      style={({ pressed }) => [
+      style={(state) => [
         styles.iconButton,
         tone === "dark" && styles.iconButtonDark,
         tone === "accent" && styles.iconButtonAccent,
-        pressed && styles.actionPressed,
+        state.pressed && styles.actionPressed,
+        props.disabled && styles.actionDisabled,
+        typeof props.style === "function" ? props.style(state) : props.style,
       ]}
     >
       <Ionicons pointerEvents="none" name={icon} size={19} color={color} />
@@ -645,7 +673,9 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: installerTheme.radius.xl,
     borderWidth: 1,
-    borderColor: installerTheme.border,
+    borderColor: installerTheme.borderStrong,
+    borderTopColor: "rgba(255,255,255,0.22)",
+    backgroundColor: installerTheme.shellRaised,
     padding: 12,
     shadowColor: "#000000",
     shadowOpacity: 0.42,
@@ -716,7 +746,7 @@ const styles = StyleSheet.create({
   },
   metric: {
     flex: 1,
-    minWidth: 96,
+    minWidth: 120,
     minHeight: 76,
     backgroundColor: installerTheme.shellRaised,
     borderRadius: installerTheme.radius.card,
@@ -733,9 +763,10 @@ const styles = StyleSheet.create({
   metricLabel: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamilyMedium,
-    fontSize: 9,
+    fontSize: 10,
     textTransform: "uppercase",
   },
+  metricChevron: { position: "absolute", end: 7, top: 34 },
   metricValue: {
     color: installerTheme.text,
     fontFamily: installerTheme.fontFamilyMono,
@@ -790,7 +821,7 @@ const styles = StyleSheet.create({
     borderColor: installerTheme.infoBorder,
   },
   actionPressed: {
-    opacity: 0.72,
+    opacity: 0.94,
   },
   actionDisabled: {
     opacity: 0.42,
@@ -856,8 +887,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 7,
   },
-  dialogActions: { flexDirection: "row", gap: 8, marginTop: 18 },
-  dialogAction: { flex: 1 },
+  dialogActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 18 },
+  dialogAction: { flexGrow: 1, flexBasis: 150 },
   iconButton: {
     width: 40,
     height: 40,

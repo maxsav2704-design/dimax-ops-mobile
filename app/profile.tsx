@@ -223,9 +223,9 @@ export default function ProfileScreen() {
               <LocaleSwitcher />
             </View>
             <Row
-              icon="help-circle-outline"
-              title={lt("Help", "Помощь", "עזרה")}
-              subtitle={lt("Contact the office if a job or sync action is unclear.", "Свяжитесь с офисом, если непонятна работа или синхронизация.", "פנה למשרד אם עבודה או סנכרון אינם ברורים.")}
+              icon="call-outline"
+              title={lt("Project contacts", "Контакты объектов", "אנשי קשר בפרויקטים")}
+              onPress={() => router.push("/projects" as never)}
               tone="purple"
             />
           </SectionCard>

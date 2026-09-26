@@ -11,6 +11,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
+    "ui:preview": "vite --config preview/vite.config.mjs",
     "postinstall": "node scripts/patch-image-size.mjs --apply",
     "security:verify-image-size": "node scripts/patch-image-size.mjs --self-test",
     "security:verify-fast-uri": "node --test scripts/fast-uri-security.test.mjs",
@@ -51,8 +52,12 @@
     "@babel/core": "^7.26.0",
     "@types/node": "^25.3.3",
     "@types/react": "^18.3.23",
+    "@types/react-test-renderer": "18.3.1",
     "expo-doctor": "1.20.2",
+    "react-native-web": "0.19.13",
+    "react-test-renderer": "18.3.1",
     "typescript": "^5.8.3",
+    "vite": "8.1.5",
     "vitest": "^4.0.18"
   },
   "overrides": {

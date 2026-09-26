@@ -2,7 +2,8 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Image, Pressable, ScrollView, StatusBar, StyleSheet, View } from "react-native";
+import { Image, ScrollView, StatusBar, StyleSheet, View } from "react-native";
+import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
@@ -469,13 +470,18 @@ export default function ProjectsScreen() {
             return (
               <SectionCard key={project.id} style={styles.projectCard}>
                 <View style={[styles.projectRiskStrip, { backgroundColor: tonePalette.text }]} />
-                <View style={styles.projectTop}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={project.name}
+                  onPress={() => router.push(buildProjectRoute(project.id) as never)}
+                  style={styles.projectTop}
+                >
                   <View style={[styles.projectGlyph, { borderColor: tonePalette.border }]}>
                     <Ionicons name="business-outline" size={21} color={tonePalette.text} />
                     <View style={[styles.projectGlyphBeacon, { backgroundColor: tonePalette.text }]} />
                   </View>
                   <View style={styles.projectIdentity}>
-                    <Text style={styles.projectTitle} numberOfLines={1}>{project.name}</Text>
+                    <Text style={styles.projectTitle} numberOfLines={2}>{project.name}</Text>
                     <Text style={styles.projectAddress} numberOfLines={2}>{project.address || lt("Address not set", "Адрес не указан", "הכתובת לא הוגדרה")}</Text>
                   </View>
                   <StatusPill
@@ -483,7 +489,7 @@ export default function ProjectsScreen() {
                     tone={tone}
                     icon={summary.issues ? "alert-circle-outline" : "checkmark-circle-outline"}
                   />
-                </View>
+                </Pressable>
 
                 <View style={styles.progressTrack}>
                   <View style={[styles.progressFill, { width: `${progress}%` }]} />

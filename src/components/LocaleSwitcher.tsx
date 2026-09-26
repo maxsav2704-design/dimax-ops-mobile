@@ -1,5 +1,6 @@
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { BrandText as Text } from "@/components/mobile-ui";
 import { installerTheme } from "@/lib/theme";
 import { useI18n } from "@/providers/AppProviders";

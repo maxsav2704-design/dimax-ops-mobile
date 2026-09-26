@@ -2,7 +2,8 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { Link, usePathname } from "expo-router";
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandText as Text } from "@/components/mobile-ui";
 import { installerTheme } from "@/lib/theme";
@@ -111,7 +112,7 @@ export function InstallerBottomNav() {
                       </LinearGradient>
                     </View>
                   ) : (
-                    <View pointerEvents="none" style={styles.iconShell}>
+                    <View pointerEvents="none" style={[styles.iconShell, active && styles.iconShellActive]}>
                       <Ionicons
                         name={active ? tab.activeIcon : tab.icon}
                         size={20}
@@ -193,12 +194,13 @@ const styles = StyleSheet.create({
     overflow: "visible",
   },
   iconShell: {
-    minWidth: 32,
+    minWidth: 40,
     height: 24,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 12,
   },
+  iconShellActive: { backgroundColor: installerTheme.infoSoft },
   activeRail: {
     position: "absolute",
     bottom: -2,
@@ -254,6 +256,6 @@ const styles = StyleSheet.create({
     color: installerTheme.info,
   },
   pressed: {
-    opacity: 0.65,
+    opacity: 0.94,
   },
 });

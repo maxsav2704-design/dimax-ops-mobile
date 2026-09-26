@@ -2,9 +2,11 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Image, Pressable, ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
+import { Image, ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
+import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
+import { useReducedMotion } from "@/components/motion";
 import {
   ActionButton,
   BrandText as Text,
@@ -49,6 +51,17 @@ type IssueFilter = "OPEN" | "ALL";
 const EMPTY_LOCAL_PROJECT_WORKSPACE = createEmptyLocalProjectWorkspace();
 
 export default function ProjectDetailsScreen() {
+  const reducedMotion = useReducedMotion();
+  const scrollRef = useRef<ScrollView>(null);
+  const doorDetailsRef = useRef<View>(null);
+  const doorListRef = useRef<View>(null);
+  const scrollToSection = (section: React.RefObject<View>) => {
+    const scroll = scrollRef.current;
+    if (!scroll || !section.current) return;
+    section.current.measureLayout(scroll.getInnerViewNode(), (_x, y) => {
+      scroll.scrollTo({ y: Math.max(0, y - 12), animated: !reducedMotion });
+    });
+  };
   const { locale } = useI18n();
   const params = useLocalSearchParams<{
     id: string;
@@ -87,6 +100,10 @@ export default function ProjectDetailsScreen() {
     message: null,
   });
   const [selectedDoorId, setSelectedDoorId] = useState("");
+  const openDoor = (doorId: string) => {
+    setSelectedDoorId(doorId);
+    requestAnimationFrame(() => scrollToSection(doorDetailsRef));
+  };
   const [doorSearch, setDoorSearch] = useState("");
   const [doorStatusFilter, setDoorStatusFilter] = useState("ALL");
   const [selectedOrderNumber, setSelectedOrderNumber] = useState("ALL");
@@ -413,7 +430,7 @@ export default function ProjectDetailsScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       <StatusBar barStyle="light-content" backgroundColor={installerTheme.shell} />
-      <ScrollView style={styles.content} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} style={styles.content} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <ScreenHero
           showMark={false}
           eyebrow={`${lt("JOB", "ОБЪЕКТ", "פרויקט")} · ${projectId.slice(0, 8)}`}
@@ -513,7 +530,7 @@ export default function ProjectDetailsScreen() {
                       accessibilityRole="button"
                       accessibilityLabel={`${issue.title || lt("Reported issue", "Заявленная проблема", "תקלה שדווחה")}. ${issueDoor?.unit_label || lt("Door", "Дверь", "דלת")}`}
                       onPress={() => {
-                        setSelectedDoorId(issue.door_id);
+                        openDoor(issue.door_id);
                         setDoorSearch(issueDoor?.unit_label || "");
                       }}
                       style={({ pressed }) => [styles.issueRow, pressed && styles.pressed]}
@@ -594,7 +611,7 @@ export default function ProjectDetailsScreen() {
             ) : null}
           </SectionCard>
 
-          <View style={styles.floorSection}>
+          <View ref={doorListRef} collapsable={false} style={styles.floorSection}>
             <SectionHeader title={lt("Doors by floor", "Двери по этажам", "דלתות לפי קומה")} meta={filteredDoors.length} />
             {groupedDoors.length ? (
               <View style={styles.explorerLayout}>
@@ -695,7 +712,7 @@ export default function ProjectDetailsScreen() {
                               selected={door.id === selectedDoorId}
                               hasIssue={issueDoorIds.has(door.id)}
                               locale={locale}
-                              onPress={() => setSelectedDoorId(door.id)}
+                              onPress={() => openDoor(door.id)}
                             />
                           ))}
                         </View>
@@ -716,171 +733,177 @@ export default function ProjectDetailsScreen() {
           </View>
 
           {selectedDoor ? (
-            <SectionCard style={styles.doorDetail}>
-              <View style={[styles.doorDetailStrip, { backgroundColor: doorStatusColors(selectedDoor, selectedDoorIssues.length > 0).text }]} />
-              <View style={styles.doorImageHero}>
-                <Image
-                  source={require("../../assets/premium/door-premium.jpg")}
-                  resizeMode="cover"
-                  style={StyleSheet.absoluteFillObject}
-                  accessibilityIgnoresInvertColors
+            <View ref={doorDetailsRef} collapsable={false}>
+              <SectionCard style={styles.doorDetail}>
+                <SectionHeader
+                  title={lt("Door details", "Карточка двери", "פרטי דלת")}
+                  action={<IconButton icon="list-outline" label={lt("Back to doors", "К списку дверей", "חזרה לדלתות")} onPress={() => scrollToSection(doorListRef)} />}
                 />
-                <LinearGradient
-                  pointerEvents="none"
-                  colors={["rgba(8,14,21,0.04)", "rgba(8,14,21,0.46)", installerTheme.background]}
-                  locations={[0, 0.48, 1]}
-                  style={StyleSheet.absoluteFillObject}
-                />
-                <View style={styles.doorImageContent}>
-                  <Text style={styles.doorEyebrow}>{lt("Selected position", "Выбранная позиция", "מיקום נבחר")}</Text>
-                  <View style={styles.doorImageTitleRow}>
-                    <View style={styles.doorHeroBody}>
-                      <Text style={styles.doorNumber} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
-                        {selectedDoor.unit_label}
-                      </Text>
-                      <Text style={styles.doorType} numberOfLines={1}>
-                        {selectedDoorType?.name || selectedDoorType?.code || selectedDoor.door_type_id}
-                      </Text>
-                    </View>
-                    <StatusPill
-                      label={translateEnum(locale, selectedDoorIssues.length ? "ISSUE_OPEN" : selectedDoor.status)}
-                      tone={doorStatusTone(selectedDoor, selectedDoorIssues.length > 0)}
-                    />
-                  </View>
-                  <View style={styles.doorBadges}>
-                    {selectedDoorIssues.length ? <StatusPill label={formatIssueCount(locale, selectedDoorIssues.length)} tone="danger" /> : null}
-                    {selectedDoorPendingEvents.length ? (
+                <View style={[styles.doorDetailStrip, { backgroundColor: doorStatusColors(selectedDoor, selectedDoorIssues.length > 0).text }]} />
+                <View style={styles.doorImageHero}>
+                  <Image
+                    source={require("../../assets/premium/door-premium.jpg")}
+                    resizeMode="cover"
+                    style={StyleSheet.absoluteFillObject}
+                    accessibilityIgnoresInvertColors
+                  />
+                  <LinearGradient
+                    pointerEvents="none"
+                    colors={["rgba(8,14,21,0.04)", "rgba(8,14,21,0.46)", installerTheme.background]}
+                    locations={[0, 0.48, 1]}
+                    style={StyleSheet.absoluteFillObject}
+                  />
+                  <View style={styles.doorImageContent}>
+                    <Text style={styles.doorEyebrow}>{lt("Selected position", "Выбранная позиция", "מיקום נבחר")}</Text>
+                    <View style={styles.doorImageTitleRow}>
+                      <View style={styles.doorHeroBody}>
+                        <Text style={styles.doorNumber} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
+                          {selectedDoor.unit_label}
+                        </Text>
+                        <Text style={styles.doorType} numberOfLines={1}>
+                          {selectedDoorType?.name || selectedDoorType?.code || selectedDoor.door_type_id}
+                        </Text>
+                      </View>
                       <StatusPill
-                        label={`${selectedDoorPendingEvents.length} ${lt("queued", "в очереди", "בתור")}`}
-                        tone={selectedDoorPendingEvents.some((event) => event.status !== "PENDING") ? "danger" : "warning"}
-                        icon="cloud-upload-outline"
-                      />
-                    ) : null}
-                  </View>
-                </View>
-              </View>
-
-              <View style={styles.doorFacts}>
-                <DoorFact label={lt("Order", "Заказ", "הזמנה")} value={selectedDoor.order_number} />
-                <DoorFact label={lt("Floor", "Этаж", "קומה")} value={selectedDoor.floor_label} />
-                <DoorFact label={lt("Apartment", "Квартира", "דירה")} value={selectedDoor.apartment_number} />
-                <DoorFact label={lt("Marking", "Маркировка", "סימון")} value={selectedDoor.door_marking} />
-                <DoorFact label={lt("Location", "Локация", "מיקום")} value={selectedDoor.location_code} />
-                <DoorFact label={lt("Version", "Версия", "גרסה")} value={String(selectedDoor.version)} />
-              </View>
-
-              {selectedDoorIssues.map((issue) => (
-                <View key={issue.id} style={styles.selectedIssue}>
-                  <Ionicons name="alert-circle-outline" size={18} color={installerTheme.danger} />
-                  <View style={styles.selectedIssueBody}>
-                    <Text style={styles.selectedIssueTitle}>{issue.title || lt("Door issue", "Проблема двери", "תקלה בדלת")}</Text>
-                    {issue.details ? <Text style={styles.selectedIssueText}>{issue.details}</Text> : null}
-                  </View>
-                </View>
-              ))}
-
-              {doorActionState?.isLocked ? (
-                <View style={styles.lockedBox}>
-                  <Ionicons name="lock-closed-outline" size={18} color={installerTheme.textMuted} />
-                  <Text style={styles.lockedText}>
-                    {lt("This door is locked after completion.", "Дверь заблокирована после завершения.", "הדלת נעולה לאחר השלמה.")}
-                  </Text>
-                </View>
-              ) : (
-                <>
-                  <View style={styles.doorActionDeck}>
-                    <View style={styles.actionDeckHeader}>
-                      <View style={styles.actionDeckIcon}>
-                        <Ionicons name="construct-outline" size={18} color={installerTheme.info} />
-                      </View>
-                      <View style={styles.actionDeckHeading}>
-                        <Text style={styles.actionDeckEyebrow}>{lt("FIELD UPDATE", "ПОЛЕВОЙ СТАТУС", "עדכון שטח")}</Text>
-                        <Text style={styles.actionDeckTitle}>{lt("Record the result", "Зафиксировать результат", "תיעוד התוצאה")}</Text>
-                      </View>
-                      <View style={styles.offlineReady}>
-                        <View style={styles.offlineReadyDot} />
-                        <Text style={styles.offlineReadyText}>{lt("OFFLINE", "ОФЛАЙН", "לא מקוון")}</Text>
-                      </View>
-                    </View>
-                    <View style={styles.doorActions}>
-                      <ActionButton
-                        label={lt("Installed", "Установлено", "הותקנה")}
-                        icon="checkmark"
-                        loading={busy}
-                        disabled={!doorActionState?.canMarkInstalled}
-                        style={styles.flex}
-                        onPress={() => void handleInstall()}
-                      />
-                      <ActionButton
-                        label={lt("Not installed", "Не установлено", "לא הותקנה")}
-                        icon="close"
-                        variant="secondary"
-                        disabled={!doorActionState?.canMarkNotInstalled}
-                        style={styles.flex}
-                        onPress={() => setShowNotInstalledForm(true)}
+                        label={translateEnum(locale, selectedDoorIssues.length ? "ISSUE_OPEN" : selectedDoor.status)}
+                        tone={doorStatusTone(selectedDoor, selectedDoorIssues.length > 0)}
                       />
                     </View>
+                    <View style={styles.doorBadges}>
+                      {selectedDoorIssues.length ? <StatusPill label={formatIssueCount(locale, selectedDoorIssues.length)} tone="danger" /> : null}
+                      {selectedDoorPendingEvents.length ? (
+                        <StatusPill
+                          label={`${selectedDoorPendingEvents.length} ${lt("queued", "в очереди", "בתור")}`}
+                          tone={selectedDoorPendingEvents.some((event) => event.status !== "PENDING") ? "danger" : "warning"}
+                          icon="cloud-upload-outline"
+                        />
+                      ) : null}
+                    </View>
                   </View>
+                </View>
 
-                  {showNotInstalledForm ? (
-                    <View style={styles.notInstalledPanel}>
-                      <View style={styles.notInstalledHeader}>
-                        <View style={styles.notInstalledHeading}>
-                          <Text style={styles.notInstalledTitle}>{lt("Why was it not installed?", "Почему дверь не установлена?", "מדוע הדלת לא הותקנה?")}</Text>
-                          <Text style={styles.notInstalledMeta}>{selectedDoor.unit_label}</Text>
+                <View style={styles.doorFacts}>
+                  <DoorFact label={lt("Order", "Заказ", "הזמנה")} value={selectedDoor.order_number} />
+                  <DoorFact label={lt("Floor", "Этаж", "קומה")} value={selectedDoor.floor_label} />
+                  <DoorFact label={lt("Apartment", "Квартира", "דירה")} value={selectedDoor.apartment_number} />
+                  <DoorFact label={lt("Marking", "Маркировка", "סימון")} value={selectedDoor.door_marking} />
+                  <DoorFact label={lt("Location", "Локация", "מיקום")} value={selectedDoor.location_code} />
+                  <DoorFact label={lt("Version", "Версия", "גרסה")} value={String(selectedDoor.version)} />
+                </View>
+
+                {selectedDoorIssues.map((issue) => (
+                  <View key={issue.id} style={styles.selectedIssue}>
+                    <Ionicons name="alert-circle-outline" size={18} color={installerTheme.danger} />
+                    <View style={styles.selectedIssueBody}>
+                      <Text style={styles.selectedIssueTitle}>{issue.title || lt("Door issue", "Проблема двери", "תקלה בדלת")}</Text>
+                      {issue.details ? <Text style={styles.selectedIssueText}>{issue.details}</Text> : null}
+                    </View>
+                  </View>
+                ))}
+
+                {doorActionState?.isLocked ? (
+                  <View style={styles.lockedBox}>
+                    <Ionicons name="lock-closed-outline" size={18} color={installerTheme.textMuted} />
+                    <Text style={styles.lockedText}>
+                      {lt("This door is locked after completion.", "Дверь заблокирована после завершения.", "הדלת נעולה לאחר השלמה.")}
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <View style={styles.doorActionDeck}>
+                      <View style={styles.actionDeckHeader}>
+                        <View style={styles.actionDeckIcon}>
+                          <Ionicons name="construct-outline" size={18} color={installerTheme.info} />
                         </View>
-                        <IconButton
+                        <View style={styles.actionDeckHeading}>
+                          <Text style={styles.actionDeckEyebrow}>{lt("FIELD UPDATE", "ПОЛЕВОЙ СТАТУС", "עדכון שטח")}</Text>
+                          <Text style={styles.actionDeckTitle}>{lt("Record the result", "Зафиксировать результат", "תיעוד התוצאה")}</Text>
+                        </View>
+                        <View style={styles.offlineReady}>
+                          <View style={styles.offlineReadyDot} />
+                          <Text style={styles.offlineReadyText}>{lt("OFFLINE", "ОФЛАЙН", "לא מקוון")}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.doorActions}>
+                        <ActionButton
+                          label={lt("Installed", "Установлено", "הותקנה")}
+                          icon="checkmark"
+                          loading={busy}
+                          disabled={!doorActionState?.canMarkInstalled}
+                          style={styles.flex}
+                          onPress={() => void handleInstall()}
+                        />
+                        <ActionButton
+                          label={lt("Not installed", "Не установлено", "לא הותקנה")}
                           icon="close"
-                          label={lt("Close reason form", "Закрыть выбор причины", "סגירת בחירת סיבה")}
-                          onPress={() => setShowNotInstalledForm(false)}
+                          variant="secondary"
+                          disabled={!doorActionState?.canMarkNotInstalled}
+                          style={styles.flex}
+                          onPress={() => setShowNotInstalledForm(true)}
                         />
                       </View>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-                        {reasons.map((reason) => (
-                          <FilterChip
-                            key={reason.id}
-                            active={selectedReasonId === reason.id}
-                            label={reason.name || reason.code}
-                            onPress={() => setSelectedReasonId(reason.id)}
-                          />
-                        ))}
-                      </ScrollView>
-                      {selectedReason ? <Text style={styles.reasonCode}>{selectedReason.code}</Text> : null}
-                      <TextInput
-                        value={doorComment}
-                        onChangeText={setDoorComment}
-                        accessibilityLabel={lt("Door comment", "Комментарий по двери", "הערה לדלת")}
-                        placeholder={lt("Comment for the office…", "Комментарий для офиса…", "הערה למשרד…")}
-                        placeholderTextColor={installerTheme.textFaint}
-                        multiline
-                        maxLength={1000}
-                        style={[styles.input, styles.textarea]}
-                      />
-                    <ActionButton
-                      label={lt("Confirm not installed", "Подтвердить: не установлено", "אישור: לא הותקנה")}
-                      icon="checkmark-circle-outline"
-                      variant="danger"
-                      loading={busy}
-                      disabled={!doorActionState?.canMarkNotInstalled}
-                      onPress={() => void handleNotInstalled()}
-                    />
                     </View>
-                  ) : null}
-                </>
-              )}
-              <ActionButton
-                label={lt("Report issue for this door", "Сообщить о проблеме двери", "דיווח תקלה בדלת")}
-                icon="alert-circle-outline"
-                variant="danger"
-                style={styles.reportButton}
-                onPress={() =>
-                  router.push(`/issues?projectId=${encodeURIComponent(projectId)}&doorId=${encodeURIComponent(selectedDoor.id)}&compose=1` as never)
-                }
-              />
-              <Text style={styles.updatedText}>
-                {lt("Last local update", "Последнее локальное обновление", "עדכון מקומי אחרון")}: {formatDateTime(selectedDoor.updated_at)}
-              </Text>
-            </SectionCard>
+
+                    {showNotInstalledForm ? (
+                      <View style={styles.notInstalledPanel}>
+                        <View style={styles.notInstalledHeader}>
+                          <View style={styles.notInstalledHeading}>
+                            <Text style={styles.notInstalledTitle}>{lt("Why was it not installed?", "Почему дверь не установлена?", "מדוע הדלת לא הותקנה?")}</Text>
+                            <Text style={styles.notInstalledMeta}>{selectedDoor.unit_label}</Text>
+                          </View>
+                          <IconButton
+                            icon="close"
+                            label={lt("Close reason form", "Закрыть выбор причины", "סגירת בחירת סיבה")}
+                            onPress={() => setShowNotInstalledForm(false)}
+                          />
+                        </View>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+                          {reasons.map((reason) => (
+                            <FilterChip
+                              key={reason.id}
+                              active={selectedReasonId === reason.id}
+                              label={reason.name || reason.code}
+                              onPress={() => setSelectedReasonId(reason.id)}
+                            />
+                          ))}
+                        </ScrollView>
+                        {selectedReason ? <Text style={styles.reasonCode}>{selectedReason.code}</Text> : null}
+                        <TextInput
+                          value={doorComment}
+                          onChangeText={setDoorComment}
+                          accessibilityLabel={lt("Door comment", "Комментарий по двери", "הערה לדלת")}
+                          placeholder={lt("Comment for the office…", "Комментарий для офиса…", "הערה למשרד…")}
+                          placeholderTextColor={installerTheme.textFaint}
+                          multiline
+                          maxLength={1000}
+                          style={[styles.input, styles.textarea]}
+                        />
+                      <ActionButton
+                        label={lt("Confirm not installed", "Подтвердить: не установлено", "אישור: לא הותקנה")}
+                        icon="checkmark-circle-outline"
+                        variant="danger"
+                        loading={busy}
+                        disabled={!doorActionState?.canMarkNotInstalled}
+                        onPress={() => void handleNotInstalled()}
+                      />
+                      </View>
+                    ) : null}
+                  </>
+                )}
+                <ActionButton
+                  label={lt("Report issue for this door", "Сообщить о проблеме двери", "דיווח תקלה בדלת")}
+                  icon="alert-circle-outline"
+                  variant="danger"
+                  style={styles.reportButton}
+                  onPress={() =>
+                    router.push(`/issues?projectId=${encodeURIComponent(projectId)}&doorId=${encodeURIComponent(selectedDoor.id)}&compose=1` as never)
+                  }
+                />
+                <Text style={styles.updatedText}>
+                  {lt("Last local update", "Последнее локальное обновление", "עדכון מקומי אחרון")}: {formatDateTime(selectedDoor.updated_at)}
+                </Text>
+              </SectionCard>
+            </View>
           ) : null}
 
           <SectionCard>
@@ -951,12 +974,14 @@ export default function ProjectDetailsScreen() {
           <View style={styles.metrics}>
             <MetricTile
               label={lt("Today pay", "Заработок сегодня", "שכר היום")}
+              onPress={() => router.push(`/earnings?project_id=${encodeURIComponent(projectId)}&focus=TODAY` as never)}
               value={projectEarnings ? `${projectEarnings.todayTotal} ${projectEarnings.currency}` : "—"}
-              meta={lt("read-only backend calculation", "расчёт backend", "חישוב שרת")}
+              meta={lt("Accrued for this project", "Начислено по объекту", "נצבר בפרויקט")}
               tone="success"
             />
             <MetricTile
               label={lt("Month pay", "Заработок за месяц", "שכר חודשי")}
+              onPress={() => router.push(`/earnings?project_id=${encodeURIComponent(projectId)}&focus=MONTH` as never)}
               value={projectEarnings ? `${projectEarnings.monthTotal} ${projectEarnings.currency}` : "—"}
               meta={`${projectEarnings?.rows.length || 0} ${lt("work rows", "строк работ", "שורות עבודה")}`}
               tone="accent"
@@ -1133,10 +1158,10 @@ function DoorExplorerRow({
         ]}
       />
       <View style={[styles.doorThumb, { borderColor: colors.border, shadowColor: colors.text }]}>
-        <View style={[styles.doorThumbLeaf, { borderColor: colors.text }]}>
+        <LinearGradient colors={["#45566B", installerTheme.doorMaterial, "#111B26"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.8 }} style={[styles.doorThumbLeaf, { borderColor: colors.text }]}>
           <View style={styles.doorThumbInset} />
           <View style={[styles.doorThumbHandle, { backgroundColor: installerTheme.accent }]} />
-        </View>
+        </LinearGradient>
         <View style={[styles.doorThumbStatus, { backgroundColor: colors.text }]} />
       </View>
       <View style={styles.doorExplorerBody}>
@@ -1144,7 +1169,7 @@ function DoorExplorerRow({
         <Text style={styles.doorExplorerType} numberOfLines={1}>{typeLabel}</Text>
         <View style={styles.doorExplorerMetaRow}>
           <Ionicons
-            name={door.location_code?.toLowerCase().includes("mamad") ? "shield-checkmark-outline" : "flame-outline"}
+            name="location-outline"
             size={11}
             color={installerTheme.textFaint}
           />
@@ -1481,7 +1506,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: installerTheme.border,
   },
-  doorExplorerRowSelected: { backgroundColor: installerTheme.primarySoft },
+  doorExplorerRowSelected: { backgroundColor: installerTheme.primarySoft, borderColor: installerTheme.infoBorder },
   doorExplorerAccent: {
     position: "absolute",
     top: 10,
@@ -1523,10 +1548,10 @@ const styles = StyleSheet.create({
   doorThumbHandle: { position: "absolute", end: 3, top: 19, width: 3, height: 3, borderRadius: 2 },
   doorThumbStatus: { position: "absolute", start: 0, end: 0, bottom: 0, height: 3 },
   doorExplorerBody: { flex: 1, minWidth: 0 },
-  doorExplorerNumber: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyDisplay, fontSize: 12, lineHeight: 15 },
-  doorExplorerType: { color: installerTheme.textMuted, fontSize: 9, marginTop: 3 },
+  doorExplorerNumber: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyDisplay, fontSize: 13, lineHeight: 18 },
+  doorExplorerType: { color: installerTheme.textMuted, fontSize: 11, marginTop: 3 },
   doorExplorerMetaRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 5 },
-  doorExplorerMeta: { flex: 1, color: installerTheme.textFaint, fontFamily: installerTheme.fontFamilyMono, fontSize: 8 },
+  doorExplorerMeta: { flex: 1, color: installerTheme.textMuted, fontFamily: installerTheme.fontFamilyMono, fontSize: 10 },
   doorExplorerState: { maxWidth: 102, alignItems: "flex-end", gap: 7 },
   floorProgressTrack: { flex: 1, minWidth: 0, height: 5, overflow: "hidden", borderRadius: installerTheme.radius.pill, backgroundColor: installerTheme.border },
   floorProgressFill: { height: "100%", borderRadius: installerTheme.radius.pill },
@@ -1595,7 +1620,7 @@ const styles = StyleSheet.create({
     shadowRadius: 11,
     shadowOffset: { width: 0, height: 4 },
   },
-  doorTilePressed: { transform: [{ translateY: 1 }, { scale: 0.98 }], opacity: 0.82 },
+  doorTilePressed: { opacity: 0.94 },
   doorSequenceRow: { width: 54, minHeight: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
   doorSequence: { color: installerTheme.textFaint, fontFamily: installerTheme.fontFamilyMono, fontSize: 7 },
   selectedBeacon: {

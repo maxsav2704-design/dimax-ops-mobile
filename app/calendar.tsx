@@ -1,7 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StatusBar, StyleSheet, View } from "react-native";
+import { ScrollView, StatusBar, StyleSheet, View } from "react-native";
+import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
 import {

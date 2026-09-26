@@ -1,3 +1,4 @@
+import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
@@ -6,7 +7,6 @@ import {
   KeyboardAvoidingView,
   Image,
   Platform,
-  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
