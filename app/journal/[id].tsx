@@ -30,7 +30,7 @@ import {
   openSignedJournalPdf,
   refreshInstallerJournal,
 } from "@/modules/journal/service";
-import type { JournalDeliveryStatus } from "@/modules/journal/types";
+import type { JournalDeliveryStatus, JournalStatus } from "@/modules/journal/types";
 import { useJournalResource } from "@/modules/journal/use-journal-resource";
 import { buildProjectRoute } from "@/modules/projects/navigation";
 import { useAuth, useI18n } from "@/providers/AppProviders";
@@ -47,8 +47,8 @@ export default function JournalDetailsScreen() {
   const loading = resource.loading;
   const [operation, setOperation] = useState<{ key: string; kind: "refresh" | "submit" | "open" | "pdf"; token: symbol } | null>(null);
   const busy = operation?.key === scope ? operation.kind : null;
-  const [notice, setNotice] = useState<{ key: string; text: string } | null>(null);
-  const [error, setError] = useState<{ key: string; text: string } | null>(null);
+  const [notice, setNotice] = useState<{ key: string; status: JournalStatus; text: string } | null>(null);
+  const [error, setError] = useState<{ key: string; status: JournalStatus; text: string } | null>(null);
   const [confirmation, setConfirmation] = useState<string | null>(null);
   const [visibleWorks, setVisibleWorks] = useState(30);
   const online = resource.result?.source === "online";
@@ -105,11 +105,11 @@ export default function JournalDetailsScreen() {
       await action();
     } catch {
       if (resource.isCurrent()) setConfirmation(null);
-      if (resource.isCurrent()) setError({ key: scope, text: kind === "pdf" || kind === "open"
+      if (resource.isCurrent()) setError({ key: scope, status: journal.status, text: kind === "pdf" || kind === "open"
         ? lt("Could not open the document. Check your connection and try again.", "Не удалось открыть документ. Проверьте подключение и повторите попытку.", "לא ניתן לפתוח את המסמך. בדקו את החיבור ונסו שוב.")
         : lt("Action not confirmed. Refresh the document before trying again.", "Действие не подтверждено. Обновите акт перед повторной попыткой.", "הפעולה לא אושרה. יש לרענן את המסמך לפני ניסיון נוסף.") });
     } finally {
-      resource.locked.current = false;
+      resource.release();
       setOperation((current) => current?.token === token ? null : current);
     }
   };
@@ -120,7 +120,7 @@ export default function JournalDetailsScreen() {
       const updated = await refreshInstallerJournal(id);
       if (!resource.isCurrent()) return;
       resource.replace({ data: updated, source: "online", message: null });
-      setNotice({ key: scope, text: lt(
+      setNotice({ key: scope, status: updated.status, text: lt(
           "Completed work snapshot updated.",
           "Снимок завершённых работ обновлён.",
           "תמונת העבודות שהושלמו עודכנה.",
@@ -135,13 +135,13 @@ export default function JournalDetailsScreen() {
       // The successful transition is authoritative, even if a following GET would be offline.
       resource.replace({ data: { ...journal, status: "ACTIVE", can_submit: false, ...response }, source: "online", message: null });
       setConfirmation(null);
-      setNotice({ key: scope, text: lt(
+      setNotice({ key: scope, status: "ACTIVE", text: lt(
           "Document is ready for the developer's signature.",
           "Акт готов к подписи застройщика. Ссылка создана.",
           "המסמך מוכן לחתימת היזם.",
         ) });
       try { await openJournalUrl(response.signing_url); }
-      catch { if (resource.isCurrent()) setError({ key: scope, text: lt("The link is ready but did not open. Use Open signing page.", "Ссылка готова, но не открылась. Нажмите «Открыть страницу подписи».", "הקישור מוכן אך לא נפתח. השתמשו בפתיחת דף החתימה.") }); }
+      catch { if (resource.isCurrent()) setError({ key: scope, status: "ACTIVE", text: lt("The link is ready but did not open. Use Open signing page.", "Ссылка готова, но не открылась. Нажмите «Открыть страницу подписи».", "הקישור מוכן אך לא נפתח. השתמשו בפתיחת דף החתימה.") }); }
     });
 
   if (!journal) {
@@ -342,8 +342,8 @@ export default function JournalDetailsScreen() {
         ) : null}
 
         <SectionCard style={styles.actionCard}>
-          {notice?.key === scope && <Text accessibilityLiveRegion="polite" style={styles.actionNotice}>{notice.text}</Text>}
-          {error?.key === scope && <Text accessibilityRole="alert" style={[styles.actionNotice, styles.errorNotice]}>{error.text}</Text>}
+          {notice?.key === scope && notice.status === journal.status && <Text accessibilityLiveRegion="polite" style={styles.actionNotice}>{notice.text}</Text>}
+          {error?.key === scope && error.status === journal.status && <Text accessibilityRole="alert" style={[styles.actionNotice, styles.errorNotice]}>{error.text}</Text>}
           {journal?.status === "DRAFT" ? (
             <>
               <ActionButton

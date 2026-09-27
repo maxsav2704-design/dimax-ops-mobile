@@ -5,14 +5,14 @@ import { journalFixture as journal } from "./test-fixtures";
 import type { InstallerJournalDetails } from "./types";
 
 const mocks = vi.hoisted(() => ({
-  focused: true, syncVersion: 0, locale: "en", params: { id: "journal-a" } as { id?: string },
+  focused: true, syncVersion: 0, locale: "en", appState: "active", params: { id: "journal-a" } as { id?: string },
   user: { id: "installer-a", company_id: "company-a" }, resume: new Set<(state: string) => void>(),
   load: vi.fn(), workspace: vi.fn(), prepare: vi.fn(), refresh: vi.fn(), ready: vi.fn(), open: vi.fn(), pdf: vi.fn(),
   push: vi.fn(), replace: vi.fn(), back: vi.fn(),
 }));
 vi.mock("react-native", async () => ({
   ...await (await vi.importActual<typeof import("@/test/native-ui")>("@/test/native-ui")).createNativeUiMock(),
-  AppState: { addEventListener: (_name: string, listener: (state: string) => void) => {
+  AppState: { get currentState() { return mocks.appState; }, addEventListener: (_name: string, listener: (state: string) => void) => {
     mocks.resume.add(listener); return { remove: () => mocks.resume.delete(listener) };
   } },
 }));
@@ -47,11 +47,20 @@ const modal = () => tree.root.findByType("modal" as never);
 const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; };
 async function mount(screen = JournalDetailsScreen) { Screen = screen; await act(async () => { tree = create(React.createElement(Screen)); }); }
 async function update() { await act(async () => tree.update(React.createElement(Screen))); }
+async function appState(state: string) {
+  mocks.appState = state;
+  await act(async () => mocks.resume.forEach((listener) => listener(state)));
+}
 const signingLink = { signing_url: "https://example.test/acceptance/test", public_token_expires_at: "2026-10-01T12:00:00Z" };
+const activeJournal: InstallerJournalDetails = { ...journal, status: "ACTIVE", can_submit: false, ...signingLink };
+const signedJournal: InstallerJournalDetails = {
+  ...journal, status: "ARCHIVED", can_submit: false, signer_name: "QA developer",
+  signed_at: "2026-09-27T12:00:00Z", email_delivery_status: "PENDING",
+};
 
 beforeEach(() => {
   vi.resetAllMocks(); vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-09-27T12:00:00Z"));
-  mocks.focused = true; mocks.syncVersion = 0; mocks.locale = "en"; mocks.params = { id: journal.id };
+  mocks.focused = true; mocks.syncVersion = 0; mocks.locale = "en"; mocks.appState = "active"; mocks.params = { id: journal.id };
   mocks.resume.clear(); mocks.user = { id: "installer-a", company_id: "company-a" };
   mocks.load.mockResolvedValue(view()); mocks.prepare.mockResolvedValue(journal); mocks.refresh.mockResolvedValue(journal);
   mocks.ready.mockResolvedValue(signingLink); mocks.open.mockResolvedValue(undefined); mocks.pdf.mockResolvedValue(undefined);
@@ -126,6 +135,110 @@ describe("journal document screen", () => {
     await act(async () => mocks.resume.forEach((listener) => listener("active"))); expect(text()).toContain("Signed");
     mocks.syncVersion += 1; await update(); expect(mocks.load).toHaveBeenCalledTimes(3);
   });
+  it("replays a browser-return read after the signing action unlocks", async () => {
+    const opening = deferred<void>(); mocks.open.mockReturnValue(opening.promise);
+    await mount(); await press("Send for developer signature"); await press("Create signing link");
+    await appState("background"); mocks.load.mockResolvedValue(view(signedJournal)); await appState("active");
+    expect(mocks.load).toHaveBeenCalledTimes(1);
+    await act(async () => opening.resolve());
+    expect(mocks.load).toHaveBeenCalledTimes(2); expect(text()).toContain("Signed");
+    expect(text()).not.toContain("Document is ready for the developer's signature.");
+    expect(text()).toContain("sending"); expect(target("Open signed PDF").props.disabled).toBe(false);
+    expect(mocks.ready).toHaveBeenCalledTimes(1);
+  });
+  it("coalesces sync updates received while opening the signing page", async () => {
+    const opening = deferred<void>(); mocks.open.mockReturnValue(opening.promise);
+    mocks.load.mockResolvedValue(view(activeJournal)); await mount(); await press("Open signing page");
+    mocks.load.mockResolvedValue(view(signedJournal));
+    mocks.syncVersion += 1; await update(); mocks.syncVersion += 1; await update();
+    expect(mocks.load).toHaveBeenCalledTimes(1);
+    await act(async () => opening.resolve());
+    expect(mocks.load).toHaveBeenCalledTimes(2); expect(text()).toContain("QA developer");
+  });
+  it("waits for the foreground before reading after a background sync", async () => {
+    mocks.load.mockResolvedValue(view(activeJournal)); await mount(); await appState("background");
+    mocks.load.mockResolvedValue(view(signedJournal)); mocks.syncVersion += 1; await update();
+    expect(mocks.load).toHaveBeenCalledTimes(1); expect(text()).not.toContain("QA developer");
+    await appState("active"); expect(mocks.load).toHaveBeenCalledTimes(2); expect(text()).toContain("QA developer");
+  });
+  it("does not apply a response that completed behind the external browser", async () => {
+    mocks.load.mockResolvedValue(view(activeJournal)); await mount();
+    const reading = deferred<ReturnType<typeof view>>(); mocks.load.mockReturnValueOnce(reading.promise);
+    await press("Check status"); await appState("background");
+    await act(async () => reading.resolve(view(signedJournal)));
+    expect(text()).not.toContain("QA developer");
+    mocks.load.mockResolvedValue(view(signedJournal)); await appState("active");
+    expect(text()).toContain("QA developer");
+  });
+  it("keeps an offline return read-only and shows delivered only after an online sync", async () => {
+    mocks.load.mockResolvedValue(view(activeJournal)); await mount(); await appState("background");
+    mocks.load.mockResolvedValue(view(activeJournal, "cache")); await appState("active");
+    expect(text()).toContain("Saved copy"); expect(text()).not.toContain("QA developer");
+    expect(target("Open signing page").props.disabled).toBe(true);
+    mocks.load.mockResolvedValue(view({ ...signedJournal, email_delivery_status: "DELIVERED" }));
+    mocks.syncVersion += 1; await update();
+    expect(text()).not.toContain("Saved copy"); expect(text()).toContain("QA developer");
+    expect(target("Open signed PDF").props.disabled).toBe(false);
+    expect(mocks.ready).not.toHaveBeenCalled(); expect(mocks.pdf).not.toHaveBeenCalled();
+  });
+  it("discards a queued browser-return read when the account changes", async () => {
+    const opening = deferred<void>(); mocks.open.mockReturnValue(opening.promise);
+    mocks.load.mockResolvedValue(view(activeJournal)); await mount(); await press("Open signing page");
+    await appState("background"); await appState("active");
+    mocks.user = { id: "installer-b", company_id: "company-b" };
+    mocks.load.mockResolvedValue(view({ ...journal, project_name: "New account project" })); await update();
+    expect(mocks.load).toHaveBeenCalledTimes(2);
+    await act(async () => opening.resolve());
+    expect(mocks.load).toHaveBeenCalledTimes(2); expect(text()).toContain("New account project");
+    expect(text()).not.toContain("Awaiting signature");
+  });
+  it("discards deferred return work after leaving the document screen", async () => {
+    const opening = deferred<void>(); mocks.open.mockReturnValue(opening.promise);
+    mocks.load.mockResolvedValue(view(activeJournal)); await mount(); await press("Open signing page");
+    await appState("background"); await appState("active");
+    mocks.focused = false; await update(); expect(mocks.resume.size).toBe(0);
+    await act(async () => opening.resolve()); expect(mocks.load).toHaveBeenCalledTimes(1);
+    mocks.load.mockResolvedValue(view(signedJournal)); mocks.focused = true; await update();
+    expect(mocks.load).toHaveBeenCalledTimes(2); expect(text()).toContain("QA developer");
+  });
+  it("removes the previous act when access is denied on return", async () => {
+    mocks.load.mockResolvedValue(view(activeJournal)); await mount(); await appState("background");
+    mocks.load.mockRejectedValue(new Error("Access revoked")); await appState("active");
+    expect(text()).toContain("Document unavailable"); expect(text()).not.toContain(journal.project_name);
+    expect(target("Open signing page")).toBeUndefined(); expect(target("Retry")).toBeDefined();
+  });
+  it("defers a first read when mounted behind the external browser", async () => {
+    mocks.appState = "background"; await mount();
+    expect(mocks.load).not.toHaveBeenCalled(); expect(text()).toContain("Loading document");
+    await appState("active"); expect(mocks.load).toHaveBeenCalledTimes(1);
+  });
+  it("does not drain a queued refresh while the application is backgrounded again", async () => {
+    const opening = deferred<void>(); mocks.open.mockReturnValue(opening.promise);
+    mocks.load.mockResolvedValue(view(activeJournal)); await mount(); await press("Open signing page");
+    await appState("background"); await appState("active"); await appState("background");
+    mocks.load.mockResolvedValue(view(signedJournal)); await act(async () => opening.resolve());
+    expect(mocks.load).toHaveBeenCalledTimes(1);
+    await appState("active"); expect(mocks.load).toHaveBeenCalledTimes(2);
+    expect(text()).toContain("QA developer");
+  });
+  it("removes obsolete link-opening guidance when the document is signed elsewhere", async () => {
+    mocks.open.mockRejectedValue(new Error("No browser")); await mount();
+    await press("Send for developer signature"); await press("Create signing link");
+    expect(text()).toContain("link is ready but did not open");
+    mocks.load.mockResolvedValue(view(signedJournal)); await press("Check status");
+    expect(text()).not.toContain("link is ready but did not open");
+    expect(text()).not.toContain("Document is ready for the developer's signature.");
+    expect(target("Open signed PDF")).toBeDefined();
+  });
+  it("preserves the signature and shows actual delivery failure after returning from PDF", async () => {
+    const opening = deferred<void>(); mocks.pdf.mockReturnValue(opening.promise);
+    mocks.load.mockResolvedValue(view(signedJournal)); await mount(); await press("Open signed PDF");
+    await appState("background");
+    mocks.load.mockResolvedValue(view({ ...signedJournal, email_delivery_status: "FAILED" }));
+    await appState("active"); await act(async () => opening.resolve());
+    expect(text()).toContain("QA developer"); expect(text()).toContain("signed document is preserved");
+    expect(mocks.pdf).toHaveBeenCalledTimes(1); expect(mocks.ready).not.toHaveBeenCalled();
+  });
   it("ignores old reads and hides a previous account and its confirmation", async () => {
     await mount(); await press("Send for developer signature");
     const pending = deferred<ReturnType<typeof view>>(); mocks.load.mockReturnValueOnce(pending.promise);
@@ -179,5 +292,19 @@ describe("journal project list screen", () => {
     await mount(JournalScreen); mocks.focused = false; await update(); mocks.focused = true; await update();
     expect(mocks.workspace).toHaveBeenCalledTimes(2);
     mocks.workspace.mockReturnValue(new Promise(() => {})); mocks.user = { id: "other", company_id: "other" }; await update(); expect(text()).not.toContain(journal.project_name);
+  });
+  it("moves a signed document out of the signature filter and updates delivery without another act", async () => {
+    const workspace = (document: InstallerJournalDetails) => ({
+      data: { projects: [], journals: [document], localUnavailable: false }, source: "online", message: null,
+    });
+    mocks.workspace.mockResolvedValue(workspace(activeJournal)); await mount(JournalScreen); await press("Signature");
+    expect(byId(`journal-document-${journal.id}`)).toBeDefined();
+    await appState("background"); mocks.workspace.mockResolvedValue(workspace(signedJournal)); await appState("active");
+    expect(byId(`journal-document-${journal.id}`)).toBeUndefined(); expect(text()).toContain("No documents in this filter");
+    await press("Archive"); expect(text()).toContain("email not yet confirmed");
+    mocks.workspace.mockResolvedValue(workspace({ ...signedJournal, email_delivery_status: "DELIVERED" }));
+    mocks.syncVersion += 1; await update();
+    expect(text()).toContain("PDF sent by email"); expect(text()).not.toContain("email not yet confirmed");
+    expect(mocks.prepare).not.toHaveBeenCalled();
   });
 });

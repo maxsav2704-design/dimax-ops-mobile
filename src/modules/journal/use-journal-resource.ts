@@ -9,12 +9,19 @@ export function useJournalResource<T>(key: string, syncVersion: number, load: ()
   const [pending, setPending] = useState(false);
   const revision = useRef(0);
   const active = useRef(false);
+  const foreground = useRef(AppState.currentState == null || AppState.currentState === "active");
   const currentKey = useRef(key);
   currentKey.current = key;
-  const locked = useMemo(() => ({ current: false }), [key]);
+  const locked = useMemo(() => ({ current: false, refreshPending: false }), [key]);
 
   const reload = useCallback(async () => {
-    if (locked.current) return;
+    if (!active.current || currentKey.current !== key || !foreground.current) return;
+    if (locked.current) {
+      // Returning from the signing browser can race the link-opening promise.
+      locked.refreshPending = true;
+      return;
+    }
+    locked.refreshPending = false;
     const request = ++revision.current;
     setPending(true);
     try {
@@ -29,9 +36,15 @@ export function useJournalResource<T>(key: string, syncVersion: number, load: ()
 
   useFocusEffect(useCallback(() => {
     active.current = true;
+    foreground.current = AppState.currentState == null || AppState.currentState === "active";
     void reload();
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void reload();
+      foreground.current = state === "active";
+      if (foreground.current) void reload();
+      else {
+        revision.current += 1;
+        setPending(false);
+      }
     });
     return () => { active.current = false; revision.current += 1; subscription.remove(); };
   }, [reload, syncVersion]));
@@ -42,12 +55,18 @@ export function useJournalResource<T>(key: string, syncVersion: number, load: ()
     setStored({ key, result, failed: false });
   };
   const invalidateRead = () => { revision.current += 1; setPending(false); };
+  const release = () => {
+    const refreshPending = locked.refreshPending;
+    locked.current = false;
+    locked.refreshPending = false;
+    if (refreshPending) void reload();
+  };
   const valid = stored?.key === key;
   return {
     result: valid ? stored.result : null,
     failed: valid && stored.failed,
     loading: pending || !valid,
-    reload, replace, invalidateRead, locked,
+    reload, replace, invalidateRead, locked, release,
     isCurrent: () => active.current && currentKey.current === key,
   };
 }

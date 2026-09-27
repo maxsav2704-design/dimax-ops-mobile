@@ -50,7 +50,7 @@ export default function JournalScreen() {
     } catch {
       if (resource.isCurrent()) setFailure(scope);
     } finally {
-      resource.locked.current = false;
+      resource.release();
       setBusy((current) => current?.token === token ? null : current);
     }
   };

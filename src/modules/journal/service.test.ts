@@ -244,4 +244,36 @@ describe("installer journal service", () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
     expect(saveJournalSnapshotMock).toHaveBeenCalledWith({ ...journal, ...link, status: "ACTIVE", can_submit: false });
   });
+
+  it("reconciles signing and delivery after offline returns without issuing any mutation", async () => {
+    const active: InstallerJournalDetails = { ...journal, status: "ACTIVE", can_submit: false };
+    const signed: InstallerJournalDetails = {
+      ...active, status: "ARCHIVED", signer_name: "QA signer",
+      signed_at: "2026-09-27T12:00:00Z", email_delivery_status: "PENDING",
+    };
+    let cached: InstallerJournalDetails | null = null;
+    saveJournalSnapshotMock.mockImplementation(async (value: InstallerJournalDetails) => { cached = value; });
+    getJournalSnapshotMock.mockImplementation(async () => cached);
+    apiFetchMock.mockResolvedValueOnce(active)
+      .mockRejectedValueOnce(new NetworkError("offline on browser return"))
+      .mockResolvedValueOnce(signed)
+      .mockRejectedValueOnce(new NetworkError("offline before email confirmation"))
+      .mockResolvedValueOnce({ ...signed, email_delivery_status: "DELIVERED" });
+
+    expect((await loadInstallerJournal(journal.id)).data.status).toBe("ACTIVE");
+    const offlineReturn = await loadInstallerJournal(journal.id);
+    expect(offlineReturn.source).toBe("cache"); expect(offlineReturn.data.status).toBe("ACTIVE");
+    const onlineReturn = await loadInstallerJournal(journal.id);
+    expect(onlineReturn.source).toBe("online"); expect(onlineReturn.data.status).toBe("ARCHIVED");
+    const offlineDelivery = await loadInstallerJournal(journal.id);
+    expect(offlineDelivery.source).toBe("cache"); expect(offlineDelivery.data.email_delivery_status).toBe("PENDING");
+    const delivered = await loadInstallerJournal(journal.id);
+    expect(delivered.source).toBe("online"); expect(delivered.data.email_delivery_status).toBe("DELIVERED");
+    expect(cached).toEqual(delivered.data); expect(saveJournalSnapshotMock).toHaveBeenCalledTimes(3);
+    for (const [path, options] of apiFetchMock.mock.calls) {
+      expect(path).toBe("/api/v1/installer/journals/journal-1");
+      expect(options).toEqual({ expectedAuthGeneration: 0 });
+    }
+    expect(openUrlMock).not.toHaveBeenCalled();
+  });
 });
