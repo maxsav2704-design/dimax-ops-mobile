@@ -1,5 +1,6 @@
 import type { InstallerCalendarEvent, InstallerCalendarViewModel } from "../src/modules/calendar/types";
 import { addLocalDays, formatLocalDateKey } from "../src/lib/date-key";
+import { getHomePreviewMode } from "./home-fixtures";
 
 let source: InstallerCalendarViewModel["source"] = "online";
 export function setCalendarPreviewSource(value: InstallerCalendarViewModel["source"]) { source = value; }
@@ -22,6 +23,6 @@ export async function loadInstallerCalendar(_rangeKey: string, anchorDay?: strin
   }));
   return {
     source: requestedSource, message: requestedSource === "cache" ? "TEST: offline" : null,
-    snapshot: { range_key: "7d", starts_at: new Date(`${day}T00:00:00`).toISOString(), ends_at: addLocalDays(new Date(`${day}T00:00:00`), 7).toISOString(), generated_at: new Date().toISOString(), items },
+    snapshot: { range_key: "7d", starts_at: new Date(`${day}T00:00:00`).toISOString(), ends_at: addLocalDays(new Date(`${day}T00:00:00`), 7).toISOString(), generated_at: new Date().toISOString(), items: window.location.pathname.endsWith("/home.html") && getHomePreviewMode() === "empty" ? [] : items },
   };
 }

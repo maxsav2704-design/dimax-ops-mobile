@@ -186,3 +186,33 @@ and security/configuration contracts passed. Android Hermes export passed with
 its resolved path. No APK was installed; native accessibility, real signing/PDF
 launch, admin-to-phone reconciliation and actual email delivery remain device and
 integration acceptance tasks. Changes are local commits only, not a GitHub push.
+
+## September 27 home / assigned projects visual hierarchy
+
+Open `/home.html` for the actual home screen, with three isolated projects,
+mixed door progress, one open issue, a completed project and long labels.
+Online, Cached, No data and Empty are memory-only scenarios. The actual locale
+switcher selects RU/EN/HE. Routes are displayed as test destinations; external
+navigation deliberately fails. No API, SQLite, account or wage data is accessed.
+
+The screen separates Today from Projects and retains expandable overall progress.
+Project names and addresses wrap; status and issue indicators no longer compete
+with the heading. Search and remaining-work / issue filters use assigned projects.
+The whole card opens its doors; Issues opens the project's issue list. Existing
+press feedback and reduced-motion-aware transitions are retained.
+
+Loading/unavailable assignments are not displayed as zero work or successful sync.
+Focus and background-sync refreshes mask previous accounts and ignore stale replies.
+Normal refresh is incremental; assignment recovery still protects unsent work
+before cold resync. A same-frame action lock prevents duplicate sync requests.
+The unused earnings fetch was removed, not the separate earnings feature.
+Project lifecycle statuses are translated; Hebrew progress uses an unambiguous
+installed-out-of-total phrase instead of a bidi-sensitive fraction.
+
+Verified actual-screen controls, loading/failure/empty/cache states, and layout in
+RU/EN/HE at measured mobile widths of 322 and 393 CSS px. No page-width overflow
+or browser console errors were observed. The existing project preview still loads.
+Final quality gate: 629 tests in 44 files, TypeScript, Expo configuration and
+security/configuration checks passed. Android Hermes export: 1165 modules,
+35 assets, exit 0. Temporary `.tmp/home-visual-bundle` (4,978,323 bytes) was removed
+after path and reparse-point checks. No APK or phone acceptance was performed.

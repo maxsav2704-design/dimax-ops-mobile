@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isRtlLocale, t, translations } from "@/lib/i18n";
+import { isRtlLocale, t, translateEnum, translations } from "@/lib/i18n";
 
 const localeIndependentKeys = new Set(["locale.en", "locale.ru", "locale.he"]);
 
@@ -8,6 +8,15 @@ function placeholders(value: string): string[] {
 }
 
 describe("mobile i18n", () => {
+  it.each([
+    ["PLANNED", "Planned", "Запланирован", "מתוכנן"],
+    ["ON_HOLD", "On hold", "Приостановлен", "בהשהיה"],
+    ["COMPLETED", "Completed", "Завершён", "הושלם"],
+  ])("translates the project lifecycle status %s", (value, en, ru, he) => {
+    expect(translateEnum("en", value)).toBe(en);
+    expect(translateEnum("ru", value)).toBe(ru);
+    expect(translateEnum("he", value)).toBe(he);
+  });
   it("translates login title for ru and he", () => {
     expect(t("ru", "title.login")).toBe("DIMAX Монтажник");
     expect(t("he", "title.login")).toBe("DIMAX מתקין");

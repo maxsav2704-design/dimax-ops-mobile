@@ -1,11 +1,17 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import type { LocalProjectWorkspace } from "../src/modules/projects/local-workspace";
+import { t, type MobileLocale, type MobileTranslationKey } from "../src/lib/i18n";
+import { syncHomePreview } from "./home-fixtures";
+export { forceColdResync, getLastSyncAt, getSyncQueueSummary, canUseProjectCacheAfterSyncFailure } from "./home-fixtures";
 
 // Aliased only by the Vite preview. No authentication, network or SQLite access.
 const LocaleContext = createContext("ru");
 export const PreviewLocaleProvider = LocaleContext.Provider;
-export const useI18n = () => ({ locale: useContext(LocaleContext) });
-export const useAuth = () => ({ syncVersion: 0 });
+export const useI18n = () => {
+  const locale = useContext(LocaleContext) as MobileLocale;
+  return { locale, t: (key: MobileTranslationKey) => t(locale, key), setLocale: (value: MobileLocale) => window.dispatchEvent(new CustomEvent("preview-locale", { detail: value })) };
+};
+export const useAuth = () => ({ syncVersion: 0, user: { id: "preview-installer", company_id: "preview-company", full_name: "Demo Installer" } });
 export const useLocalSearchParams = () => {
   const params = new URLSearchParams(window.location.search);
   const journalId = window.location.pathname.endsWith("/journal.html") ? window.location.hash.match(/^#\/journal\/([^?]+)/)?.[1] : undefined;
@@ -83,6 +89,7 @@ export async function addAddonFact(projectId: string, addonTypeId: string, qtyDo
   workspace.addonFacts.push({ id: `local:${workspace.pendingEvents.length}`, project_id: projectId, addon_type_id: addonTypeId, addon_name: "Adjustment", unit: "pcs", qty_done: qtyDone, comment, done_at: new Date().toISOString(), source: "OFFLINE", updated_at: null });
 }
 export async function runSync() {
+  if (window.location.pathname.endsWith("/home.html")) return syncHomePreview();
   await new Promise((resolve) => setTimeout(resolve, 450));
   workspace.pendingEvents = [];
   workspace.queueSummary = { total: 0, pending: 0, failed: 0, blocked: 0, ready_to_send: 0, next_retry_at: null };
