@@ -43,8 +43,9 @@ export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
   resolve: {
     alias: [
+      { find: "@/modules/earnings/service", replacement: fileURLToPath(new URL("./earnings-fixtures.ts", import.meta.url)) },
       { find: "@/modules/calendar/service", replacement: fileURLToPath(new URL("./calendar-fixtures.ts", import.meta.url)) },
-      ...["expo-router", "@/providers/AppProviders", "@/components/installer-ui", "@/modules/projects/local-workspace", "@/modules/projects/service", "@/modules/projects/external-actions", "@/modules/doors/actions", "@/modules/earnings/service", "@/modules/sync/service"].map((find) => ({ find, replacement: projectFixtures })),
+      ...["expo-router", "@/providers/AppProviders", "@/components/installer-ui", "@/modules/projects/local-workspace", "@/modules/projects/service", "@/modules/projects/external-actions", "@/modules/doors/actions", "@/modules/sync/service"].map((find) => ({ find, replacement: projectFixtures })),
       { find: /^react-native$/, replacement: "react-native-web" },
       { find: /^react-native-svg$/, replacement: fileURLToPath(new URL("../node_modules/react-native-svg/lib/module/elements.web.js", import.meta.url)) },
       { find: "@", replacement: fileURLToPath(new URL("../src", import.meta.url)) },

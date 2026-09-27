@@ -99,3 +99,30 @@ date, navigation and cache regression coverage. `npm run quality-gate` and the
 Android export passed. The temporary `.tmp/calendar-workflow-bundle` output
 (4.71 MiB) was removed. No APK was installed; no phone acceptance was performed.
 No backend schema, assignment, payroll or public API contract was changed.
+
+## September 27 earnings workflow
+
+Open `/earnings.html` for the actual earnings screen with 35 isolated ledger rows,
+including a negative adjustment and fractional additional work. The Online,
+Cached and No data switches never contact the backend. Navigation destinations
+are displayed instead of opening account screens. The project preview keeps its
+previous unavailable-earnings fixture. No preview route is shipped in the app.
+
+Verified in RU/EN/HE at browser CSS widths of 322 and 393 px: readable amounts,
+localized fractional quantities, expandable/collapsible projects, access beyond
+the first 30 rows, work detail modals, negative amounts, offline indicators,
+project/calendar navigation and absence of horizontal page overflow. The Hebrew
+modal uses RTL layout. No actual account, completed work, pay or payout was edited.
+
+Loading/unavailable data is no longer presented as zero earnings. Focus and sync
+refreshes ignore stale replies, hide a previous account/month immediately and
+protect the offline calculation from out-of-order writes. Nested API/cache rows,
+dates, amounts, duplicate work IDs and the requested period are validated before
+display. Aggregation uses exact hundredths from the server's decimal values; it
+does not recompute wages from rates or change the server's payroll rules.
+
+Full mobile quality gate: 535 tests in 39 files, including 17 actual-screen tests,
+passed along with TypeScript and the configuration checks. Android export passed;
+the temporary `.tmp/earnings-workflow-bundle` output (4.72 MiB) was removed.
+No APK was installed. Native scrolling, accessibility focus, device performance
+and live admin-to-phone reconciliation still require device acceptance.

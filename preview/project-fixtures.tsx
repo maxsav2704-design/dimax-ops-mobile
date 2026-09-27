@@ -6,7 +6,10 @@ const LocaleContext = createContext("ru");
 export const PreviewLocaleProvider = LocaleContext.Provider;
 export const useI18n = () => ({ locale: useContext(LocaleContext) });
 export const useAuth = () => ({ syncVersion: 0 });
-export const useLocalSearchParams = () => ({ id: "preview-project", day: new URLSearchParams(window.location.search).get("day") || undefined });
+export const useLocalSearchParams = () => {
+  const params = new URLSearchParams(window.location.search);
+  return { id: "preview-project", day: params.get("day") || undefined, focus: params.get("focus") || undefined, project_id: params.get("project_id") || undefined };
+};
 export const useFocusEffect = (effect: () => void | (() => void)) => useEffect(effect, [effect]);
 export const InstallerBottomNav = () => null;
 export function usePreviewDestination() {
@@ -20,6 +23,7 @@ export function usePreviewDestination() {
 }
 export const router = {
   push: (path: string) => { window.location.hash = path; },
+  replace: (path: string) => { window.location.hash = path; },
   back: () => { window.location.hash = "/projects"; },
 };
 export function createEmptyLocalProjectWorkspace(projectId = ""): LocalProjectWorkspace {
@@ -50,7 +54,6 @@ export const loadLocalProjectWorkspace = async () => structuredClone(workspace);
 export const canRefreshProjectDetails = (count: number) => count === 0;
 export const refreshProjectDetails = async () => undefined;
 export const isProjectAccessRevoked = () => false;
-export const loadInstallerEarnings = async () => ({ snapshot: null, source: "unavailable", message: null });
 export const buildProjectExternalActions = () => [];
 export const openProjectExternalAction = async () => { throw new Error("TEST: external navigation disabled in the isolated preview"); };
 async function save(type: "DOOR_SET_STATUS" | "ADDON_FACT_CREATE", payload: Record<string, unknown>) {
