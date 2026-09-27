@@ -21,6 +21,7 @@ import { currentLocalDateKey } from "@/lib/date-key";
 import { translateEnum } from "@/lib/i18n";
 import { installerTheme, toneColors } from "@/lib/theme";
 import { loadInstallerCalendar } from "@/modules/calendar/service";
+import { calendarEventDay, compareCalendarEvents } from "@/modules/calendar/presentation";
 import type { InstallerCalendarViewModel } from "@/modules/calendar/types";
 import { loadInstallerEarnings } from "@/modules/earnings/service";
 import type { InstallerEarningsViewModel } from "@/modules/earnings/types";
@@ -252,7 +253,7 @@ export default function ProjectsScreen() {
 
   const todayKey = currentLocalDateKey();
   const todayEvents = useMemo(
-    () => (calendar.snapshot?.items || []).filter((item) => item.starts_at.slice(0, 10) === todayKey),
+    () => (calendar.snapshot?.items || []).filter((item) => calendarEventDay(item) === todayKey).sort(compareCalendarEvents),
     [calendar.snapshot, todayKey]
   );
   const openIssues = useMemo(

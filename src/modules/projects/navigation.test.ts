@@ -63,7 +63,7 @@ describe("project navigation continuity", () => {
       ])
     ).toEqual({
       kind: "SCHEDULED_PROJECT",
-      route: "/project/project-service?issueStatus=OPEN&doorStatus=ALL&doorSearch=Door+A-401",
+      route: "/project/project-service",
     });
   });
 
@@ -81,11 +81,11 @@ describe("project navigation continuity", () => {
         project_id: "project-1",
         installer_ids: [],
       })
-    ).toBe("/project/project-1?issueStatus=OPEN&doorStatus=ALL&doorSearch=Door+12+blocked");
+    ).toBe("/issues?projectId=project-1");
   });
 
   it("builds prep route for non-service calendar actions", () => {
-    expect(buildDoorPrepRoute("project-2")).toBe("/project/project-2?doorStatus=NOT_INSTALLED");
+    expect(buildDoorPrepRoute("project-2")).toBe("/project/project-2?doorStatus=ALL");
   });
 
   it("builds priority routes with issue context when needed", () => {
@@ -95,7 +95,7 @@ describe("project navigation continuity", () => {
         eventType: "SERVICE",
         title: "Service follow-up",
       })
-    ).toBe("/project/project-3?issueStatus=OPEN&doorStatus=ALL&doorSearch=Service+follow-up");
+    ).toBe("/project/project-3?issueStatus=OPEN&doorStatus=ALL");
   });
 
   it("builds problem project routes with issue continuity", () => {
@@ -109,7 +109,7 @@ describe("project navigation continuity", () => {
         health_status: "BLOCKED",
         waze_url: null,
       })
-    ).toBe("/project/project-4?issueStatus=OPEN&doorStatus=ALL&doorSearch=Tower+A");
+    ).toBe("/project/project-4?issueStatus=OPEN&doorStatus=ALL");
   });
 
   it("returns basic project route for non-service events", () => {

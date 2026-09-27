@@ -1,4 +1,5 @@
 import type { InstallerCalendarEvent } from "@/modules/calendar/types";
+import { compareCalendarEvents } from "@/modules/calendar/presentation";
 import type { ProjectListItem } from "@/modules/projects/types";
 
 function buildProjectPath(projectId: string, params?: Record<string, string | undefined>) {
@@ -26,7 +27,7 @@ export function buildIssueProjectRoute(projectId: string, options?: { doorSearch
 
 export function buildDoorPrepRoute(projectId: string) {
   return buildProjectPath(projectId, {
-    doorStatus: "NOT_INSTALLED",
+    doorStatus: "ALL",
   });
 }
 
@@ -34,16 +35,13 @@ export function buildProjectRouteFromCalendarEvent(event: InstallerCalendarEvent
   if (!event.project_id) {
     return null;
   }
-  if (event.event_type.trim().toUpperCase() === "SERVICE") {
-    return buildIssueProjectRoute(event.project_id, { doorSearch: event.title });
-  }
   return buildProjectRoute(event.project_id);
 }
 
 export function buildDashboardPrimaryAction(events: InstallerCalendarEvent[]) {
   const nextAssignedEvent = [...events]
     .filter((event) => Boolean(event.project_id))
-    .sort((left, right) => left.starts_at.localeCompare(right.starts_at))[0];
+    .sort(compareCalendarEvents)[0];
   const route = nextAssignedEvent ? buildProjectRouteFromCalendarEvent(nextAssignedEvent) : null;
 
   return route
@@ -55,16 +53,16 @@ export function buildIssueRouteFromCalendarEvent(event: InstallerCalendarEvent) 
   if (!event.project_id) {
     return null;
   }
-  return buildIssueProjectRoute(event.project_id, { doorSearch: event.title });
+  return `/issues?projectId=${encodeURIComponent(event.project_id)}`;
 }
 
 export function buildPriorityRoute(priority: { projectId: string; eventType?: string; title?: string }) {
   if ((priority.eventType || "").trim().toUpperCase() === "SERVICE") {
-    return buildIssueProjectRoute(priority.projectId, { doorSearch: priority.title });
+    return buildIssueProjectRoute(priority.projectId);
   }
   return buildProjectRoute(priority.projectId);
 }
 
 export function buildProblemProjectRoute(project: ProjectListItem) {
-  return buildIssueProjectRoute(project.id, { doorSearch: project.name });
+  return buildIssueProjectRoute(project.id);
 }

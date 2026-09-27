@@ -77,6 +77,73 @@ describe("loadInstallerCalendar", () => {
     expect(endsAt.getDate()).toBe(18);
   });
 
+  it("loads and caches the day opened from earnings separately from this week's plan", async () => {
+    apiFetchMock.mockResolvedValue({ items: [] });
+    const result = await loadInstallerCalendar("7d", "2026-08-31");
+    const request = new URL(apiFetchMock.mock.calls[0][0], "https://mobile.local");
+    expect(new Date(request.searchParams.get("starts_at")!).getTime()).toBe(new Date(2026, 7, 31).getTime());
+    expect(new Date(request.searchParams.get("ends_at")!).getTime()).toBe(new Date(2026, 8, 7).getTime());
+    expect(result.snapshot?.range_key).toBe("7d:2026-08-31");
+    expect(saveCalendarSnapshotMock).toHaveBeenCalledWith(expect.objectContaining({ range_key: "7d:2026-08-31" }));
+  });
+
+  it("reads only the requested historical range when offline", async () => {
+    apiFetchMock.mockRejectedValue(new NetworkError("offline"));
+    await loadInstallerCalendar("7d", "2026-08-31");
+    expect(getCalendarSnapshotMock).toHaveBeenCalledExactlyOnceWith("7d:2026-08-31");
+  });
+
+  it("does not overwrite a newer offline snapshot with a late response", async () => {
+    let resolveOld!: (value: unknown) => void;
+    apiFetchMock.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve; }));
+    const oldRequest = loadInstallerCalendar();
+    apiFetchMock.mockResolvedValueOnce({ items: [] });
+    await loadInstallerCalendar();
+    resolveOld({ items: [] });
+    await oldRequest;
+    expect(saveCalendarSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps independent date ranges cacheable during concurrent requests", async () => {
+    let resolveOld!: (value: unknown) => void;
+    apiFetchMock.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve; }));
+    const oldRequest = loadInstallerCalendar("7d", "2026-08-31");
+    apiFetchMock.mockResolvedValueOnce({ items: [] });
+    await loadInstallerCalendar("7d", "2026-09-27");
+    resolveOld({ items: [] });
+    await oldRequest;
+    expect(saveCalendarSnapshotMock.mock.calls.map(([snapshot]) => snapshot.range_key)).toEqual(["7d:2026-09-27", "7d:2026-08-31"]);
+  });
+
+  it("can still save a valid response when a newer request failed", async () => {
+    let resolveOld!: (value: unknown) => void;
+    apiFetchMock.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve; }));
+    const oldRequest = loadInstallerCalendar();
+    apiFetchMock.mockRejectedValueOnce(new NetworkError("offline"));
+    expect((await loadInstallerCalendar()).source).toBe("unavailable");
+    resolveOld({ items: [] });
+    expect((await oldRequest).source).toBe("online");
+    expect(saveCalendarSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["invalid", "2026-09-27T09:00:00Z"],
+    ["2026-09-27T08:00:00Z", "invalid"],
+    ["2026-09-27T09:00:00Z", "2026-09-27T08:00:00Z"],
+    ["2026-09-27T09:00:00Z", "2026-09-27T09:00:00Z"],
+  ])("rejects invalid event times without saving a broken cache: %s, %s", async (starts_at, ends_at) => {
+    apiFetchMock.mockResolvedValue({ items: [{ id: "bad-time", title: "Visit", event_type: "installation", starts_at, ends_at, project_id: null, installer_ids: [], location: null, waze_url: null, description: null }] });
+    const result = await loadInstallerCalendar();
+    expect(result.source).toBe("unavailable");
+    expect(saveCalendarSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("does not render an old malformed cached timestamp", async () => {
+    apiFetchMock.mockRejectedValue(new NetworkError("offline"));
+    getCalendarSnapshotMock.mockResolvedValue({ range_key: "7d", starts_at: "2026-09-27T00:00:00Z", ends_at: "2026-10-04T00:00:00Z", generated_at: null, items: [{ id: "bad", title: "Visit", event_type: "installation", starts_at: "invalid", ends_at: "invalid", project_id: null, installer_ids: [], location: null, waze_url: null, description: null }] });
+    expect((await loadInstallerCalendar()).source).toBe("unavailable");
+  });
+
   it("keeps fresh calendar data when the offline snapshot cannot be saved", async () => {
     apiFetchMock.mockResolvedValue({ items: [] });
     saveCalendarSnapshotMock.mockRejectedValue(new Error("database is busy"));
