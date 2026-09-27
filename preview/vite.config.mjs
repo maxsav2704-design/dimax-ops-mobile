@@ -43,6 +43,8 @@ export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
   resolve: {
     alias: [
+      { find: "@/modules/journal/service", replacement: fileURLToPath(new URL("./journal-fixtures.ts", import.meta.url)) },
+      { find: "@/modules/journal/workspace", replacement: fileURLToPath(new URL("./journal-fixtures.ts", import.meta.url)) },
       { find: "@/modules/earnings/service", replacement: fileURLToPath(new URL("./earnings-fixtures.ts", import.meta.url)) },
       { find: "@/modules/calendar/service", replacement: fileURLToPath(new URL("./calendar-fixtures.ts", import.meta.url)) },
       ...["expo-router", "@/providers/AppProviders", "@/components/installer-ui", "@/modules/projects/local-workspace", "@/modules/projects/service", "@/modules/projects/external-actions", "@/modules/doors/actions", "@/modules/sync/service"].map((find) => ({ find, replacement: projectFixtures })),

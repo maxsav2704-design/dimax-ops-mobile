@@ -126,3 +126,44 @@ passed along with TypeScript and the configuration checks. Android export passed
 the temporary `.tmp/earnings-workflow-bundle` output (4.72 MiB) was removed.
 No APK was installed. Native scrolling, accessibility focus, device performance
 and live admin-to-phone reconciliation still require device acceptance.
+
+## September 27 journal workflow
+
+Open `/journal.html` for the actual mobile journal list and acceptance-document
+screen, with isolated draft, expired-link and signed/email-failure fixtures.
+Documents navigate between the two actual screens. Project navigation only shows
+the target route. Preparation and mark-ready update memory fixtures only; external
+signing and PDF launch deliberately fail. No API, SQLite, email or signature is
+used by this preview. The test controls and fixtures are not Expo routes.
+
+The project list now keeps every act instead of silently discarding all but one
+per project. Filters and counts refer to documents. Server documents remain visible
+when the local project list is unavailable. Loading, unavailable and cached states
+are distinguished. Local installed-door counts are not represented as signed work.
+
+Focus, sync and app-resume refresh the screens; stale replies and previous-account
+data are masked. Shared action locks prevent duplicate writes. A confirmation
+explains that mark-ready locks the snapshot and creates a signing link, not an
+email or a signature. A successful transition is retained if the browser cannot
+open. Expired links, PDF errors and failed email delivery have distinct guidance.
+Offline signing/PDF actions require an online refresh. Long work positions and
+recipients are no longer truncated, and all doors beyond the first 30 are reachable.
+
+API and cache payloads are validated before display. A complete online journal
+list removes revoked cached entries in a SQLite transaction; 403/404 reads never
+fall back to those documents. Conservative request sequencing prevents an older
+list/detail reply from overwriting newer cache state. Summary updates invalidate
+detail snapshots when status or work counts change. Outbox, payroll, server
+signature rules and public API/schema contracts are unchanged; no migration needed.
+
+Verified in RU/EN/HE at browser CSS widths of 322 and 393 px: filters, full work
+labels, document navigation, confirmation/cancellation, RTL dialog, unavailable
+and cached states, and visible PDF failure feedback. No page-width overflow or
+browser console errors were observed. The temporary viewport override was reset.
+
+Final `npm run quality-gate`: 590 tests in 43 files, TypeScript, Expo configuration
+and security/configuration contracts passed. Android Hermes export passed with
+1165 modules. Temporary `.tmp/journal-workflow-bundle` was removed after checking
+its resolved path. No APK was installed; native accessibility, real signing/PDF
+launch, admin-to-phone reconciliation and actual email delivery remain device and
+integration acceptance tasks. Changes are local commits only, not a GitHub push.

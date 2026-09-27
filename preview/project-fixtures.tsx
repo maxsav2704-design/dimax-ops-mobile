@@ -8,12 +8,13 @@ export const useI18n = () => ({ locale: useContext(LocaleContext) });
 export const useAuth = () => ({ syncVersion: 0 });
 export const useLocalSearchParams = () => {
   const params = new URLSearchParams(window.location.search);
-  return { id: "preview-project", day: params.get("day") || undefined, focus: params.get("focus") || undefined, project_id: params.get("project_id") || undefined };
+  const journalId = window.location.pathname.endsWith("/journal.html") ? window.location.hash.match(/^#\/journal\/([^?]+)/)?.[1] : undefined;
+  return { id: journalId ? decodeURIComponent(journalId) : "preview-project", day: params.get("day") || undefined, focus: params.get("focus") || undefined, project_id: params.get("project_id") || undefined };
 };
 export const useFocusEffect = (effect: () => void | (() => void)) => useEffect(effect, [effect]);
 export const InstallerBottomNav = () => null;
 export function usePreviewDestination() {
-  const [path, setPath] = useState("");
+  const [path, setPath] = useState(window.location.hash.slice(1));
   useEffect(() => {
     const changed = () => setPath(window.location.hash.slice(1));
     window.addEventListener("hashchange", changed);
@@ -24,8 +25,9 @@ export function usePreviewDestination() {
 export const router = {
   push: (path: string) => { window.location.hash = path; },
   replace: (path: string) => { window.location.hash = path; },
-  back: () => { window.location.hash = "/projects"; },
+  back: () => { window.location.hash = window.location.pathname.endsWith("/journal.html") ? "/journal" : "/projects"; },
 };
+export const useRouter = () => router;
 export function createEmptyLocalProjectWorkspace(projectId = ""): LocalProjectWorkspace {
   return { projectId, project: null, doors: [], doorTypes: [], issues: [], reasons: [], addonTypes: [], addonFacts: [], pendingEvents: [], queueSummary: null };
 }
