@@ -6,7 +6,7 @@ const LocaleContext = createContext("ru");
 export const PreviewLocaleProvider = LocaleContext.Provider;
 export const useI18n = () => ({ locale: useContext(LocaleContext) });
 export const useAuth = () => ({ syncVersion: 0 });
-export const useLocalSearchParams = () => ({ id: "preview-project" });
+export const useLocalSearchParams = () => ({ id: "preview-project", day: new URLSearchParams(window.location.search).get("day") || undefined });
 export const useFocusEffect = (effect: () => void | (() => void)) => useEffect(effect, [effect]);
 export const InstallerBottomNav = () => null;
 export function usePreviewDestination() {
@@ -52,7 +52,7 @@ export const refreshProjectDetails = async () => undefined;
 export const isProjectAccessRevoked = () => false;
 export const loadInstallerEarnings = async () => ({ snapshot: null, source: "unavailable", message: null });
 export const buildProjectExternalActions = () => [];
-export const openProjectExternalAction = async () => undefined;
+export const openProjectExternalAction = async () => { throw new Error("TEST: external navigation disabled in the isolated preview"); };
 async function save(type: "DOOR_SET_STATUS" | "ADDON_FACT_CREATE", payload: Record<string, unknown>) {
   await new Promise((resolve) => setTimeout(resolve, 450));
   if (failNext) { failNext = false; throw new Error("TEST: local storage unavailable / локальное хранилище недоступно"); }

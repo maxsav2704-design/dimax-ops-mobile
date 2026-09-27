@@ -70,3 +70,32 @@ Automated coverage includes 10 actual-screen tests, 6 field-write serialization
 tests and 4 additional project refresh cases. Full run: 443 tests in 35 files.
 The mobile quality gate and Android export passed. No APK was installed and no
 phone was attached; device/offline acceptance is still required.
+
+## September 27 calendar workflow
+
+Open `/calendar.html` for the actual mobile calendar with isolated visit fixtures.
+The Online, Cached and No data switches exercise display states only. Add
+`?day=2026-08-31` to check the earnings-to-calendar date link. Event titles are
+English fixture content; UI controls follow EN/RU/HE. Waze intentionally returns
+a test error instead of opening an external app. Navigation displays the target
+route, not a real account screen. Nothing is written to the backend or SQLite.
+
+Verified at browser CSS widths of 322 and 393 px: visit details above the calendar,
+long-description scrolling on a short viewport, dismissal, readable controls,
+Hebrew modal direction and chronological time range, offline/unavailable states,
+and routes to assigned doors, project issues and the selected day's earnings.
+The page did not horizontally overflow. Native gestures, screen-reader focus and
+the actual external-app launch still require a device check.
+
+The screen now groups dates in the same local timezone used to display times,
+retains incoming date selection, uses the API's actual visit types and refreshes
+on focus/background sync. Account changes hide the old plan immediately. Stale
+screen responses are ignored, and a late response cannot overwrite a newer saved
+offline snapshot. A visit title is no longer treated as a door identifier: the
+backend contract has no door-to-visit association.
+
+Full run: 488 tests in 37 files, including 16 actual-calendar-screen tests and
+date, navigation and cache regression coverage. `npm run quality-gate` and the
+Android export passed. The temporary `.tmp/calendar-workflow-bundle` output
+(4.71 MiB) was removed. No APK was installed; no phone acceptance was performed.
+No backend schema, assignment, payroll or public API contract was changed.
