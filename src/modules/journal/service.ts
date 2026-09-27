@@ -1,13 +1,15 @@
 import * as Linking from "expo-linking";
 
 import { apiFetch } from "@/lib/api";
-import { NetworkError, SessionChangedError } from "@/lib/errors";
-import { assertWorkspaceContext, captureWorkspaceContext, withWorkspaceDatabase } from "@/lib/workspace-context";
+import { ApiError, NetworkError, SessionChangedError } from "@/lib/errors";
+import { assertWorkspaceContext, captureWorkspaceContext, withWorkspaceDatabase, type WorkspaceContext } from "@/lib/workspace-context";
+import { isJournalDetails, isJournalList } from "./contract";
 import {
   getJournalSnapshot,
   listJournalSnapshots,
   saveJournalSnapshot,
   saveJournalSnapshots,
+  removeJournalSnapshot,
 } from "@/modules/journal/repository";
 import type {
   InstallerJournalDetails,
@@ -16,6 +18,22 @@ import type {
   JournalMarkReadyResponse,
   JournalPdfLinkResponse,
 } from "@/modules/journal/types";
+
+let requestSequence = 0;
+const savedRequests = new WeakMap<object, number>();
+
+async function saveLatest(context: WorkspaceContext, sequence: number, save: () => Promise<void>) {
+  await withWorkspaceDatabase(context, async () => {
+    // A list replaces the authorized set; an older detail must not resurrect removed data.
+    if ((savedRequests.get(context.database!) || 0) > sequence) return;
+    await save();
+    savedRequests.set(context.database!, sequence);
+  });
+}
+
+function deniesAccess(error: unknown) {
+  return error instanceof ApiError && [401, 403, 404].includes(error.status);
+}
 
 function assertHttpUrl(value: string): string {
   const url = new URL(value);
@@ -30,13 +48,16 @@ export async function loadInstallerJournals(): Promise<
 > {
   const context = captureWorkspaceContext();
   assertWorkspaceContext(context);
+  const sequence = ++requestSequence;
   try {
-    const response = await apiFetch<{ items: InstallerJournalSummary[] }>(
+    const response = await apiFetch<unknown>(
       "/api/v1/installer/journals",
       { expectedAuthGeneration: context.authGeneration },
     );
+    assertWorkspaceContext(context);
+    if (!isJournalList(response)) throw new Error("Journal list does not match the mobile contract.");
     try {
-      await withWorkspaceDatabase(context, () => saveJournalSnapshots(response.items));
+      await saveLatest(context, sequence, () => saveJournalSnapshots(response.items));
       assertWorkspaceContext(context);
       return { data: response.items, source: "online", message: null };
     } catch (error) {
@@ -52,9 +73,17 @@ export async function loadInstallerJournals(): Promise<
   } catch (error) {
     assertWorkspaceContext(context);
     if (error instanceof SessionChangedError) throw error;
+    if (deniesAccess(error)) {
+      if (error instanceof ApiError && error.status !== 401) {
+        await saveLatest(context, sequence, () => saveJournalSnapshots([])).catch((cacheError: unknown) => {
+          if (cacheError instanceof SessionChangedError) throw cacheError;
+        });
+      }
+      throw error;
+    }
     const cached = await withWorkspaceDatabase(context, () => listJournalSnapshots());
     assertWorkspaceContext(context);
-    if (cached.length) {
+    if (isJournalList({ items: cached }) && cached.length) {
       return {
         data: cached,
         source: "cache",
@@ -73,13 +102,16 @@ export async function loadInstallerJournal(
 ): Promise<JournalLoadResult<InstallerJournalDetails>> {
   const context = captureWorkspaceContext();
   assertWorkspaceContext(context);
+  const sequence = ++requestSequence;
   try {
-    const details = await apiFetch<InstallerJournalDetails>(
+    const details = await apiFetch<unknown>(
       `/api/v1/installer/journals/${encodeURIComponent(journalId)}`,
       { expectedAuthGeneration: context.authGeneration },
     );
+    assertWorkspaceContext(context);
+    if (!isJournalDetails(details) || details.id !== journalId) throw new Error("Journal details do not match the mobile contract.");
     try {
-      await withWorkspaceDatabase(context, () => saveJournalSnapshot(details));
+      await saveLatest(context, sequence, () => saveJournalSnapshot(details));
       assertWorkspaceContext(context);
       return { data: details, source: "online", message: null };
     } catch (error) {
@@ -95,9 +127,17 @@ export async function loadInstallerJournal(
   } catch (error) {
     assertWorkspaceContext(context);
     if (error instanceof SessionChangedError) throw error;
+    if (deniesAccess(error)) {
+      if (error instanceof ApiError && error.status !== 401) {
+        await saveLatest(context, sequence, () => removeJournalSnapshot(journalId)).catch((cacheError: unknown) => {
+          if (cacheError instanceof SessionChangedError) throw cacheError;
+        });
+      }
+      throw error;
+    }
     const cached = await withWorkspaceDatabase(context, () => getJournalSnapshot(journalId));
     assertWorkspaceContext(context);
-    if (cached) {
+    if (isJournalDetails(cached) && cached.id === journalId) {
       return {
         data: cached,
         source: "cache",
@@ -117,11 +157,14 @@ export async function prepareInstallerJournal(
 ): Promise<InstallerJournalDetails> {
   const context = captureWorkspaceContext();
   assertWorkspaceContext(context);
-  const details = await apiFetch<InstallerJournalDetails>(
+  const sequence = ++requestSequence;
+  const details = await apiFetch<unknown>(
     "/api/v1/installer/journals/prepare",
     { method: "POST", body: JSON.stringify({ project_id: projectId, pdf_locale: pdfLocale }), expectedAuthGeneration: context.authGeneration },
   );
-  await withWorkspaceDatabase(context, () => saveJournalSnapshot(details)).catch((error: unknown) => {
+  assertWorkspaceContext(context);
+  if (!isJournalDetails(details) || details.project_id !== projectId) throw new Error("Prepared journal does not match the requested project.");
+  await saveLatest(context, sequence, () => saveJournalSnapshot(details)).catch((error: unknown) => {
     if (error instanceof SessionChangedError) throw error;
   });
   assertWorkspaceContext(context);
@@ -133,11 +176,14 @@ export async function refreshInstallerJournal(
 ): Promise<InstallerJournalDetails> {
   const context = captureWorkspaceContext();
   assertWorkspaceContext(context);
-  const details = await apiFetch<InstallerJournalDetails>(
+  const sequence = ++requestSequence;
+  const details = await apiFetch<unknown>(
     `/api/v1/installer/journals/${encodeURIComponent(journalId)}/refresh`,
     { method: "POST", expectedAuthGeneration: context.authGeneration },
   );
-  await withWorkspaceDatabase(context, () => saveJournalSnapshot(details)).catch((error: unknown) => {
+  assertWorkspaceContext(context);
+  if (!isJournalDetails(details) || details.id !== journalId) throw new Error("Refreshed journal does not match the requested document.");
+  await saveLatest(context, sequence, () => saveJournalSnapshot(details)).catch((error: unknown) => {
     if (error instanceof SessionChangedError) throw error;
   });
   assertWorkspaceContext(context);
@@ -149,10 +195,20 @@ export async function markInstallerJournalReady(
 ): Promise<JournalMarkReadyResponse> {
   const context = captureWorkspaceContext();
   assertWorkspaceContext(context);
+  const sequence = ++requestSequence;
   const response = await apiFetch<JournalMarkReadyResponse>(
     `/api/v1/installer/journals/${encodeURIComponent(journalId)}/mark-ready`,
     { method: "POST", expectedAuthGeneration: context.authGeneration },
   );
+  assertWorkspaceContext(context);
+  assertHttpUrl(response.signing_url);
+  if (!Number.isFinite(Date.parse(response.public_token_expires_at))) throw new Error("Invalid signing link expiration.");
+  await saveLatest(context, sequence, async () => {
+    const cached = await getJournalSnapshot(journalId);
+    if (cached) await saveJournalSnapshot({ ...cached, status: "ACTIVE", can_submit: false, ...response });
+  }).catch((error: unknown) => {
+    if (error instanceof SessionChangedError) throw error;
+  });
   assertWorkspaceContext(context);
   return response;
 }

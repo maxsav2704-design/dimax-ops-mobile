@@ -27,6 +27,7 @@ vi.mock("react-native", async () => {
   return {
     Pressable, View: "view", Text: "text", Modal: "modal", ActivityIndicator: "spinner", Platform: { OS: "android" },
     ScrollView: "scroll", RefreshControl: "refresh", StatusBar: "statusbar",
+    AppState: { addEventListener: () => ({ remove: vi.fn() }) },
     StyleSheet: { create: (value: unknown) => value, flatten, absoluteFillObject: {} },
     Easing: { out: (value: unknown) => value, cubic: "cubic" },
     Animated: {
@@ -50,11 +51,18 @@ vi.mock("expo-linear-gradient", () => ({ LinearGradient: "gradient" }));
 vi.mock("react-native-svg", () => ({
   default: "svg", Circle: "circle", Defs: "defs", LinearGradient: "svg-gradient", Path: "path", Stop: "stop",
 }));
-vi.mock("expo-router", () => ({ useRouter: () => ({ push: native.push }) }));
+vi.mock("expo-router", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  return { useRouter: () => ({ push: native.push }), useFocusEffect: (effect: () => void | (() => void)) => React.useEffect(effect, [effect]) };
+});
 vi.mock("react-native-safe-area-context", () => ({ SafeAreaView: "safe-area" }));
 vi.mock("@/components/installer-ui", () => ({ InstallerBottomNav: () => null }));
-vi.mock("@/providers/AppProviders", () => ({ useI18n: () => ({ locale: "ru" }) }));
+vi.mock("@/providers/AppProviders", () => ({ useI18n: () => ({ locale: "ru" }), useAuth: () => ({ user: { id: "installer-a", company_id: "company-a" }, syncVersion: 0 }) }));
 vi.mock("@/modules/journal/service", () => ({ loadInstallerJournals: native.loadJournals, prepareInstallerJournal: native.prepareJournal }));
+vi.mock("@/modules/journal/workspace", () => ({ loadJournalWorkspace: async () => {
+  const result = await native.loadJournals();
+  return { ...result, data: { projects: [{ id: "project-a", name: "Project A", address: "Address A", installedLocally: 1 }], journals: result.data, localUnavailable: false } };
+} }));
 vi.mock("@/modules/projects/repository", () => ({
   listProjects: async () => [{ id: "project-a", name: "Project A", address: "Address A" }],
   listProjectDoors: async () => [{ status: "INSTALLED" }],
@@ -161,7 +169,7 @@ describe("shared mobile interaction", () => {
 
 describe("shared workflow controls", () => {
   it("prepares a journal once even when the same callback is pressed twice before render", async () => {
-    native.loadJournals.mockResolvedValue({ data: [], source: "remote" });
+    native.loadJournals.mockResolvedValue({ data: [], source: "online" });
     let finish!: (value: unknown) => void;
     native.prepareJournal.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
     await mount(React.createElement(JournalScreen));
@@ -175,13 +183,13 @@ describe("shared workflow controls", () => {
   });
 
   it("journal cards navigate to their document without nested buttons", async () => {
-    native.loadJournals.mockResolvedValue({ data: [{ id: "journal-a", project_id: "project-a", status: "DRAFT", completed_doors: 1, completed_addons: 0 }], source: "remote" });
+    native.loadJournals.mockResolvedValue({ data: [{ id: "journal-a", project_id: "project-a", status: "DRAFT", completed_doors: 1, completed_addons: 0 }], source: "online" });
     await mount(React.createElement(JournalScreen));
     const targets = tree.root.findAllByType("pressable" as never);
     for (const target of targets) {
       expect(target.findAllByType("pressable" as never)).toHaveLength(1);
     }
-    const card = targets.find((node) => node.props.accessibilityLabel === "Project A. Черновик")!;
+    const card = targets.find((node) => node.props.testID === "journal-document-journal-a")!;
     act(() => card.props.onPress(event));
     expect(native.push).toHaveBeenCalledExactlyOnceWith("/journal/journal-a");
   });

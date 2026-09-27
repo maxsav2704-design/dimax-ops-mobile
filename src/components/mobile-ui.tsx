@@ -352,6 +352,7 @@ export function ConfirmDialog({
   confirmIcon,
   onConfirm,
   onCancel,
+  direction,
 }: {
   visible: boolean;
   title: string;
@@ -363,6 +364,7 @@ export function ConfirmDialog({
   confirmIcon?: IconName;
   onConfirm: () => void;
   onCancel: () => void;
+  direction?: "ltr" | "rtl";
 }) {
   const reducedMotion = useReducedMotion();
   return (
@@ -385,7 +387,7 @@ export function ConfirmDialog({
         <View
           accessibilityViewIsModal
           accessibilityRole="alert"
-          style={styles.dialogPanel}
+          style={[styles.dialogPanel, direction && { direction }]}
         >
           <View style={[styles.dialogIcon, danger && styles.dialogIconDanger]}>
             <Ionicons
@@ -461,11 +463,13 @@ export function SegmentedControl<T extends string>({
   options,
   onChange,
   dark = false,
+  stackedCounts = false,
 }: {
   value: T;
   options: Array<{ value: T; label: string; count?: number }>;
   onChange: (value: T) => void;
   dark?: boolean;
+  stackedCounts?: boolean;
 }) {
   return (
     <View style={[styles.segmented, dark && styles.segmentedDark]}>
@@ -478,7 +482,7 @@ export function SegmentedControl<T extends string>({
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
             accessibilityLabel={option.label}
-            style={[styles.segment, active && (dark ? styles.segmentActiveAccent : styles.segmentActiveDark)]}
+            style={[styles.segment, stackedCounts && styles.segmentStacked, active && (dark ? styles.segmentActiveAccent : styles.segmentActiveDark)]}
           >
             <Text
               style={[
@@ -486,7 +490,7 @@ export function SegmentedControl<T extends string>({
                 dark && styles.segmentTextDark,
                 active && (dark ? styles.segmentTextAccent : styles.segmentTextActive),
               ]}
-              numberOfLines={1}
+              numberOfLines={stackedCounts ? 2 : 1}
             >
               {option.label}
             </Text>
@@ -935,6 +939,12 @@ const styles = StyleSheet.create({
     backgroundColor: installerTheme.primarySoft,
     borderWidth: 1,
     borderColor: installerTheme.infoBorder,
+  },
+  segmentStacked: {
+    flexDirection: "column",
+    minHeight: 54,
+    gap: 2,
+    paddingHorizontal: 4,
   },
   segmentActiveAccent: {
     backgroundColor: installerTheme.accent,

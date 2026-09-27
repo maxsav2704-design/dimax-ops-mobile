@@ -27,7 +27,7 @@ describe("mergeJournalSnapshot", () => {
   it("preserves detailed completed work while refreshing summary state", () => {
     const details: InstallerJournalDetails = {
       ...summary,
-      status: "DRAFT",
+      status: "ACTIVE",
       title: "Acceptance",
       snapshot_version: 2,
       public_token_expires_at: null,
@@ -51,5 +51,11 @@ describe("mergeJournalSnapshot", () => {
 
   it("uses a new summary when no detailed cache exists", () => {
     expect(mergeJournalSnapshot(summary, null)).toEqual(summary);
+  });
+
+  it("does not relabel a stale work snapshot with a new status or count", () => {
+    const old = { ...summary, status: "DRAFT", doors: [], addon_items: [] } as unknown as InstallerJournalDetails;
+    expect(mergeJournalSnapshot(summary, old)).toEqual(summary);
+    expect(mergeJournalSnapshot(summary, { ...old, status: "ACTIVE", completed_doors: 10 })).toEqual(summary);
   });
 });

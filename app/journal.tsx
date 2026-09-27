@@ -1,420 +1,124 @@
-import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  RefreshControl,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  View,
-} from "react-native";
+import React, { useMemo, useState } from "react";
+import { ActivityIndicator, RefreshControl, ScrollView, StatusBar, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-
+import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { InstallerBottomNav } from "@/components/installer-ui";
-import {
-  ActionButton,
-  BrandText as Text,
-  EmptyState,
-  ScreenHero,
-  SectionCard,
-  SectionHeader,
-  SegmentedControl,
-  StatusPill,
-} from "@/components/mobile-ui";
+import { ActionButton, BrandText as Text, EmptyState, IconButton, ScreenHero, SectionCard, SectionHeader, SegmentedControl, StatusPill } from "@/components/mobile-ui";
 import { installerTheme } from "@/lib/theme";
-import {
-  loadInstallerJournals,
-  prepareInstallerJournal,
-} from "@/modules/journal/service";
-import type {
-  InstallerJournalSummary,
-  JournalStatus,
-} from "@/modules/journal/types";
-import { listProjectDoors, listProjects } from "@/modules/projects/repository";
-import type { ProjectListItem } from "@/modules/projects/types";
-import { useI18n } from "@/providers/AppProviders";
-
-type JournalFilter = "ALL" | JournalStatus;
-
-type JournalLane = {
-  project: ProjectListItem;
-  journal: InstallerJournalSummary | null;
-  installedLocally: number;
-};
-
-function statusTone(status: JournalStatus | null) {
-  if (status === "ARCHIVED") return "success" as const;
-  if (status === "ACTIVE") return "info" as const;
-  if (status === "DRAFT") return "warning" as const;
-  return "neutral" as const;
-}
+import { prepareInstallerJournal } from "@/modules/journal/service";
+import { loadJournalWorkspace } from "@/modules/journal/workspace";
+import { journalGroups } from "@/modules/journal/presentation";
+import { useJournalResource } from "@/modules/journal/use-journal-resource";
+import type { JournalStatus } from "@/modules/journal/types";
+import { buildProjectRoute } from "@/modules/projects/navigation";
+import { useAuth, useI18n } from "@/providers/AppProviders";
 
 export default function JournalScreen() {
   const router = useRouter();
+  const { user, syncVersion } = useAuth();
   const { locale } = useI18n();
-  const [projects, setProjects] = useState<ProjectListItem[]>([]);
-  const [journals, setJournals] = useState<InstallerJournalSummary[]>([]);
-  const [installedCounts, setInstalledCounts] = useState<
-    Record<string, number>
-  >({});
-  const [filter, setFilter] = useState<JournalFilter>("ALL");
-  const [loading, setLoading] = useState(true);
-  const [busyProjectId, setBusyProjectId] = useState<string | null>(null);
-  const preparing = useRef(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const lt = (en: string, ru: string, he: string) =>
-    locale === "ru" ? ru : locale === "he" ? he : en;
-
-  const statusLabel = (status: JournalStatus | null) => {
-    if (status === "ARCHIVED") return lt("Signed", "Подписан", "נחתם");
-    if (status === "ACTIVE")
-      return lt("Awaiting signature", "Ожидает подписи", "ממתין לחתימה");
-    if (status === "DRAFT") return lt("Draft", "Черновик", "טיוטה");
-    return lt("Not prepared", "Не сформирован", "טרם הוכן");
-  };
-
-  const reload = useCallback(async () => {
-    setError(null);
-    const projectRows = await listProjects();
-    setProjects(projectRows);
-    const localCounts = await Promise.all(
-      projectRows.map(async (project) => {
-        const doors = await listProjectDoors(project.id);
-        return [
-          project.id,
-          doors.filter((door) => door.status === "INSTALLED").length,
-        ] as const;
-      }),
-    );
-    setInstalledCounts(Object.fromEntries(localCounts));
-    try {
-      const result = await loadInstallerJournals();
-      setJournals(result.data);
-      setNotice(
-        result.source === "cache"
-          ? lt(
-              "Offline: showing the last saved journal.",
-              "Офлайн: показан последний сохранённый журнал.",
-              "לא מקוון: מוצג יומן העבודה האחרון שנשמר.",
-            )
-          : null,
-      );
-    } catch (reason) {
-      setJournals([]);
-      setNotice(
-        lt(
-          "Journal is unavailable offline until its first online load.",
-          "Журнал появится офлайн после первой загрузки из сети.",
-          "יומן העבודה יהיה זמין במצב לא מקוון לאחר טעינה ראשונה מהרשת.",
-        ),
-      );
-      if (!projectRows.length) {
-        setError(
-          reason instanceof Error
-            ? reason.message
-            : lt(
-                "Unable to load journal",
-                "Не удалось загрузить журнал",
-                "לא ניתן לטעון את היומן",
-              ),
-        );
-      }
-    }
-  }, [locale]);
-
-  useEffect(() => {
-    void reload().finally(() => setLoading(false));
-  }, [reload]);
-
-  const journalByProject = useMemo(
-    () => new Map(journals.map((journal) => [journal.project_id, journal])),
-    [journals],
-  );
-  const lanes = useMemo<JournalLane[]>(
-    () =>
-      projects
-        .map((project) => ({
-          project,
-          journal: journalByProject.get(project.id) ?? null,
-          installedLocally: installedCounts[project.id] ?? 0,
-        }))
-        .filter((lane) => filter === "ALL" || lane.journal?.status === filter)
-        .sort((left, right) => {
-          const rank = (value: JournalStatus | undefined) =>
-            value === "ACTIVE"
-              ? 0
-              : value === "DRAFT"
-                ? 1
-                : value === "ARCHIVED"
-                  ? 2
-                  : 3;
-          return (
-            rank(left.journal?.status) - rank(right.journal?.status) ||
-            left.project.name.localeCompare(right.project.name)
-          );
-        }),
-    [filter, installedCounts, journalByProject, projects],
-  );
-
-  const counters = useMemo(
-    () => ({
-      all: projects.length,
-      draft: journals.filter((item) => item.status === "DRAFT").length,
-      active: journals.filter((item) => item.status === "ACTIVE").length,
-      archived: journals.filter((item) => item.status === "ARCHIVED").length,
-    }),
-    [journals, projects.length],
-  );
+  const scope = `${user?.company_id || ""}:${user?.id || ""}`;
+  const resource = useJournalResource(scope, syncVersion, loadJournalWorkspace);
+  const workspace = resource.result?.data;
+  const [filter, setFilter] = useState<"ALL" | JournalStatus>("ALL");
+  const [busy, setBusy] = useState<{ key: string; projectId: string; token: symbol } | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  const busyProjectId = busy?.key === scope ? busy.projectId : null;
+  const lt = (en: string, ru: string, he: string) => locale === "ru" ? ru : locale === "he" ? he : en;
+  const statusLabel = (status: JournalStatus) => status === "ARCHIVED" ? lt("Signed", "Подписан", "נחתם") : status === "ACTIVE" ? lt("Awaiting signature", "Ожидает подписи", "ממתין לחתימה") : lt("Draft", "Черновик", "טיוטה");
+  const groups = useMemo(() => workspace ? journalGroups(workspace, filter) : [], [workspace, filter]);
+  const counters = useMemo(() => ({
+    all: workspace?.journals.length ?? 0,
+    active: workspace?.journals.filter((item) => item.status === "ACTIVE").length ?? 0,
+    draft: workspace?.journals.filter((item) => item.status === "DRAFT").length ?? 0,
+    archived: workspace?.journals.filter((item) => item.status === "ARCHIVED").length ?? 0,
+  }), [workspace]);
+  const disabled = Boolean(busyProjectId) || resource.loading;
 
   const prepare = async (projectId: string) => {
-    if (preparing.current) return;
-    preparing.current = true;
-    setBusyProjectId(projectId);
-    setError(null);
+    if (resource.locked.current || resource.loading || resource.result?.source !== "online") return;
+    resource.locked.current = true;
+    resource.invalidateRead();
+    const token = Symbol(projectId);
+    setBusy({ key: scope, projectId, token });
+    setFailure(null);
     try {
       const journal = await prepareInstallerJournal(projectId, locale);
-      setJournals((current) => [
-        journal,
-        ...current.filter((item) => item.id !== journal.id),
-      ]);
-      router.push(`/journal/${journal.id}` as never);
-    } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : lt(
-              "Unable to prepare document",
-              "Не удалось сформировать акт",
-              "לא ניתן להכין את המסמך",
-            ),
-      );
+      if (resource.isCurrent()) router.push(`/journal/${encodeURIComponent(journal.id)}` as never);
+    } catch {
+      if (resource.isCurrent()) setFailure(scope);
     } finally {
-      preparing.current = false;
-      setBusyProjectId(null);
+      resource.locked.current = false;
+      setBusy((current) => current?.token === token ? null : current);
     }
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top"]}>
-      <StatusBar
-        barStyle="light-content"
-        backgroundColor={installerTheme.background}
-      />
-      <ScrollView
-        contentContainerStyle={styles.content}
-        refreshControl={
-          <RefreshControl
-            refreshing={loading}
-            onRefresh={() => void reload()}
-            tintColor={installerTheme.accent}
-          />
-        }
-      >
-        <ScreenHero
-          eyebrow={lt("COMPLETED WORK", "ЗАВЕРШЁННЫЕ РАБОТЫ", "עבודות שהושלמו")}
+    <SafeAreaView style={[styles.safe, { direction: locale === "he" ? "rtl" : "ltr" }]} edges={["top"]}>
+      <StatusBar barStyle="light-content" backgroundColor={installerTheme.background} />
+      <ScrollView contentContainerStyle={styles.content} refreshControl={
+        <RefreshControl refreshing={resource.loading} onRefresh={() => void resource.reload()} tintColor={installerTheme.accent} />
+      }>
+        <ScreenHero eyebrow={lt("COMPLETED WORK", "ЗАВЕРШЁННЫЕ РАБОТЫ", "עבודות שהושלמו")}
           title={lt("Work journal", "Журнал работ", "יומן עבודה")}
-          subtitle={lt(
-            "Acceptance documents by project, ready for the developer's signature.",
-            "Акты по каждому объекту: от завершения работ до подписи застройщика.",
-            "מסמכי מסירה לכל פרויקט, מסיום העבודה ועד חתימת היזם.",
-          )}
-        >
+          subtitle={lt("Completed work and acceptance documents by project.", "Выполненные работы и акты по объектам.", "עבודות שהושלמו ומסמכי מסירה לפי פרויקט.")}
+          right={<IconButton icon="refresh" label={lt("Refresh journal", "Обновить журнал", "רענון יומן")} disabled={disabled} onPress={() => void resource.reload()} />}>
           <View style={styles.heroMetrics}>
-            <View>
-              <Text style={styles.heroMetricValue}>{counters.active}</Text>
-              <Text style={styles.heroMetricLabel}>
-                {lt("to sign", "на подписи", "לחתימה")}
-              </Text>
-            </View>
+            <View><Text testID="journal-active-count" style={styles.heroMetricValue}>{workspace ? counters.active : "—"}</Text><Text style={styles.heroMetricLabel}>{lt("to sign", "на подписи", "לחתימה")}</Text></View>
             <View style={styles.metricDivider} />
-            <View>
-              <Text style={styles.heroMetricValue}>{counters.archived}</Text>
-              <Text style={styles.heroMetricLabel}>
-                {lt("signed", "подписано", "נחתמו")}
-              </Text>
-            </View>
+            <View><Text style={styles.heroMetricValue}>{workspace ? counters.archived : "—"}</Text><Text style={styles.heroMetricLabel}>{lt("signed", "подписано", "נחתמו")}</Text></View>
           </View>
         </ScreenHero>
-
-        {notice ? (
-          <View style={styles.notice}>
-            <Ionicons
-              name="cloud-offline-outline"
-              size={16}
-              color={installerTheme.warning}
-            />
-            <Text style={styles.noticeText}>{notice}</Text>
-          </View>
-        ) : null}
-        {error ? (
-          <View style={[styles.notice, styles.errorNotice]}>
-            <Ionicons
-              name="alert-circle-outline"
-              size={16}
-              color={installerTheme.danger}
-            />
-            <Text style={styles.noticeText}>{error}</Text>
-          </View>
-        ) : null}
-
-        <SegmentedControl
-          dark
-          value={filter}
-          onChange={setFilter}
-          options={[
-            {
-              value: "ALL",
-              label: lt("All", "Все", "הכל"),
-              count: counters.all,
-            },
-            {
-              value: "DRAFT",
-              label: lt("Drafts", "Черновики", "טיוטות"),
-              count: counters.draft,
-            },
-            {
-              value: "ACTIVE",
-              label: lt("Signature", "Подпись", "חתימה"),
-              count: counters.active,
-            },
-            {
-              value: "ARCHIVED",
-              label: lt("Archive", "Архив", "ארכיון"),
-              count: counters.archived,
-            },
-          ]}
-        />
-
-        <SectionHeader
-          title={lt("Projects", "Объекты", "פרויקטים")}
-          meta={lanes.length}
-        />
-        {lanes.length ? (
-          <View style={styles.list}>
-            {lanes.map(({ project, journal, installedLocally }) => {
-              const CardBody = journal ? Pressable : View;
-              const completed = journal
-                ? journal.completed_doors + journal.completed_addons
-                : installedLocally;
-              return (
-                <SectionCard key={project.id} style={styles.projectCard}>
-                    <View
-                      style={[
-                        styles.statusRail,
-                        {
-                          backgroundColor:
-                            journal?.status === "ARCHIVED"
-                              ? installerTheme.success
-                              : journal?.status === "ACTIVE"
-                                ? installerTheme.info
-                                : installerTheme.accent,
-                        },
-                      ]}
-                    />
-                  <CardBody
-                    {...(journal ? {
-                      disabled: Boolean(busyProjectId),
-                      accessibilityRole: "button" as const,
-                      accessibilityLabel: `${project.name}. ${statusLabel(journal.status)}`,
-                      onPress: () => router.push(`/journal/${journal.id}` as never),
-                    } : {})}
-                    style={styles.cardBody}
-                  >
-                    <View style={styles.cardHeader}>
-                      <View style={styles.projectIcon}>
-                        <Ionicons
-                          name={
-                            journal?.status === "ARCHIVED"
-                              ? "shield-checkmark"
-                              : "business-outline"
-                          }
-                          size={21}
-                          color={installerTheme.accent}
-                        />
-                      </View>
-                      <View style={styles.cardTitleWrap}>
-                        <Text style={styles.projectName} numberOfLines={2}>
-                          {project.name}
-                        </Text>
-                        <Text style={styles.projectAddress} numberOfLines={2}>
-                          {project.address ||
-                            lt(
-                              "Address not specified",
-                              "Адрес не указан",
-                              "לא צוינה כתובת",
-                            )}
-                        </Text>
-                      </View>
-                      {journal ? <Ionicons
-                        name="chevron-forward"
-                        size={18}
-                        color={installerTheme.textFaint}
-                      /> : null}
-                    </View>
-                    <View style={styles.cardMetaRow}>
-                      <StatusPill
-                        label={statusLabel(journal?.status ?? null)}
-                        tone={statusTone(journal?.status ?? null)}
-                      />
-                      <View style={styles.completedBadge}>
-                        <Text style={styles.completedValue}>{completed}</Text>
-                        <Text style={styles.completedLabel}>
-                          {lt("completed", "завершено", "הושלמו")}
-                        </Text>
-                      </View>
-                    </View>
-                    {journal?.status === "ACTIVE" ? (
-                      <Text style={styles.workflowHint}>
-                        {lt(
-                          "The developer's signature is pending",
-                          "Ожидается подпись застройщика",
-                          "ממתין לחתימת היזם",
-                        )}
-                      </Text>
-                    ) : journal?.status === "ARCHIVED" ? (
-                      <Text style={styles.workflowHint}>
-                        {lt(
-                          "Signed PDF is stored in the journal",
-                          "Подписанный PDF сохранён в журнале",
-                          "קובץ PDF חתום נשמר ביומן",
-                        )}
-                      </Text>
-                    ) : null}
-                  </CardBody>
-                  {!journal ? (
-                    <ActionButton
-                      label={lt("Prepare acceptance", "Сформировать акт", "הכנת מסמך מסירה")}
-                      icon="document-text-outline"
-                      variant="secondary"
-                      loading={busyProjectId === project.id}
-                      disabled={Boolean(busyProjectId)}
-                      onPress={() => void prepare(project.id)}
-                    />
-                  ) : null}
-                </SectionCard>
-              );
-            })}
-          </View>
-        ) : (
-          <SectionCard>
-            <EmptyState
-              icon="document-text-outline"
-              title={lt(
-                "No documents in this filter",
-                "В этом разделе нет актов",
-                "אין מסמכים במסנן זה",
-              )}
-              description={lt(
-                "Completed work will be grouped here by project.",
-                "Завершённые работы будут собираться здесь по объектам.",
-                "עבודות שהושלמו יקובצו כאן לפי פרויקט.",
-              )}
-            />
-          </SectionCard>
-        )}
+        {resource.result?.source === "cache" && <Text style={styles.notice}>{lt("Saved copy. Refresh online before preparing a document.", "Сохранённая копия. Для формирования акта обновите журнал онлайн.", "עותק שמור. יש לרענן ברשת לפני הכנת מסמך.")}</Text>}
+        {resource.result?.source === "online" && resource.result.message && <Text style={styles.notice}>{lt("Fresh data loaded, but the offline copy could not be saved.", "Данные загружены, но офлайн-копия не сохранилась.", "הנתונים נטענו, אך העותק הלא מקוון לא נשמר.")}</Text>}
+        {workspace?.localUnavailable && <Text style={styles.notice}>{lt("Local project list is unavailable. Showing available documents.", "Локальный список объектов недоступен. Показаны доступные акты.", "רשימת הפרויקטים המקומית אינה זמינה. מוצגים המסמכים הזמינים.")}</Text>}
+        {failure === scope && <Text accessibilityRole="alert" style={[styles.notice, styles.error]}>{lt("Could not prepare the document. Refresh the journal before trying again.", "Не удалось сформировать акт. Обновите журнал перед повторной попыткой.", "לא ניתן להכין את המסמך. יש לרענן את היומן לפני ניסיון נוסף.")}</Text>}
+        {!workspace ? resource.loading ? <View style={styles.loading}><ActivityIndicator color={installerTheme.accent} /><Text style={styles.muted}>{lt("Loading journal", "Загружаем журнал", "טוען יומן")}</Text></View> : <EmptyState icon="cloud-offline-outline" title={lt("Journal unavailable", "Журнал недоступен", "היומן אינו זמין")}
+          description={lt("Check your connection and access to the project, then retry.", "Проверьте подключение и доступ к объекту, затем повторите загрузку.", "בדקו את החיבור והגישה לפרויקט ונסו שוב.")}
+          action={<ActionButton label={lt("Retry", "Повторить", "ניסיון נוסף")} onPress={() => void resource.reload()} />} /> : <>
+          <SegmentedControl dark stackedCounts value={filter} onChange={setFilter} options={[
+            { value: "ALL", label: lt("All", "Все", "הכל"), count: counters.all },
+            { value: "DRAFT", label: lt("Drafts", "Черновики", "טיוטות"), count: counters.draft },
+            { value: "ACTIVE", label: lt("Signature", "Подпись", "חתימה"), count: counters.active },
+            { value: "ARCHIVED", label: lt("Archive", "Архив", "ארכיון"), count: counters.archived },
+          ]} />
+          <SectionHeader title={lt("Projects", "Объекты", "פרויקטים")} meta={groups.length} />
+          {groups.length ? groups.map(({ project, journals }) => (
+            <SectionCard key={project.id} style={styles.projectCard}>
+              <Pressable accessibilityRole="button" accessibilityLabel={`${lt("Open project", "Открыть объект", "פתיחת פרויקט")}: ${project.name}`} disabled={disabled}
+                onPress={() => router.push(buildProjectRoute(project.id) as never)} style={styles.projectHeader}>
+                <View style={styles.projectIcon}><Ionicons name="business-outline" size={22} color={installerTheme.accent} /></View>
+                <View style={styles.flex}><Text style={styles.projectName}>{project.name}</Text>{project.address ? <Text style={styles.muted}>{project.address}</Text> : null}</View>
+                <Ionicons name={locale === "he" ? "chevron-back" : "chevron-forward"} size={18} color={installerTheme.textFaint} />
+              </Pressable>
+              {journals.map((journal) => (
+                <Pressable key={journal.id} testID={`journal-document-${journal.id}`} accessibilityRole="button" disabled={disabled}
+                  accessibilityLabel={`${statusLabel(journal.status)}. ${project.name}. #${journal.id.slice(0, 8)}`}
+                  onPress={() => router.push(`/journal/${encodeURIComponent(journal.id)}` as never)} style={styles.document}>
+                  <View style={styles.documentHeader}>
+                    <StatusPill label={statusLabel(journal.status)} tone={journal.status === "ARCHIVED" ? "success" : journal.status === "ACTIVE" ? "info" : "warning"} />
+                    <Text style={styles.documentCode}>#{journal.id.slice(0, 8).toUpperCase()}</Text>
+                  </View>
+                  <View style={styles.documentFooter}>
+                    <Text style={[styles.workCount, styles.flex]}>{journal.completed_doors} {lt("doors", "дверей", "דלתות")} · {journal.completed_addons} {lt("extra works", "допработ", "עבודות נוספות")}</Text>
+                    <Ionicons name={locale === "he" ? "arrow-back" : "arrow-forward"} size={18} color={installerTheme.accent} />
+                  </View>
+                  {journal.status === "ARCHIVED" && <Text style={[styles.muted, journal.email_delivery_status === "FAILED" && styles.error]}>{journal.email_delivery_status === "DELIVERED" ? lt("PDF sent by email", "PDF отправлен по email", "PDF נשלח בדוא״ל") : journal.email_delivery_status === "FAILED" ? lt("PDF signed · email failed", "PDF подписан · ошибка отправки", "PDF חתום · שגיאת שליחה") : lt("PDF signed · email not yet confirmed", "PDF подписан · отправка ещё не подтверждена", "PDF חתום · השליחה טרם אושרה")}</Text>}
+                </Pressable>
+              ))}
+              {!journals.length && <>
+                <Text style={styles.muted}>{lt("No acceptance document yet", "Акт ещё не сформирован", "טרם הוכן מסמך מסירה")}</Text>
+                {project.installedLocally !== null && <Text style={styles.muted}>{lt("Installed on this device", "Установлено на устройстве", "הותקן במכשיר זה")}: {project.installedLocally}</Text>}
+                <ActionButton label={lt("Prepare acceptance", "Сформировать акт", "הכנת מסמך מסירה")} icon="document-text-outline" variant="secondary"
+                  loading={busyProjectId === project.id} disabled={disabled || resource.result?.source !== "online"} onPress={() => void prepare(project.id)} />
+              </>}
+            </SectionCard>
+          )) : <EmptyState icon="document-text-outline" title={lt("No documents in this filter", "В этом разделе нет актов", "אין מסמכים במסנן זה")}
+            description={lt("Completed work is grouped here by assigned project.", "Выполненные работы собираются по назначенным объектам.", "עבודות שהושלמו מקובצות לפי הפרויקטים שהוקצו.")}
+            action={filter !== "ALL" ? <ActionButton variant="secondary" label={lt("All projects", "Все объекты", "כל הפרויקטים")} onPress={() => setFilter("ALL")} /> : undefined} />}
+        </>}
       </ScrollView>
       <InstallerBottomNav />
     </SafeAreaView>
@@ -423,108 +127,23 @@ export default function JournalScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: installerTheme.background },
-  content: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: installerTheme.layout.bottomNavClearance + 24,
-    gap: 16,
-  },
-  heroMetrics: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 18,
-    marginTop: 18,
-  },
-  heroMetricValue: {
-    color: installerTheme.text,
-    fontFamily: installerTheme.fontFamilyDisplayStrong,
-    fontSize: 25,
-  },
-  heroMetricLabel: {
-    color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamilyMedium,
-    fontSize: 11,
-    marginTop: 2,
-  },
-  metricDivider: {
-    width: 1,
-    height: 34,
-    backgroundColor: installerTheme.borderStrong,
-  },
-  notice: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 9,
-    borderWidth: 1,
-    borderColor: installerTheme.warningBorder,
-    backgroundColor: installerTheme.warningSoft,
-    borderRadius: installerTheme.radius.md,
-    padding: 12,
-  },
-  errorNotice: {
-    borderColor: installerTheme.dangerBorder,
-    backgroundColor: installerTheme.dangerSoft,
-  },
-  noticeText: {
-    flex: 1,
-    color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamilyMedium,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  list: { gap: 12 },
-  projectCard: { position: "relative", overflow: "hidden", gap: 14 },
-  cardBody: { gap: 14 },
-  statusRail: { position: "absolute", top: 0, bottom: 0, start: 0, width: 3 },
-  cardHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
-  projectIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: installerTheme.accentWarm,
-    borderWidth: 1,
-    borderColor: installerTheme.accentEdge,
-  },
-  cardTitleWrap: { flex: 1, minWidth: 0 },
-  projectName: {
-    color: installerTheme.text,
-    fontFamily: installerTheme.fontFamilyStrong,
-    fontSize: 16,
-    lineHeight: 21,
-  },
-  projectAddress: {
-    color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 3,
-  },
-  cardMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  completedBadge: { flexDirection: "row", alignItems: "baseline", gap: 5 },
-  completedValue: {
-    color: installerTheme.text,
-    fontFamily: installerTheme.fontFamilyDisplayStrong,
-    fontSize: 20,
-  },
-  completedLabel: {
-    color: installerTheme.textFaint,
-    fontFamily: installerTheme.fontFamilyMedium,
-    fontSize: 10,
-  },
-  workflowHint: {
-    color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 12,
-    lineHeight: 18,
-    borderTopWidth: 1,
-    borderTopColor: installerTheme.border,
-    paddingTop: 12,
-  },
+  content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: installerTheme.layout.bottomNavClearance + 24, gap: 16 },
+  heroMetrics: { flexDirection: "row", alignItems: "center", gap: 18, marginTop: 18 },
+  heroMetricValue: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyDisplayStrong, fontSize: 25 },
+  heroMetricLabel: { color: installerTheme.textMuted, fontFamily: installerTheme.fontFamilyMedium, fontSize: 11, marginTop: 2 },
+  metricDivider: { width: 1, height: 34, backgroundColor: installerTheme.borderStrong },
+  loading: { paddingVertical: 32, alignItems: "center", gap: 12 },
+  notice: { color: installerTheme.warning, fontSize: 12, lineHeight: 18, padding: 12, backgroundColor: installerTheme.warningSoft, borderRadius: installerTheme.radius.md },
+  error: { color: installerTheme.danger },
+  projectCard: { gap: 14 },
+  projectHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  projectIcon: { width: 42, height: 42, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: installerTheme.accentWarm, borderWidth: 1, borderColor: installerTheme.accentEdge },
+  flex: { flex: 1, minWidth: 0 },
+  projectName: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyStrong, fontSize: 16, lineHeight: 22 },
+  muted: { color: installerTheme.textMuted, fontSize: 12, lineHeight: 18 },
+  document: { gap: 10, borderTopWidth: 1, borderTopColor: installerTheme.border, paddingTop: 14, paddingBottom: 4 },
+  documentHeader: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  documentCode: { color: installerTheme.textFaint, fontFamily: installerTheme.fontFamilyMono, fontSize: 10 },
+  documentFooter: { flexDirection: "row", alignItems: "center", gap: 10 },
+  workCount: { color: installerTheme.text, fontSize: 13, lineHeight: 20 },
 });

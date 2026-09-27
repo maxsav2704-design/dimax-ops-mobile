@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NetworkError, SessionChangedError } from "@/lib/errors";
+import { journalFixture as journal } from "@/modules/journal/test-fixtures";
 
 const { apiFetchMock, identity, cacheRead, cacheWrite, openUrlMock } = vi.hoisted(() => ({
   apiFetchMock: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock("@/modules/journal/repository", () => ({
   listJournalSnapshots: cacheRead,
   saveJournalSnapshot: cacheWrite,
   saveJournalSnapshots: cacheWrite,
+  removeJournalSnapshot: cacheWrite,
 }));
 vi.mock("@/modules/projects/repository", () => ({ hydrateProjectDetails: cacheWrite }));
 vi.mock("@/modules/sync/service", () => ({ getSyncQueueSummary: async () => ({ pending: 0, failed: 0, blocked: 0 }) }));
@@ -50,7 +52,6 @@ const earnings = {
   period_key: "2026-09", currency: "ILS", today_total: "100.00", month_total: "100.00",
   days: [], install_types: [], rows: [], generated_at: null,
 };
-const journal = { id: "journal-a", project_id: "project-a", doors: [], addon_items: [] };
 const loads = [
   { name: "calendar", run: () => loadInstallerCalendar(), response: { items: [] } },
   { name: "earnings", run: () => loadInstallerEarnings("month", "2026-09-14"), response: earnings },
@@ -64,7 +65,7 @@ const operations = [
   { name: "project details", run: () => refreshProjectDetails("project-a"), response: { id: "project-a" } },
 ];
 const journalLinks = [
-  { name: "mark journal ready", run: () => markInstallerJournalReady("journal-a"), response: { signing_url: "https://dimax.test/sign/a" } },
+  { name: "mark journal ready", run: () => markInstallerJournalReady("journal-a"), response: { signing_url: "https://dimax.test/sign/a", public_token_expires_at: "2027-01-01T00:00:00Z" } },
   { name: "open signed PDF", run: () => openSignedJournalPdf("journal-a"), response: { url: "https://dimax.test/pdf/a" } },
 ];
 const requests = [...operations, ...journalLinks];
