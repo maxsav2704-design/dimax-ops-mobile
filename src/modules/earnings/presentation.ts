@@ -1,4 +1,5 @@
 import type { InstallerEarningsRow, InstallerEarningsSummary } from "@/modules/earnings/types";
+import { sumEarningsValues } from "./decimal";
 
 export type ProjectEarningsContext = {
   todayTotal: string;
@@ -36,11 +37,6 @@ export type ScopedEarningsFocusContext = EarningsFocusContext & {
   availableProjectIds: string[];
 };
 
-function parseAmount(value: string) {
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
 function formatAmount(value: number) {
   return value.toFixed(2);
 }
@@ -64,8 +60,8 @@ function buildInstallTypeSummary(rows: InstallerEarningsRow[]) {
       amount: 0,
       quantity: 0,
     };
-    current.amount += parseAmount(row.amount);
-    current.quantity += Number.parseFloat(String(row.quantity)) || 0;
+    current.amount = sumEarningsValues([current.amount, row.amount]);
+    current.quantity = sumEarningsValues([current.quantity, row.quantity]);
     installTypeMap.set(key, current);
   }
 
@@ -96,8 +92,8 @@ export function buildProjectEarningsContext(
   const todayRows = rows.filter((row) => row.work_date === todayDate);
 
   return {
-    todayTotal: formatAmount(todayRows.reduce((sum, row) => sum + parseAmount(row.amount), 0)),
-    monthTotal: formatAmount(rows.reduce((sum, row) => sum + parseAmount(row.amount), 0)),
+    todayTotal: formatAmount(sumEarningsValues(todayRows.map((row) => row.amount))),
+    monthTotal: formatAmount(sumEarningsValues(rows.map((row) => row.amount))),
     currency: snapshot.currency,
     rows,
     todayRows,
@@ -127,7 +123,7 @@ export function buildEarningsFocusContext(
     focus,
     selectedDay: effectiveDay,
     currency: snapshot.currency,
-    total: formatAmount(rows.reduce((sum, row) => sum + parseAmount(row.amount), 0)),
+    total: formatAmount(sumEarningsValues(rows.map((row) => row.amount))),
     rows,
     installTypeSummary: buildInstallTypeSummary(rows),
   };
@@ -170,7 +166,7 @@ export function buildScopedEarningsFocusContext(
 
   return {
     ...base,
-    total: formatAmount(scopedRows.reduce((sum, row) => sum + parseAmount(row.amount), 0)),
+    total: formatAmount(sumEarningsValues(scopedRows.map((row) => row.amount))),
     rows: scopedRows,
     installTypeSummary: buildInstallTypeSummary(scopedRows),
     projectId: normalizedProjectId,

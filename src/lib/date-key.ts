@@ -9,6 +9,14 @@ export function currentLocalDateKey(): string {
   return formatLocalDateKey(new Date());
 }
 
+export function parseLocalDateKey(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const day = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const parsed = dateKeyToLocalDate(day);
+  return Number.isFinite(parsed.getTime()) && formatLocalDateKey(parsed) === day ? day : null;
+}
+
 export function dateKeyToLocalDate(value: string): Date {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(year, month - 1, day);

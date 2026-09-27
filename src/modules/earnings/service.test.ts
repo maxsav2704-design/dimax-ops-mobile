@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, NetworkError } from "@/lib/errors";
 import { loadInstallerEarnings } from "@/modules/earnings/service";
 
@@ -26,10 +26,13 @@ vi.mock("@/modules/earnings/repository", () => ({
 
 describe("loadInstallerEarnings", () => {
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 2, 11, 12));
     apiFetchMock.mockReset();
     getEarningsSnapshotMock.mockReset();
     saveEarningsSnapshotMock.mockReset();
   });
+  afterEach(() => vi.useRealTimers());
 
   it("returns online snapshot when backend contract exists", async () => {
     const payload = {
@@ -294,5 +297,41 @@ describe("loadInstallerEarnings", () => {
       source: "unavailable",
       message: "Mobile earnings view is waiting for the canonical backend summary shape.",
     });
+  });
+
+  const valid = () => ({ period_key: "2026-03", currency: "ILS", today_total: "0.00", month_total: "0.00", days: [], install_types: [], rows: [], generated_at: null });
+
+  it.each([
+    { period_key: "2026-02" }, { currency: "bad currency" }, { month_total: "10junk" },
+    { rows: [null] }, { days: [{ date: "2026-02-30", amount: "1.00", jobs_count: 1 }] },
+    { install_types: [{ code: "DOOR", label: "Door", amount: "NaN", quantity: 1 }] },
+  ])("rejects malformed calculations and keeps a valid cache: %j", async (change) => {
+    apiFetchMock.mockResolvedValue({ ...valid(), ...change });
+    getEarningsSnapshotMock.mockResolvedValue(valid());
+    const result = await loadInstallerEarnings();
+    expect(result.source).toBe("cache");
+    expect(saveEarningsSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a cache belonging to a different month", async () => {
+    apiFetchMock.mockRejectedValue(new NetworkError("offline"));
+    getEarningsSnapshotMock.mockResolvedValue({ ...valid(), period_key: "2026-02" });
+    expect((await loadInstallerEarnings()).snapshot).toBeNull();
+  });
+
+  it("does not forward impossible dates to the backend", async () => {
+    apiFetchMock.mockResolvedValue(valid());
+    await loadInstallerEarnings("month", "2026-02-30");
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/earnings/summary?period=month", { expectedAuthGeneration: 0 });
+  });
+
+  it("does not replace a fresh offline calculation with a late response", async () => {
+    let resolveOld!: (value: unknown) => void;
+    apiFetchMock.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve; }));
+    const old = loadInstallerEarnings();
+    apiFetchMock.mockResolvedValueOnce(valid());
+    await loadInstallerEarnings();
+    resolveOld(valid()); await old;
+    expect(saveEarningsSnapshotMock).toHaveBeenCalledTimes(1);
   });
 });

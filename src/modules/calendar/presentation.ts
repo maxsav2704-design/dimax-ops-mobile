@@ -1,11 +1,6 @@
-import { dateKeyToLocalDate, formatLocalDateKey } from "@/lib/date-key";
+import { formatLocalDateKey } from "@/lib/date-key";
+export { parseLocalDateKey as calendarDayParam } from "@/lib/date-key";
 import type { InstallerCalendarEvent } from "./types";
-
-export function calendarDayParam(value: unknown): string | null {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return null;
-  const day = value.trim();
-  return formatLocalDateKey(dateKeyToLocalDate(day)) === day ? day : null;
-}
 
 export function calendarEventDay(event: Pick<InstallerCalendarEvent, "starts_at">): string {
   return formatLocalDateKey(new Date(event.starts_at));

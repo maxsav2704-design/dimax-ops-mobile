@@ -1,10 +1,11 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { router, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
-import { ScrollView, StatusBar, StyleSheet, View } from "react-native";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Modal, ScrollView, StatusBar, StyleSheet, View } from "react-native";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
+import { useReducedMotion } from "@/components/motion";
 import {
   ActionButton,
   BrandText as Text,
@@ -17,7 +18,7 @@ import {
   SegmentedControl,
   StatusPill,
 } from "@/components/mobile-ui";
-import { currentLocalDateKey } from "@/lib/date-key";
+import { currentLocalDateKey, parseLocalDateKey } from "@/lib/date-key";
 import { installerTheme } from "@/lib/theme";
 import {
   buildScopedEarningsFocusContext,
@@ -25,10 +26,12 @@ import {
 } from "@/modules/earnings/presentation";
 import { loadInstallerEarnings } from "@/modules/earnings/service";
 import type { InstallerEarningsRow, InstallerEarningsViewModel } from "@/modules/earnings/types";
-import { buildIssueProjectRoute, buildProjectRoute } from "@/modules/projects/navigation";
+import { sumEarningsValues } from "@/modules/earnings/decimal";
+import { buildProjectRoute } from "@/modules/projects/navigation";
 import { useAuth, useI18n } from "@/providers/AppProviders";
 
 type EarningsTab = "BREAKDOWN" | "PROJECTS" | "ROWS";
+const EMPTY_EARNINGS: InstallerEarningsViewModel = { snapshot: null, source: "unavailable", message: null };
 
 function queryValue(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0]?.trim() || "" : typeof value === "string" ? value.trim() : "";
@@ -39,57 +42,58 @@ function queryFocus(value: string | string[] | undefined): EarningsPeriodFocus |
   return normalized === "TODAY" || normalized === "MONTH" || normalized === "DAY" ? normalized : null;
 }
 
-function numberValue(value: unknown): number {
-  const parsed = typeof value === "number" ? value : Number.parseFloat(String(value ?? "0"));
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
 export default function EarningsScreen() {
-  const { user } = useAuth();
+  const { user, syncVersion } = useAuth();
   const { locale } = useI18n();
+  const reducedMotion = useReducedMotion();
   const params = useLocalSearchParams<{ focus?: string; day?: string; project_id?: string }>();
-  const [state, setState] = useState<InstallerEarningsViewModel>({
-    snapshot: null,
-    source: "unavailable",
-    message: null,
-  });
+  const today = currentLocalDateKey();
   const [loading, setLoading] = useState(true);
   const [focus, setFocus] = useState<EarningsPeriodFocus>(queryFocus(params.focus) || "MONTH");
-  const [selectedDay, setSelectedDay] = useState<string | null>(queryValue(params.day) || null);
+  const [selectedDay, setSelectedDay] = useState(parseLocalDateKey(queryValue(params.day)) || today);
+  const anchorDay = focus === "DAY" ? selectedDay : today;
+  const scopeKey = `${user?.company_id || ""}:${user?.id || ""}:${anchorDay.slice(0, 7)}`;
+  const [loaded, setLoaded] = useState<{ key: string; value: InstallerEarningsViewModel } | null>(null);
+  const state = loaded?.key === scopeKey ? loaded.value : EMPTY_EARNINGS;
+  const loadRevision = useRef(0);
   const [installType, setInstallType] = useState("ALL");
   const [tab, setTab] = useState<EarningsTab>("BREAKDOWN");
   const [openProjectKey, setOpenProjectKey] = useState<string | null>(null);
+  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const lt = (en: string, ru: string, he: string) => (locale === "ru" ? ru : locale === "he" ? he : en);
   const intlLocale = locale === "ru" ? "ru-RU" : locale === "he" ? "he-IL" : "en-GB";
+  const quantityLabel = (value: number) => new Intl.NumberFormat(intlLocale, { maximumFractionDigits: 2 }).format(value);
 
-  const reload = async () => {
+  const reload = useCallback(async () => {
+    const revision = ++loadRevision.current;
     setLoading(true);
     try {
-      setState(await loadInstallerEarnings("month", focus === "DAY" ? selectedDay : null));
+      const value = await loadInstallerEarnings("month", anchorDay);
+      if (revision === loadRevision.current) setLoaded({ key: scopeKey, value });
     } catch (reason) {
-      setState({
+      if (revision === loadRevision.current) setLoaded({ key: scopeKey, value: {
         snapshot: null,
         source: "unavailable",
         message: reason instanceof Error ? reason.message : "Earnings loading failed.",
-      });
+      } });
     } finally {
-      setLoading(false);
+      if (revision === loadRevision.current) setLoading(false);
     }
-  };
+  }, [anchorDay, scopeKey]);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     void reload();
-  }, [focus === "DAY" ? selectedDay : null]);
+    return () => { loadRevision.current += 1; };
+  }, [reload, syncVersion]));
 
   useEffect(() => {
     const incomingFocus = queryFocus(params.focus);
-    const incomingDay = queryValue(params.day);
-    if (incomingFocus) setFocus(incomingFocus);
-    if (incomingDay) setSelectedDay(incomingDay);
+    const incomingDay = parseLocalDateKey(queryValue(params.day));
+    setFocus(incomingFocus || "MONTH");
+    setSelectedDay(incomingDay || currentLocalDateKey());
   }, [params.day, params.focus]);
 
   const snapshot = state.snapshot;
-  const today = currentLocalDateKey();
   const focusedProjectId = queryValue(params.project_id);
   const context = useMemo(
     () => buildScopedEarningsFocusContext(snapshot, today, focus, selectedDay, focusedProjectId),
@@ -104,16 +108,17 @@ export default function EarningsScreen() {
     () => installType === "ALL" ? focusRows : focusRows.filter((row) => row.install_type_code === installType),
     [focusRows, installType]
   );
+  const selectedRow = rows.find((row) => row.id === selectedRowId) || null;
   const days = useMemo(
-    () => Array.from(new Set((snapshot?.days || []).map((day) => day.date))).sort(),
-    [snapshot?.days]
+    () => Array.from(new Set([...(snapshot?.rows || []).filter((row) => !focusedProjectId || row.project_id === focusedProjectId).map((row) => row.work_date), ...(focus === "DAY" ? [selectedDay] : [])])).sort(),
+    [snapshot?.rows, focusedProjectId, focus, selectedDay]
   );
   const dayLanes = useMemo(() => {
     const lanes = new Map<string, { date: string; amount: number; quantity: number; rows: number }>();
     for (const row of rows) {
       const current = lanes.get(row.work_date) || { date: row.work_date, amount: 0, quantity: 0, rows: 0 };
-      current.amount += numberValue(row.amount);
-      current.quantity += numberValue(row.quantity);
+      current.amount = sumEarningsValues([current.amount, row.amount]);
+      current.quantity = sumEarningsValues([current.quantity, row.quantity]);
       current.rows += 1;
       lanes.set(row.work_date, current);
     }
@@ -138,15 +143,15 @@ export default function EarningsScreen() {
         quantity: 0,
         rows: [],
       };
-      current.amount += numberValue(row.amount);
-      current.quantity += numberValue(row.quantity);
+      current.amount = sumEarningsValues([current.amount, row.amount]);
+      current.quantity = sumEarningsValues([current.quantity, row.quantity]);
       current.rows.push(row);
       lanes.set(key, current);
     }
     return Array.from(lanes.values()).sort((left, right) => right.amount - left.amount);
-  }, [rows]);
-  const totalAmount = rows.reduce((sum, row) => sum + numberValue(row.amount), 0);
-  const totalQuantity = rows.reduce((sum, row) => sum + numberValue(row.quantity), 0);
+  }, [rows, locale]);
+  const totalAmount = sumEarningsValues(rows.map((row) => row.amount));
+  const totalQuantity = sumEarningsValues(rows.map((row) => row.quantity));
   const projectCount = new Set(rows.map((row) => row.project_id).filter(Boolean)).size;
   const stateNotice = !state.message
     ? null
@@ -169,23 +174,23 @@ export default function EarningsScreen() {
         );
 
   useEffect(() => {
-    if (!selectedDay && days.length) setSelectedDay(days[days.length - 1]);
-  }, [days, selectedDay]);
-
-  useEffect(() => {
     if (installType !== "ALL" && !installTypes.some((item) => item.code === installType)) {
       setInstallType("ALL");
     }
   }, [installType, installTypes]);
 
   useEffect(() => {
-    if (!projectLanes.some((lane) => lane.key === openProjectKey)) {
-      setOpenProjectKey(projectLanes[0]?.key || null);
+    if (openProjectKey && !projectLanes.some((lane) => lane.key === openProjectKey)) {
+      setOpenProjectKey(null);
     }
   }, [openProjectKey, projectLanes]);
 
+  useEffect(() => {
+    if (selectedRowId && !selectedRow) setSelectedRowId(null);
+  }, [selectedRowId, selectedRow]);
+
   const money = (amount: number | string) => {
-    const value = typeof amount === "string" ? numberValue(amount) : amount;
+    const value = Number(amount);
     try {
       return new Intl.NumberFormat(intlLocale, {
         style: "currency",
@@ -198,7 +203,7 @@ export default function EarningsScreen() {
     }
   };
   const dateLabel = (date: string) =>
-    new Intl.DateTimeFormat(intlLocale, { day: "numeric", month: "short", weekday: "short" })
+    new Intl.DateTimeFormat(intlLocale, { day: "numeric", month: "short", weekday: "short", year: date.slice(0, 4) !== today.slice(0, 4) ? "numeric" : undefined })
       .format(new Date(`${date}T12:00:00`));
   const periodLabel =
     focus === "TODAY"
@@ -207,13 +212,15 @@ export default function EarningsScreen() {
         ? dateLabel(selectedDay)
         : lt("This month", "Этот месяц", "החודש");
 
-  const moveDay = (offset: number) => {
-    if (!days.length) return;
-    const currentIndex = selectedDay ? days.indexOf(selectedDay) : days.length - 1;
-    const nextIndex = Math.max(0, Math.min(days.length - 1, currentIndex + offset));
+  const activeDay = focus === "DAY" ? selectedDay : today;
+  const previousDay = [...days].reverse().find((day) => day < activeDay);
+  const nextDay = days.find((day) => day > activeDay);
+  const moveDay = (day: string | undefined) => {
+    if (!day) return;
     setFocus("DAY");
-    setSelectedDay(days[nextIndex]);
+    setSelectedDay(day);
   };
+  const navigate = (route: string) => { setSelectedRowId(null); router.push(route as never); };
 
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
@@ -223,7 +230,7 @@ export default function EarningsScreen() {
           showMark={false}
           eyebrow={lt("EARNINGS", "ЗАРАБОТОК", "שכר")}
           title={user?.full_name || "DIMAX Installer"}
-          subtitle={lt("Calculated by completed work on the server", "Рассчитано по выполненным работам на сервере", "מחושב לפי עבודות שהושלמו בשרת")}
+          subtitle={lt("Accruals for completed work", "Начисления по выполненным работам", "צבירות עבור עבודות שהושלמו")}
           right={
             <IconButton
               icon="refresh"
@@ -235,25 +242,25 @@ export default function EarningsScreen() {
           }
         >
           <View style={styles.periodNav}>
-            <IconButton icon="chevron-back" label={lt("Previous day", "Предыдущий день", "יום קודם")} tone="dark" disabled={!days.length} onPress={() => moveDay(-1)} />
+            <IconButton icon={locale === "he" ? "chevron-forward" : "chevron-back"} label={lt("Previous day", "Предыдущий день", "יום קודם")} tone="dark" disabled={!previousDay || !snapshot} onPress={() => moveDay(previousDay)} />
             <View style={styles.periodBody}>
               <Text style={styles.periodTitle}>{periodLabel}</Text>
-              <Text style={styles.periodMeta}>{rows.length} {lt("work rows", "строк работ", "שורות עבודה")}</Text>
+              <Text style={styles.periodMeta}>{snapshot ? rows.length : "—"} {lt("work rows", "строк работ", "שורות עבודה")}</Text>
             </View>
-            <IconButton icon="chevron-forward" label={lt("Next day", "Следующий день", "יום הבא")} tone="dark" disabled={!days.length} onPress={() => moveDay(1)} />
+            <IconButton icon={locale === "he" ? "chevron-back" : "chevron-forward"} label={lt("Next day", "Следующий день", "יום הבא")} tone="dark" disabled={!nextDay || !snapshot} onPress={() => moveDay(nextDay)} />
           </View>
           <Text style={styles.totalLabel}>{lt("EARNINGS IN VIEW", "ЗАРАБОТОК В ВЫБРАННОМ ПЕРИОДЕ", "שכר בתקופה")}</Text>
-          <Text style={styles.totalValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>{money(totalAmount)}</Text>
+          <Text testID="earnings-total" style={[styles.totalValue, totalAmount < 0 && styles.debit]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>{snapshot ? money(totalAmount) : "—"}</Text>
           <View style={styles.heroStatus}>
             <StatusPill
               label={
-                state.source === "online"
+                loading ? lt("Loading earnings", "Загрузка начислений", "טעינת שכר") : state.source === "online"
                   ? lt("Live data", "Актуальные данные", "נתונים עדכניים")
                   : state.source === "cache"
                     ? lt("Offline cache", "Офлайн-копия", "עותק לא מקוון")
                     : lt("Unavailable", "Недоступно", "לא זמין")
               }
-              tone={state.source === "online" ? "success" : state.source === "cache" ? "warning" : "danger"}
+              tone={loading ? "neutral" : state.source === "online" ? "success" : state.source === "cache" ? "warning" : "danger"}
             />
           </View>
           <SegmentedControl
@@ -261,9 +268,9 @@ export default function EarningsScreen() {
             onChange={setTab}
             dark
             options={[
-              { value: "BREAKDOWN", label: lt("Types", "Типы", "סוגים"), count: installTypes.length },
-              { value: "PROJECTS", label: lt("Projects", "Объекты", "פרויקטים"), count: projectLanes.length },
-              { value: "ROWS", label: lt("Details", "Детали", "פירוט"), count: rows.length },
+              { value: "BREAKDOWN", label: lt("Types", "Типы", "סוגים"), count: snapshot ? installTypes.length : undefined },
+              { value: "PROJECTS", label: lt("Projects", "Объекты", "פרויקטים"), count: snapshot ? projectLanes.length : undefined },
+              { value: "ROWS", label: lt("Details", "Детали", "פירוט"), count: snapshot ? rows.length : undefined },
             ]}
           />
         </ScreenHero>
@@ -281,9 +288,9 @@ export default function EarningsScreen() {
               <View style={styles.noticeBody}>
                 <Text style={styles.noticeText}>
                   {lt(
-                    `Project ${focusedProjectId} is not available in your earnings. Another project was not opened automatically.`,
-                    `Объект ${focusedProjectId} недоступен в ваших начислениях. Другой объект не был открыт автоматически.`,
-                    `הפרויקט ${focusedProjectId} אינו זמין בשכר שלך. פרויקט אחר לא נפתח אוטומטית.`
+                    "No earnings for this project in the selected month.",
+                    "В выбранном месяце нет начислений по этому объекту.",
+                    "אין שכר לפרויקט זה בחודש שנבחר."
                   )}
                 </Text>
                 <Pressable
@@ -305,9 +312,9 @@ export default function EarningsScreen() {
               <View style={styles.noticeBody}>
                 <Text style={[styles.noticeText, styles.scopeNoticeText]}>
                   {lt(
-                    `Focused project ${context?.projectId}`,
-                    `Фокус по объекту ${context?.projectId}`,
-                    `מיקוד פרויקט ${context?.projectId}`
+                    `Project: ${snapshot?.rows.find((row) => row.project_id === focusedProjectId)?.project_name || "—"}`,
+                    `Объект: ${snapshot?.rows.find((row) => row.project_id === focusedProjectId)?.project_name || "—"}`,
+                    `פרויקט: ${snapshot?.rows.find((row) => row.project_id === focusedProjectId)?.project_name || "—"}`
                   )}
                 </Text>
                 <Pressable
@@ -325,9 +332,9 @@ export default function EarningsScreen() {
           ) : null}
 
           <View style={styles.metrics}>
-            <MetricTile label={lt("Quantity", "Количество", "כמות")} value={Number.isInteger(totalQuantity) ? totalQuantity : totalQuantity.toFixed(2)} meta={`${rows.length} ${lt("rows", "строк", "שורות")}`} tone="success" />
-            <MetricTile label={lt("Projects", "Объекты", "פרויקטים")} value={projectCount} meta={lt("with completed work", "с выполненными работами", "עם עבודה שהושלמה")} tone="accent" />
-            <MetricTile label={lt("Days", "Дни", "ימים")} value={dayLanes.length} meta={lt("in current view", "в выбранном периоде", "בתצוגה")} tone="info" />
+            <MetricTile label={lt("Quantity", "Количество", "כמות")} value={!snapshot ? "—" : quantityLabel(totalQuantity)} meta={`${snapshot ? rows.length : "—"} ${lt("rows", "строк", "שורות")}`} tone="success" />
+            <MetricTile label={lt("Projects", "Объекты", "פרויקטים")} value={snapshot ? projectCount : "—"} meta={lt("with completed work", "с выполненными работами", "עם עבודה שהושלמה")} tone="accent" />
+            <MetricTile label={lt("Days", "Дни", "ימים")} value={snapshot ? dayLanes.length : "—"} meta={lt("in current view", "в выбранном периоде", "בתצוגה")} tone="info" />
           </View>
 
           <SectionCard>
@@ -375,6 +382,11 @@ export default function EarningsScreen() {
             ) : null}
           </SectionCard>
 
+          {!snapshot ? (
+            <SectionCard>
+              {loading ? <View style={styles.loading}><ActivityIndicator color={installerTheme.info} /><Text style={styles.noticeText}>{lt("Loading earnings", "Загрузка начислений", "טעינת שכר")}</Text></View> : <EmptyState icon="cloud-offline-outline" title={lt("Earnings unavailable", "Начисления недоступны", "השכר אינו זמין")} action={<ActionButton label={lt("Retry", "Повторить", "ניסיון נוסף")} icon="refresh" onPress={() => void reload()} />} />}
+            </SectionCard>
+          ) : <>
           {tab === "BREAKDOWN" ? (
             <>
               <SectionCard>
@@ -386,8 +398,8 @@ export default function EarningsScreen() {
                         key={item.code}
                         accessibilityRole="button"
                         accessibilityState={{ selected: installType === item.code }}
-                        accessibilityLabel={`${item.label}. ${lt("Quantity", "Количество", "כמות")}: ${item.quantity}. ${money(item.amount)}`}
-                        onPress={() => setInstallType(item.code)}
+                        accessibilityLabel={`${item.label}. ${lt("Quantity", "Количество", "כמות")}: ${quantityLabel(item.quantity)}. ${money(item.amount)}`}
+                        onPress={() => { setInstallType(item.code); setTab("ROWS"); }}
                         style={({ pressed }) => [
                           styles.line,
                           installType === item.code && styles.lineSelected,
@@ -399,9 +411,9 @@ export default function EarningsScreen() {
                         </View>
                         <View style={styles.lineBody}>
                           <Text style={styles.lineTitle} numberOfLines={1}>{item.label}</Text>
-                          <Text style={styles.lineMeta}>{lt("Quantity", "Количество", "כמות")}: {item.quantity}</Text>
+                          <Text style={styles.lineMeta}>{lt("Quantity", "Количество", "כמות")}: {quantityLabel(item.quantity)}</Text>
                         </View>
-                        <Text style={styles.lineAmount}>{money(item.amount)}</Text>
+                        <Text style={[styles.lineAmount, item.amount < 0 && styles.debit]}>{money(item.amount)}</Text>
                       </Pressable>
                     ))}
                   </View>
@@ -412,11 +424,11 @@ export default function EarningsScreen() {
               <SectionCard>
                 <SectionHeader title={lt("Current total", "Итого по выборке", "סה״כ לתצוגה")} />
                 <SummaryRow label={lt("Work rows", "Строки работ", "שורות עבודה")} value={String(rows.length)} />
-                <SummaryRow label={lt("Quantity", "Количество", "כמות")} value={String(totalQuantity)} />
+                <SummaryRow label={lt("Quantity", "Количество", "כמות")} value={quantityLabel(totalQuantity)} />
                 <SummaryRow label={lt("Projects", "Объекты", "פרויקטים")} value={String(projectCount)} />
                 <View style={styles.summaryGrand}>
                   <Text style={styles.summaryGrandLabel}>{lt("Total", "Итого", "סה״כ")}</Text>
-                  <Text style={styles.summaryGrandValue}>{money(totalAmount)}</Text>
+                  <Text style={[styles.summaryGrandValue, totalAmount < 0 && styles.debit]}>{money(totalAmount)}</Text>
                 </View>
               </SectionCard>
             </>
@@ -440,21 +452,21 @@ export default function EarningsScreen() {
                         <Ionicons name="business-outline" size={18} color={installerTheme.accentText} />
                       </View>
                       <View style={styles.projectBody}>
-                        <Text style={styles.projectTitle} numberOfLines={1}>{lane.projectName}</Text>
-                        <Text style={styles.projectMeta}>{lane.rows.length} {lt("rows", "строк", "שורות")} · {lane.quantity} {lt("units", "ед.", "יח׳")}</Text>
+                        <Text style={styles.projectTitle} numberOfLines={2}>{lane.projectName}</Text>
+                        <Text style={styles.projectMeta}>{lane.rows.length} {lt("rows", "строк", "שורות")} · {quantityLabel(lane.quantity)} {lt("units", "ед.", "יח׳")}</Text>
                       </View>
                       <View style={styles.projectRight}>
-                        <Text style={styles.projectAmount}>{money(lane.amount)}</Text>
-                        <Ionicons name={open ? "chevron-down" : "chevron-forward"} size={16} color={installerTheme.textFaint} />
+                        <Text style={[styles.projectAmount, lane.amount < 0 && styles.debit]}>{money(lane.amount)}</Text>
+                        <Ionicons name={open ? "chevron-down" : locale === "he" ? "chevron-back" : "chevron-forward"} size={16} color={installerTheme.textFaint} />
                       </View>
                     </Pressable>
                     {open ? (
                       <>
-                        {lane.rows.slice(0, 10).map((row) => <EarningsLine key={row.id} row={row} money={money} />)}
+                        <View style={styles.projectRows}><EarningsRows rows={lane.rows} money={money} onSelect={setSelectedRowId} initialLimit={10} /></View>
                         {lane.projectId ? (
                           <View style={styles.projectActions}>
                             <ActionButton label={lt("Open project", "Открыть объект", "פתיחת פרויקט")} icon="briefcase-outline" variant="dark" style={styles.flex} onPress={() => router.push(buildProjectRoute(lane.projectId as string) as never)} />
-                            <IconButton icon="alert-circle-outline" label={lt("Open issues", "Открыть проблемы", "פתיחת תקלות")} onPress={() => router.push(buildIssueProjectRoute(lane.projectId as string, { doorSearch: lane.projectName }) as never)} />
+                            <IconButton icon="alert-circle-outline" label={lt("Open issues", "Открыть проблемы", "פתיחת תקלות")} onPress={() => navigate(`/issues?projectId=${encodeURIComponent(lane.projectId as string)}`)} />
                           </View>
                         ) : null}
                       </>
@@ -478,7 +490,7 @@ export default function EarningsScreen() {
                     key={lane.date}
                     accessibilityRole="button"
                     accessibilityLabel={`${dateLabel(lane.date)}. ${money(lane.amount)}`}
-                    onPress={() => router.push(`/calendar?day=${encodeURIComponent(lane.date)}` as never)}
+                    onPress={() => { setFocus("DAY"); setSelectedDay(lane.date); }}
                     style={({ pressed }) => [styles.dayRow, pressed && styles.pressed]}
                   >
                     <View style={styles.dayIcon}>
@@ -486,10 +498,10 @@ export default function EarningsScreen() {
                     </View>
                     <View style={styles.lineBody}>
                       <Text style={styles.lineTitle}>{dateLabel(lane.date)}</Text>
-                      <Text style={styles.lineMeta}>{lane.rows} {lt("rows", "строк", "שורות")} · {lane.quantity} {lt("units", "ед.", "יח׳")}</Text>
+                      <Text style={styles.lineMeta}>{lane.rows} {lt("rows", "строк", "שורות")} · {quantityLabel(lane.quantity)} {lt("units", "ед.", "יח׳")}</Text>
                     </View>
-                    <Text style={styles.lineAmount}>{money(lane.amount)}</Text>
-                    <Ionicons name="chevron-forward" size={15} color={installerTheme.textFaint} />
+                    <Text style={[styles.lineAmount, lane.amount < 0 && styles.debit]}>{money(lane.amount)}</Text>
+                    <Ionicons name={locale === "he" ? "chevron-back" : "chevron-forward"} size={15} color={installerTheme.textFaint} />
                   </Pressable>
                 )) : (
                   <EmptyState icon="calendar-outline" title={lt("No daily rows", "Нет начислений по дням", "אין שורות יומיות")} />
@@ -497,30 +509,43 @@ export default function EarningsScreen() {
               </SectionCard>
               <SectionCard>
                 <SectionHeader title={lt("Work details", "Детализация работ", "פירוט עבודות")} meta={rows.length} />
-                {rows.length ? rows.slice(0, 30).map((row) => (
-                  <View key={row.id}>
-                    <EarningsLine row={row} money={money} />
-                    {row.project_id ? (
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`${lt("Open project", "Открыть объект", "פתיחת פרויקט")}. ${row.project_name || ""}`}
-                        onPress={() => router.push(buildProjectRoute(row.project_id as string) as never)}
-                        style={({ pressed }) => [styles.inlineLink, pressed && styles.pressed]}
-                      >
-                        <Text style={styles.inlineLinkText}>{lt("Open project", "Открыть объект", "פתיחת פרויקט")}</Text>
-                        <Ionicons name="arrow-forward" size={14} color={installerTheme.info} />
-                      </Pressable>
-                    ) : null}
-                  </View>
-                )) : (
+                {rows.length ? <EarningsRows rows={rows} money={money} onSelect={setSelectedRowId} /> : (
                   <EmptyState icon="receipt-outline" title={lt("No work rows", "Нет строк работ", "אין שורות עבודה")} />
                 )}
               </SectionCard>
             </>
           ) : null}
+          </>}
         </View>
       </ScrollView>
       <InstallerBottomNav />
+      {selectedRow ? (
+        <Modal visible transparent statusBarTranslucent animationType={reducedMotion ? "none" : "fade"} onRequestClose={() => setSelectedRowId(null)}>
+          <SafeAreaView style={[styles.modalRoot, { direction: locale === "he" ? "rtl" : "ltr" }]} edges={["top", "bottom", "left", "right"]}>
+            <Pressable feedback="none" accessibilityRole="button" accessibilityLabel={lt("Dismiss work details", "Закрыть окно начисления", "סגירת חלון השכר")} style={styles.modalBackdrop} onPress={() => setSelectedRowId(null)} />
+            <View testID="earnings-work-details" accessibilityViewIsModal onAccessibilityEscape={() => setSelectedRowId(null)} style={styles.modalPanel}>
+              <View style={styles.modalHeader}>
+                <StatusPill label={Number(selectedRow.amount) < 0 ? lt("Deduction", "Уменьшение", "הפחתה") : lt("Accrual", "Начисление", "צבירה")} tone={Number(selectedRow.amount) < 0 ? "danger" : "success"} />
+                <IconButton icon="close" label={lt("Close work details", "Закрыть детали начисления", "סגירת פרטי השכר")} onPress={() => setSelectedRowId(null)} />
+              </View>
+              <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalBody}>
+                <Text style={styles.detailTitle}>{selectedRow.door_label || selectedRow.install_type_label}</Text>
+                <Text style={[styles.detailAmount, Number(selectedRow.amount) < 0 && styles.debit]}>{money(selectedRow.amount)}</Text>
+                {state.source === "cache" ? <StatusPill label={lt("Offline cache", "Офлайн-копия", "עותק לא מקוון")} tone="warning" /> : null}
+                <SummaryRow label={lt("Date", "Дата", "תאריך")} value={dateLabel(selectedRow.work_date)} />
+                <SummaryRow label={lt("Project", "Объект", "פרויקט")} value={selectedRow.project_name || lt("No project", "Без объекта", "ללא פרויקט")} />
+                <SummaryRow label={lt("Work type", "Тип работы", "סוג עבודה")} value={selectedRow.install_type_label} />
+                <SummaryRow label={lt("Quantity", "Количество", "כמות")} value={quantityLabel(selectedRow.quantity)} />
+                <SummaryRow label={lt("Rate", "Ставка", "תעריף")} value={money(selectedRow.rate)} />
+                <View style={styles.projectActions}>
+                  {selectedRow.project_id ? <ActionButton label={lt("Open project", "Открыть объект", "פתיחת פרויקט")} icon="briefcase-outline" variant="dark" style={styles.flex} onPress={() => navigate(buildProjectRoute(selectedRow.project_id!))} /> : null}
+                  <IconButton icon="calendar-outline" label={lt("Open day's calendar", "Календарь за этот день", "לוח שנה ליום זה")} onPress={() => navigate(`/calendar?day=${encodeURIComponent(selectedRow.work_date)}`)} />
+                </View>
+              </ScrollView>
+            </View>
+          </SafeAreaView>
+        </Modal>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -539,26 +564,43 @@ function FilterChip({ active, label, onPress }: { active: boolean; label: string
   );
 }
 
-function EarningsLine({ row, money }: { row: InstallerEarningsRow; money: (value: number | string) => string }) {
+function EarningsRows({ rows, money, onSelect, initialLimit = 30 }: { rows: InstallerEarningsRow[]; money: (value: number | string) => string; onSelect: (id: string) => void; initialLimit?: number }) {
+  const { locale } = useI18n();
+  const [limit, setLimit] = useState(initialLimit);
+  useEffect(() => setLimit(initialLimit), [rows, initialLimit]);
+  return <View>
+    {rows.slice(0, limit).map((row) => <EarningsLine key={row.id} row={row} money={money} onPress={() => onSelect(row.id)} />)}
+    {rows.length > initialLimit ? <Text style={styles.pageCount}>{Math.min(limit, rows.length)} / {rows.length}</Text> : null}
+    {limit < rows.length ? <ActionButton label={locale === "ru" ? "Показать ещё" : locale === "he" ? "הצגת עוד" : "Show more work"} icon="chevron-down" variant="secondary" onPress={() => setLimit((value) => value + initialLimit)} /> : null}
+  </View>;
+}
+
+function EarningsLine({ row, money, onPress }: { row: InstallerEarningsRow; money: (value: number | string) => string; onPress: () => void }) {
+  const { locale } = useI18n();
+  const quantity = new Intl.NumberFormat(locale === "ru" ? "ru-RU" : locale === "he" ? "he-IL" : "en-GB", { maximumFractionDigits: 2 }).format(row.quantity);
+  const debit = Number(row.amount) < 0;
+  const label = row.door_label || row.project_name || row.install_type_label;
   return (
-    <View style={styles.line}>
-      <View style={[styles.lineIcon, styles.lineIconSuccess]}>
-        <Ionicons name="checkmark" size={15} color={installerTheme.success} />
+    <Pressable testID={`earnings-row-${row.id}`} accessibilityRole="button" accessibilityLabel={`${label}. ${money(row.amount)}`} onPress={onPress} style={({ pressed }) => [styles.line, pressed && styles.pressed]}>
+      <View style={[styles.lineIcon, debit ? styles.lineIconDebit : styles.lineIconSuccess]}>
+        <Ionicons name={debit ? "remove" : "checkmark"} size={15} color={debit ? installerTheme.danger : installerTheme.success} />
       </View>
       <View style={styles.lineBody}>
-        <Text style={styles.lineTitle} numberOfLines={1}>{row.door_label || row.project_name || row.install_type_label}</Text>
-        <Text style={styles.lineMeta} numberOfLines={1}>{row.install_type_label} · {row.quantity} × {row.rate}</Text>
+        <Text style={styles.lineTitle} numberOfLines={2}>{label}</Text>
+        <Text style={styles.lineMeta} numberOfLines={2}>{row.install_type_label} · {quantity} × {money(row.rate)}</Text>
       </View>
-      <Text style={styles.lineAmount}>{money(row.amount)}</Text>
-    </View>
+      <Text style={[styles.lineAmount, debit && styles.debit]}>{money(row.amount)}</Text>
+      <Ionicons name={locale === "he" ? "chevron-back" : "chevron-forward"} size={14} color={installerTheme.textFaint} />
+    </Pressable>
   );
 }
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
+  const { locale } = useI18n();
   return (
     <View style={styles.summaryRow}>
       <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={styles.summaryValue}>{value}</Text>
+      <Text style={[styles.summaryValue, { textAlign: locale === "he" ? "left" : "right" }]}>{value}</Text>
     </View>
   );
 }
@@ -607,6 +649,18 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   noticeActionText: { color: installerTheme.text, fontSize: 10, fontWeight: "800" },
+  loading: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12 },
+  modalRoot: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 16 },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.72)" },
+  modalPanel: { width: "100%", maxWidth: 480, maxHeight: "90%", flexShrink: 1, borderWidth: 1, borderColor: installerTheme.borderStrong, borderRadius: installerTheme.radius.card, backgroundColor: installerTheme.shellRaised, overflow: "hidden" },
+  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 14, borderBottomWidth: 1, borderBottomColor: installerTheme.border },
+  modalScroll: { flexShrink: 1 },
+  modalBody: { padding: 16, gap: 8 },
+  detailTitle: { color: installerTheme.text, fontSize: 17, lineHeight: 23, fontWeight: "800" },
+  detailAmount: { color: installerTheme.success, fontFamily: installerTheme.fontFamilyMono, fontSize: 24, lineHeight: 32, flexShrink: 1 },
+  debit: { color: installerTheme.danger },
+  pageCount: { color: installerTheme.textMuted, textAlign: "center", fontSize: 11, marginVertical: 8 },
+  projectRows: { paddingHorizontal: 12 },
   metrics: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chips: { gap: 7, paddingEnd: 12, marginTop: 9 },
   chip: {
@@ -629,31 +683,30 @@ const styles = StyleSheet.create({
   lineSelected: { backgroundColor: installerTheme.accentWarm },
   lineIcon: { width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: installerTheme.radius.md, backgroundColor: installerTheme.accentWarm },
   lineIconSuccess: { backgroundColor: installerTheme.successSoft },
+  lineIconDebit: { backgroundColor: installerTheme.dangerSoft },
   lineIconText: { color: installerTheme.accentText, fontSize: 11, fontWeight: "900" },
   lineBody: { flex: 1, minWidth: 0 },
   lineTitle: { color: installerTheme.text, fontSize: 11, fontWeight: "800" },
   lineMeta: { color: installerTheme.textMuted, fontSize: 9, marginTop: 3 },
-  lineAmount: { color: installerTheme.success, fontFamily: installerTheme.fontFamilyMono, fontSize: 11, flexShrink: 0 },
+  lineAmount: { color: installerTheme.success, fontFamily: installerTheme.fontFamilyMono, fontSize: 11, flexShrink: 1, maxWidth: "46%" },
   summaryRow: { flexDirection: "row", justifyContent: "space-between", gap: 10, borderTopWidth: 1, borderTopColor: installerTheme.border, paddingVertical: 9 },
-  summaryLabel: { color: installerTheme.textMuted, fontSize: 11 },
-  summaryValue: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyMono, fontSize: 11 },
+  summaryLabel: { color: installerTheme.textMuted, fontSize: 11, flexShrink: 1 },
+  summaryValue: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyMono, fontSize: 11, flex: 1, textAlign: "right", lineHeight: 17 },
   summaryGrand: { flexDirection: "row", justifyContent: "space-between", gap: 10, borderTopWidth: 1, borderTopColor: installerTheme.borderStrong, paddingTop: 12, marginTop: 3 },
   summaryGrandLabel: { color: installerTheme.text, fontSize: 13, fontWeight: "800" },
-  summaryGrandValue: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyMono, fontSize: 17 },
+  summaryGrandValue: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyMono, fontSize: 17, flexShrink: 1 },
   projectCard: { padding: 0, overflow: "hidden", borderColor: installerTheme.borderStrong, backgroundColor: installerTheme.shellRaised },
   projectHeader: { minHeight: 65, flexDirection: "row", alignItems: "center", gap: 10, padding: 12 },
   projectIcon: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: installerTheme.radius.md, backgroundColor: installerTheme.accentWarm },
   projectBody: { flex: 1, minWidth: 0 },
   projectTitle: { color: installerTheme.text, fontSize: 12, fontWeight: "800" },
   projectMeta: { color: installerTheme.textMuted, fontSize: 9, marginTop: 3 },
-  projectRight: { alignItems: "flex-end", gap: 4 },
+  projectRight: { alignItems: "flex-end", gap: 4, maxWidth: "45%", flexShrink: 1 },
   projectAmount: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyMono, fontSize: 12 },
-  projectActions: { flexDirection: "row", alignItems: "center", gap: 7, borderTopWidth: 1, borderTopColor: installerTheme.border, backgroundColor: installerTheme.card, padding: 10 },
+  projectActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 7, borderTopWidth: 1, borderTopColor: installerTheme.border, backgroundColor: installerTheme.card, padding: 10 },
   dayRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 9, borderTopWidth: 1, borderTopColor: installerTheme.border, paddingVertical: 9 },
   dayIcon: { width: 32, height: 32, alignItems: "center", justifyContent: "center", borderRadius: installerTheme.radius.md, backgroundColor: installerTheme.infoSoft },
   dayIconText: { color: installerTheme.info, fontFamily: installerTheme.fontFamilyMono, fontSize: 11 },
-  inlineLink: { minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 5, borderTopWidth: 1, borderTopColor: installerTheme.border, paddingVertical: 7 },
-  inlineLinkText: { color: installerTheme.info, fontSize: 10, fontWeight: "800" },
-  flex: { flex: 1 },
+  flex: { flexGrow: 1, flexBasis: 150 },
   pressed: { opacity: 0.68 },
 });
