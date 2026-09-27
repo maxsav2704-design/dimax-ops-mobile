@@ -38,14 +38,16 @@ export function resetPreviewProject() {
   workspace = {
     ...createEmptyLocalProjectWorkspace("preview-project"),
     project: { id: "preview-project", name: "DIMAX / A", address: "14 Herzl, Ashdod", status: "ACTIVE", lifecycle_status: "ACTIVE", health_status: "NORMAL", waze_url: null },
-    doors: ["201", "202"].map((apartment) => ({
+    doors: ["201", "202", "301", "401"].map((apartment, index) => ({
       id: `door-${apartment}`, project_id: "preview-project", door_type_id: "entrance",
-      unit_label: `A-2-${apartment}`, floor_label: "2", house_number: "A", apartment_number: apartment,
-      order_number: "ORD-24", location_code: "ENTRANCE", door_marking: "D1", status: "PENDING",
-      reason_id: null, comment: null, is_locked: false, version: 1, updated_at: null,
+      unit_label: `A-${apartment[0]}-${apartment}${index === 2 ? "-ENTRANCE-DOOR-01" : ""}`, floor_label: apartment[0], house_number: "A", apartment_number: apartment,
+      order_number: index < 2 ? "ORD-24" : "ORD-25", location_code: index === 3 ? "TECHNICAL" : "ENTRANCE", door_marking: "D1",
+      status: ["PENDING", "INSTALLED", "IN_PROGRESS", "NOT_INSTALLED"][index],
+      reason_id: index === 3 ? "no-access" : null, comment: null, is_locked: index === 1, version: 1, updated_at: null,
     })),
     doorTypes: [{ id: "entrance", code: "ENTRANCE", name: "Entrance / D1" }],
     reasons: [{ id: "no-access", code: "NO_ACCESS", name: "No access / Нет доступа / אין גישה" }],
+    issues: [{ id: "preview-issue", project_id: "preview-project", door_id: "door-401", status: "OPEN", title: "No access / Нет доступа / אין גישה", details: "TEST / 401" }],
     addonTypes: [{ id: "adjustment", name: "Adjustment / Регулировка / כיוון", unit: "pcs", qty_planned: "2" }],
     queueSummary: { total: 0, pending: 0, failed: 0, blocked: 0, ready_to_send: 0, next_retry_at: null },
   };

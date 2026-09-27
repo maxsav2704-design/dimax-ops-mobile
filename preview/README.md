@@ -100,6 +100,25 @@ Android export passed. The temporary `.tmp/calendar-workflow-bundle` output
 (4.71 MiB) was removed. No APK was installed; no phone acceptance was performed.
 No backend schema, assignment, payroll or public API contract was changed.
 
+## September 27 project visual hierarchy
+
+The project preview now has four doors across three floors, two orders, mixed
+statuses, a long position label and one issue. These remain memory-only fixtures;
+they do not add projects, work, earnings or issues to any real account.
+
+The actual project screen uses a compact header, expandable progress details and
+project issues, and collapsible advanced filters. The open-issue count stays
+visible. Search, status filters and reset remain accessible. The vertical floor
+rail is retained; floor statistics and door labels are larger. Position labels
+wrap in both the list and the detail image instead of losing identifying text.
+Selection and disclosure transitions reuse reduced-motion-aware components.
+
+Six additional screen tests cover these controls and localized floor counts.
+The UI was checked in RU/EN/HE at measured mobile widths of 322 and 393 CSS px,
+including Hebrew RTL, long positions, filter collapse/reset, return to the list
+and a memory-only completion/queue acknowledgement. No console errors or page
+width overflow were observed. This is not physical-device or API acceptance.
+
 ## September 27 earnings workflow
 
 Open `/earnings.html` for the actual earnings screen with 35 isolated ledger rows,

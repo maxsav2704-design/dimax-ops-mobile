@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   params: { id: "project-a" },
   focused: true,
   syncVersion: 0,
+  locale: "en" as "en" | "ru" | "he",
   load: vi.fn(), refresh: vi.fn(), earnings: vi.fn(), sync: vi.fn(),
   install: vi.fn(), notInstalled: vi.fn(), addon: vi.fn(), push: vi.fn(),
 }));
@@ -31,7 +32,7 @@ vi.mock("expo-router", async () => {
   };
 });
 vi.mock("@/providers/AppProviders", () => ({
-  useI18n: () => ({ locale: "en" }),
+  useI18n: () => ({ locale: mocks.locale }),
   useAuth: () => ({ syncVersion: mocks.syncVersion }),
 }));
 vi.mock("@/modules/projects/local-workspace", async (original) => ({
@@ -73,6 +74,10 @@ const button = (label: string) => {
 };
 const input = (label: string) => tree.root.findAllByType("input" as never)
   .find((node) => node.props.accessibilityLabel === label)!;
+const tabs = (label: string) => tree.root.findAllByType("pressable" as never)
+  .filter((node) => node.props.accessibilityLabel === label && node.props.accessibilityRole === "tab");
+const doorRows = () => tree.root.findAllByType("pressable" as never)
+  .filter((node) => node.props.accessibilityRole === "button" && node.props.accessibilityState?.selected !== undefined);
 const text = (node: ReactTestInstance = tree.root) => node.findAllByType("text" as never)
   .flatMap((node) => node.children.filter((child) => typeof child === "string")).join(" ");
 const deferred = () => {
@@ -94,6 +99,8 @@ beforeEach(() => {
   mocks.params = { id: "project-a" };
   mocks.focused = true;
   mocks.syncVersion = 0;
+  mocks.locale = "en";
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
   workspace = {
     ...createEmptyLocalProjectWorkspace("project-a"),
     project: { id: "project-a", name: "Tower A", address: "Test address", status: "ACTIVE", lifecycle_status: "ACTIVE", health_status: "NORMAL", waze_url: null },
@@ -106,9 +113,83 @@ beforeEach(() => {
   mocks.load.mockImplementation(async () => workspace);
   mocks.earnings.mockResolvedValue({ snapshot: null, source: "unavailable", message: null });
 });
-afterEach(() => { if (tree) act(() => tree.unmount()); });
+afterEach(() => { if (tree) act(() => tree.unmount()); vi.unstubAllGlobals(); });
 
 describe("project execution screen", () => {
+  it("keeps the compact progress summary expandable without changing door selection", async () => {
+    await mount();
+    expect(button("Door progress").props.accessibilityState.expanded).toBe(false);
+    act(() => button("Door progress").props.onPress(event));
+    expect(button("Door progress").props.accessibilityState.expanded).toBe(true);
+    expect(text()).toContain("0 Locked");
+    expect(doorRows()[0].props.accessibilityState.selected).toBe(true);
+    expect(mocks.install).not.toHaveBeenCalled();
+  });
+
+  it("switches floors and opens the exact door without recording any work", async () => {
+    workspace.doors.push({ ...workspace.doors[0], id: "door-b", floor_label: "3", unit_label: "A-301-ENTRANCE-DOOR-01", apartment_number: "301" });
+    await mount();
+    expect(doorRows()).toHaveLength(1);
+    act(() => tabs("Floor 3. Doors: 1")[0].props.onPress(event));
+    expect(doorRows()).toHaveLength(1);
+    expect(text(doorRows()[0])).toContain("A-301-ENTRANCE-DOOR-01");
+    expect(doorRows()[0].props.accessibilityState.selected).toBe(true);
+    act(() => tabs("Show all floors")[0].props.onPress(event));
+    expect(doorRows()).toHaveLength(2);
+    act(() => doorRows()[0].props.onPress(event));
+    expect(doorRows()[0].props.accessibilityState.selected).toBe(true);
+    expect(mocks.install).not.toHaveBeenCalled();
+    await act(async () => button("Installed").props.onPress(event));
+    expect(mocks.install).toHaveBeenCalledExactlyOnceWith("project-a", "door-a");
+  });
+
+  it("keeps advanced filters applied when collapsed and resets them from an empty result", async () => {
+    workspace.doors[0].order_number = "ORDER-A";
+    workspace.doors[0].location_code = "ENTRANCE";
+    workspace.doors.push({ ...workspace.doors[0], id: "door-b", unit_label: "A-202", apartment_number: "202", order_number: "ORDER-B", location_code: "TECHNICAL" });
+    await mount();
+    expect(tabs("ORDER-B")).toHaveLength(0);
+    act(() => button("Advanced filters").props.onPress(event));
+    expect(button("Advanced filters").props.accessibilityState.expanded).toBe(true);
+    act(() => tabs("ORDER-B")[0].props.onPress(event));
+    expect(doorRows()).toHaveLength(1);
+    expect(text(doorRows()[0])).toContain("A-202");
+    act(() => button("Advanced filters").props.onPress(event));
+    expect(tabs("ORDER-B")).toHaveLength(0);
+    expect(doorRows()).toHaveLength(1);
+    act(() => input("Search doors").props.onChangeText("not-found"));
+    expect(text()).toContain("No matching doors");
+    act(() => button("Reset filters").props.onPress(event));
+    expect(doorRows()).toHaveLength(2);
+    expect(input("Search doors").props.value).toBe("");
+  });
+
+  it("keeps issue counts visible and expands the list without losing navigation", async () => {
+    workspace.issues = [{ id: "issue-a", project_id: "project-a", door_id: "door-a", status: "OPEN", title: "Access blocked", details: "Call the supervisor" }];
+    await mount();
+    expect(text()).toContain("Open: 1");
+    expect(button("Project issues").props.accessibilityState.expanded).toBe(false);
+    expect(buttons("Access blocked. A-201")).toHaveLength(0);
+    act(() => button("Project issues").props.onPress(event));
+    expect(buttons("Access blocked. A-201")).toHaveLength(1);
+    act(() => button("Access blocked. A-201").props.onPress(event));
+    expect(input("Search doors").props.value).toBe("A-201");
+    act(() => button("All project issues").props.onPress(event));
+    expect(mocks.push).toHaveBeenCalledWith("/issues?projectId=project-a");
+    expect(mocks.install).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["ru", "Этаж 2. Двери: 1", "Двери: 1"],
+    ["he", "קומה 2. דלתות: 1", "דלתות: 1"],
+  ] as const)("keeps floor names and counts localized in %s", async (locale, floorLabel, countLabel) => {
+    mocks.locale = locale;
+    await mount();
+    expect(tabs(floorLabel)).toHaveLength(1);
+    expect(text()).toContain(countLabel);
+    expect(text()).not.toContain("1 дверей");
+  });
+
   it("queues an add-on once for a double tap before React rerenders", async () => {
     const pending = deferred();
     mocks.addon.mockReturnValue(pending.promise);
@@ -130,6 +211,7 @@ describe("project execution screen", () => {
     act(() => { install(event); install(event); sync(event); });
     expect(mocks.install).toHaveBeenCalledExactlyOnceWith("project-a", "door-a");
     expect(mocks.sync).not.toHaveBeenCalled();
+    expect(tabs("Floor 2. Doors: 1")[0].props.disabled).toBe(true);
     await act(async () => pending.resolve());
   });
 

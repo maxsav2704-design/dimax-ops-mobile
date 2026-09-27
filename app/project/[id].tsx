@@ -6,14 +6,13 @@ import { Image, ScrollView, StatusBar, StyleSheet, TextInput, View } from "react
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
-import { useReducedMotion } from "@/components/motion";
+import { Reveal, useReducedMotion } from "@/components/motion";
 import {
   ActionButton,
   BrandText as Text,
   EmptyState,
   IconButton,
   MetricTile,
-  ScreenHero,
   SectionCard,
   SectionHeader,
   SegmentedControl,
@@ -122,6 +121,9 @@ export default function ProjectDetailsScreen() {
   const [doorStatusFilter, setDoorStatusFilter] = useState("ALL");
   const [selectedOrderNumber, setSelectedOrderNumber] = useState("ALL");
   const [selectedLocationCode, setSelectedLocationCode] = useState("ALL");
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [showProjectIssues, setShowProjectIssues] = useState(false);
+  const [showProgressDetails, setShowProgressDetails] = useState(false);
   const [focusedFloor, setFocusedFloor] = useState("ALL");
   const autoFocusedProjectId = useRef("");
   const [issueFilter, setIssueFilter] = useState<IssueFilter>("OPEN");
@@ -339,6 +341,7 @@ export default function ProjectDetailsScreen() {
     }
   }, [focusedFloor, groupedDoors.length, projectId, selectedDoor?.floor_label]);
   const visibleIssues = issues.filter((issue) => issueFilter === "ALL" || issue.status !== "CLOSED");
+  const openIssueCount = issues.filter((issue) => issue.status !== "CLOSED").length;
   const completion = useMemo(() => {
     const installed = doors.filter((door) => door.status === "INSTALLED").length;
     const notInstalled = doors.filter((door) => door.status === "NOT_INSTALLED").length;
@@ -483,18 +486,16 @@ export default function ProjectDetailsScreen() {
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       <StatusBar barStyle="light-content" backgroundColor={installerTheme.shell} />
       <ScrollView ref={scrollRef} style={styles.content} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <ScreenHero
-          showMark={false}
-          eyebrow={`${lt("JOB", "ОБЪЕКТ", "פרויקט")} · ${projectId.slice(0, 8)}`}
-          title={project?.name || lt("Project", "Объект", "פרויקט")}
-          subtitle={project?.address || lt("No address", "Адрес не указан", "לא הוגדרה כתובת")}
-          right={
-            <View style={styles.heroActions}>
-              <IconButton icon="arrow-back" label={lt("Back", "Назад", "חזרה")} tone="dark" onPress={() => router.back()} />
-              <IconButton icon="sync" label={lt("Sync now", "Синхронизировать", "סנכרון")} tone="dark" disabled={busy} onPress={() => void handleSync()} />
+        <View style={styles.projectHeader}>
+          <View style={styles.projectHeadingRow}>
+            <IconButton icon={locale === "he" ? "arrow-forward" : "arrow-back"} label={lt("Back", "Назад", "חזרה")} tone="dark" onPress={() => router.back()} />
+            <View style={styles.projectHeading}>
+              <Text style={styles.projectEyebrow}>{lt("PROJECT / DOORS", "ОБЪЕКТ / ДВЕРИ", "פרויקט / דלתות")}</Text>
+              <Text style={styles.projectTitle} accessibilityRole="header">{project?.name || lt("Project", "Объект", "פרויקט")}</Text>
+              <Text style={styles.projectAddress}>{project?.address || lt("No address", "Адрес не указан", "לא הוגדרה כתובת")}</Text>
             </View>
-          }
-        >
+            <IconButton icon="sync" label={lt("Sync now", "Синхронизировать", "סנכרון")} tone="dark" disabled={busy} onPress={() => void handleSync()} />
+          </View>
           <View style={styles.heroBadges}>
             <StatusPill label={translateEnum(locale, project?.status || "ACTIVE")} tone="accent" />
             <StatusPill
@@ -503,7 +504,7 @@ export default function ProjectDetailsScreen() {
               icon={pendingEvents.length ? "cloud-upload-outline" : "cloud-done-outline"}
             />
           </View>
-        </ScreenHero>
+        </View>
 
         <View style={styles.body}>
           {error ? (
@@ -516,22 +517,27 @@ export default function ProjectDetailsScreen() {
 
           <SectionCard style={styles.progressCard}>
             <View style={styles.accentStrip} />
-            <View style={styles.progressHeader}>
-              <View style={styles.progressBody}>
-                <Text style={styles.progressEyebrow}>{lt("DOOR PROGRESS", "ПРОГРЕСС ДВЕРЕЙ", "התקדמות דלתות")}</Text>
-                <Text style={styles.progressValue}>{completion.installed} <Text style={styles.progressTotal}>/ {completion.total}</Text></Text>
-              </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={lt("Door progress", "Прогресс дверей", "התקדמות דלתות")}
+              accessibilityState={{ expanded: showProgressDetails }}
+              onPress={() => setShowProgressDetails((value) => !value)}
+              style={styles.progressHeader}
+            >
+              <Text style={styles.progressEyebrow}>{lt("Installed", "Установлено", "הותקן")}</Text>
+              <Text style={styles.progressValue}>{completion.installed} <Text style={styles.progressTotal}>/ {completion.total}</Text></Text>
               <StatusPill label={`${completion.percent}%`} tone={completion.percent === 100 ? "success" : "accent"} />
-            </View>
+              <Ionicons name={showProgressDetails ? "chevron-up" : "chevron-down"} size={14} color={installerTheme.textMuted} />
+            </Pressable>
             <View style={styles.progressTrack}>
               <View style={[styles.progressFill, { width: `${completion.percent}%` }]} />
             </View>
-            <View style={styles.legend}>
+            {showProgressDetails ? <Reveal style={styles.legend}>
               <LegendDot color={installerTheme.successFill} label={lt("Installed", "Установлено", "הותקן")} value={completion.installed} />
               <LegendDot color={installerTheme.warningFill} label={lt("Not installed", "Не установлено", "לא הותקן")} value={completion.notInstalled} />
               <LegendDot color={installerTheme.dangerFill} label={lt("Issues", "Проблемы", "תקלות")} value={completion.problem} />
               <LegendDot color={installerTheme.textFaint} label={lt("Locked", "Заблокировано", "נעול")} value={completion.locked} />
-            </View>
+            </Reveal> : null}
           </SectionCard>
 
           <View style={styles.quickActions}>
@@ -558,64 +564,100 @@ export default function ProjectDetailsScreen() {
 
           {issues.length ? (
             <SectionCard style={styles.issueSection}>
-              <SectionHeader
-                title={lt("Project issues", "Проблемы объекта", "תקלות בפרויקט")}
-                meta={visibleIssues.length}
-                action={
-                  <View style={styles.issueFilter}>
-                    <SegmentedControl
-                      value={issueFilter}
-                      onChange={setIssueFilter}
-                      options={[
-                        { value: "OPEN", label: lt("Open", "Открытые", "פתוחות") },
-                        { value: "ALL", label: lt("All", "Все", "הכול") },
-                      ]}
-                    />
-                  </View>
-                }
-              />
-              <View style={styles.issueList}>
-                {visibleIssues.slice(0, 5).map((issue) => {
-                  const issueDoor = doors.find((door) => door.id === issue.door_id);
-                  return (
-                    <Pressable
-                      key={issue.id}
-                      accessibilityRole="button"
-                      disabled={busy}
-                      accessibilityLabel={`${issue.title || lt("Reported issue", "Заявленная проблема", "תקלה שדווחה")}. ${issueDoor?.unit_label || lt("Door", "Дверь", "דלת")}`}
-                      onPress={() => {
-                        openDoor(issue.door_id);
-                        setDoorSearch(issueDoor?.unit_label || "");
-                      }}
-                      style={({ pressed }) => [styles.issueRow, pressed && styles.pressed]}
-                    >
-                      <View style={styles.issueIcon}>
-                        <Ionicons name="alert-circle-outline" size={18} color={installerTheme.danger} />
-                      </View>
-                      <View style={styles.issueBody}>
-                        <Text style={styles.issueTitle} numberOfLines={1}>{issue.title || lt("Reported issue", "Заявленная проблема", "תקלה שדווחה")}</Text>
-                        <Text style={styles.issueMeta} numberOfLines={2}>
-                          {issueDoor?.unit_label || lt("Door", "Дверь", "דלת")} · {issue.details || lt("No details", "Без описания", "ללא תיאור")}
-                        </Text>
-                      </View>
-                      <StatusPill label={translateEnum(locale, issue.status)} tone={issue.status === "CLOSED" ? "success" : "danger"} />
-                    </Pressable>
-                  );
-                })}
-              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={lt("Project issues", "Проблемы объекта", "תקלות בפרויקט")}
+                accessibilityState={{ expanded: showProjectIssues }}
+                onPress={() => setShowProjectIssues((value) => !value)}
+                style={styles.issueToggle}
+              >
+                <Ionicons name="alert-circle-outline" size={20} color={installerTheme.danger} />
+                <Text style={styles.issueToggleLabel}>{lt("Project issues", "Проблемы объекта", "תקלות בפרויקט")}</Text>
+                <StatusPill label={`${lt("Open", "Открыто", "פתוחות")}: ${openIssueCount}`} tone={openIssueCount ? "danger" : "neutral"} />
+                <Ionicons name={showProjectIssues ? "chevron-up" : "chevron-down"} size={16} color={installerTheme.textMuted} />
+              </Pressable>
+              {showProjectIssues ? <Reveal>
+                <SectionHeader
+                  title={lt("Issues", "Проблемы", "תקלות")}
+                  meta={visibleIssues.length}
+                  action={
+                    <View style={styles.issueFilter}>
+                      <SegmentedControl
+                        value={issueFilter}
+                        onChange={setIssueFilter}
+                        options={[
+                          { value: "OPEN", label: lt("Open", "Открытые", "פתוחות") },
+                          { value: "ALL", label: lt("All", "Все", "הכול") },
+                        ]}
+                      />
+                    </View>
+                  }
+                />
+                <View style={styles.issueList}>
+                  {visibleIssues.slice(0, 5).map((issue) => {
+                    const issueDoor = doors.find((door) => door.id === issue.door_id);
+                    return (
+                      <Pressable
+                        key={issue.id}
+                        accessibilityRole="button"
+                        disabled={busy}
+                        accessibilityLabel={`${issue.title || lt("Reported issue", "Заявленная проблема", "תקלה שדווחה")}. ${issueDoor?.unit_label || lt("Door", "Дверь", "דלת")}`}
+                        onPress={() => {
+                          openDoor(issue.door_id);
+                          setDoorSearch(issueDoor?.unit_label || "");
+                        }}
+                        style={({ pressed }) => [styles.issueRow, pressed && styles.pressed]}
+                      >
+                        <View style={styles.issueIcon}>
+                          <Ionicons name="alert-circle-outline" size={18} color={installerTheme.danger} />
+                        </View>
+                        <View style={styles.issueBody}>
+                          <Text style={styles.issueTitle} numberOfLines={1}>{issue.title || lt("Reported issue", "Заявленная проблема", "תקלה שדווחה")}</Text>
+                          <Text style={styles.issueMeta} numberOfLines={2}>
+                            {issueDoor?.unit_label || lt("Door", "Дверь", "דלת")} · {issue.details || lt("No details", "Без описания", "ללא תיאור")}
+                          </Text>
+                        </View>
+                        <StatusPill label={translateEnum(locale, issue.status)} tone={issue.status === "CLOSED" ? "success" : "danger"} />
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <ActionButton
+                  label={lt("All project issues", "Все проблемы объекта", "כל התקלות בפרויקט")}
+                  icon="list-outline"
+                  variant="secondary"
+                  onPress={() => router.push(`/issues?projectId=${encodeURIComponent(projectId)}` as never)}
+                />
+              </Reveal> : null}
             </SectionCard>
           ) : null}
 
-          <SectionCard>
-            <SectionHeader title={lt("Door filters", "Фильтры дверей", "סינון דלתות")} meta={`${filteredDoors.length}/${doors.length}`} />
-            <TextInput
-              value={doorSearch}
-              onChangeText={setDoorSearch}
-              accessibilityLabel={lt("Search doors", "Поиск дверей", "חיפוש דלתות")}
-              placeholder={lt("Door, order, apartment…", "Дверь, заказ, квартира…", "דלת, הזמנה, דירה…")}
-              placeholderTextColor={installerTheme.textFaint}
-              style={styles.input}
-            />
+          <View>
+            <View style={styles.searchRow}>
+              <View style={styles.searchField}>
+                <Ionicons name="search-outline" size={18} color={installerTheme.textMuted} />
+                <TextInput
+                  value={doorSearch}
+                  onChangeText={setDoorSearch}
+                  accessibilityLabel={lt("Search doors", "Поиск дверей", "חיפוש דלתות")}
+                  placeholder={lt("Door, order, apartment…", "Дверь, заказ, квартира…", "דלת, הזמנה, דירה…")}
+                  placeholderTextColor={installerTheme.textFaint}
+                  style={styles.searchInput}
+                />
+              </View>
+              {orderNumbers.length > 1 || locationCodes.length > 1 || selectedOrderNumber !== "ALL" || selectedLocationCode !== "ALL" ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={lt("Advanced filters", "Дополнительные фильтры", "מסננים נוספים")}
+                  accessibilityState={{ expanded: showAdvancedFilters }}
+                  onPress={() => setShowAdvancedFilters((value) => !value)}
+                  style={[styles.filterToggle, showAdvancedFilters && styles.chipActive]}
+                >
+                  <Ionicons name="options-outline" size={20} color={installerTheme.info} />
+                  {selectedOrderNumber !== "ALL" || selectedLocationCode !== "ALL" ? <View style={styles.activeFilterDot} /> : null}
+                </Pressable>
+              ) : null}
+            </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
               {["ALL", "NOT_INSTALLED", "INSTALLED", "ISSUES", "LOCKED"].map((status) => (
                 <FilterChip
@@ -632,7 +674,7 @@ export default function ProjectDetailsScreen() {
                 />
               ))}
             </ScrollView>
-            {orderNumbers.length > 1 ? (
+            {showAdvancedFilters && orderNumbers.length > 1 ? (
               <>
                 <Text style={styles.fieldLabel}>{lt("Order", "Заказ", "הזמנה")}</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
@@ -643,7 +685,7 @@ export default function ProjectDetailsScreen() {
                 </ScrollView>
               </>
             ) : null}
-            {locationCodes.length > 1 ? (
+            {showAdvancedFilters && locationCodes.length > 1 ? (
               <>
                 <Text style={styles.fieldLabel}>{lt("Location", "Локация", "מיקום")}</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
@@ -663,10 +705,10 @@ export default function ProjectDetailsScreen() {
                 onPress={resetFilters}
               />
             ) : null}
-          </SectionCard>
+          </View>
 
           <View ref={doorListRef} collapsable={false} style={styles.floorSection}>
-            <SectionHeader title={lt("Doors by floor", "Двери по этажам", "דלתות לפי קומה")} meta={filteredDoors.length} />
+            <SectionHeader title={lt("Doors by floor", "Двери по этажам", "דלתות לפי קומה")} meta={`${filteredDoors.length}/${doors.length}`} />
             {groupedDoors.length ? (
               <View style={styles.explorerLayout}>
                 <View
@@ -683,6 +725,7 @@ export default function ProjectDetailsScreen() {
                   >
                     <Pressable
                       accessibilityRole="tab"
+                      disabled={busy}
                       accessibilityState={{ selected: focusedFloor === "ALL" }}
                       accessibilityLabel={lt("Show all floors", "Показать все этажи", "הצגת כל הקומות")}
                       onPress={() => setFocusedFloor("ALL")}
@@ -701,15 +744,16 @@ export default function ProjectDetailsScreen() {
                         <Pressable
                           key={floor}
                           accessibilityRole="tab"
+                          disabled={busy}
                           accessibilityState={{ selected: active }}
-                          accessibilityLabel={`${lt("Floor", "Этаж", "קומה")} ${floor}. ${floorDoors.length} ${lt("positions", "позиций", "מיקומים")}${issueCount ? `. ${formatIssueCount(locale, issueCount)}` : ""}`}
+                          accessibilityLabel={`${lt("Floor", "Этаж", "קומה")} ${floor}. ${lt("Doors", "Двери", "דלתות")}: ${floorDoors.length}${issueCount ? `. ${formatIssueCount(locale, issueCount)}` : ""}`}
                           onPress={() => {
                             setFocusedFloor(floor);
                             setSelectedDoorId(floorDoors[0]?.id || "");
                           }}
                           style={[styles.floorNavItem, active && styles.floorNavItemActive]}
                         >
-                          <Text style={[styles.floorNavLabel, active && styles.floorNavLabelActive]}>{floor}</Text>
+                          <Text style={[styles.floorNavLabel, active && styles.floorNavLabelActive]} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8}>{floor}</Text>
                           {issueCount ? <View style={styles.floorNavIssue} /> : null}
                           {active ? <View style={styles.floorNavActiveRail} /> : null}
                         </Pressable>
@@ -729,7 +773,7 @@ export default function ProjectDetailsScreen() {
                         <View style={styles.floorHeader}>
                           <View style={styles.floorHeading}>
                             <Text style={styles.floorTitle}>{lt("Floor", "Этаж", "קומה")} {floor}</Text>
-                            <Text style={styles.floorMeta}>{floorDoors.length} {lt("doors", "дверей", "דלתות")}</Text>
+                            <Text style={styles.floorMeta}>{`${lt("Doors", "Двери", "דלתות")}: ${floorDoors.length}`}</Text>
                           </View>
                           <Text style={styles.floorPercent}>{floorPercent}%</Text>
                         </View>
@@ -795,7 +839,7 @@ export default function ProjectDetailsScreen() {
                   action={<IconButton icon="list-outline" label={lt("Back to doors", "К списку дверей", "חזרה לדלתות")} onPress={() => scrollToSection(doorListRef)} />}
                 />
                 <View style={[styles.doorDetailStrip, { backgroundColor: doorStatusColors(selectedDoor, selectedDoorIssues.length > 0).text }]} />
-                <View style={styles.doorImageHero}>
+                <Reveal key={selectedDoor.id} style={styles.doorImageHero}>
                   <Image
                     source={require("../../assets/premium/door-premium.jpg")}
                     resizeMode="cover"
@@ -812,10 +856,10 @@ export default function ProjectDetailsScreen() {
                     <Text style={styles.doorEyebrow}>{lt("Selected position", "Выбранная позиция", "מיקום נבחר")}</Text>
                     <View style={styles.doorImageTitleRow}>
                       <View style={styles.doorHeroBody}>
-                        <Text style={styles.doorNumber} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
+                        <Text style={styles.doorNumber}>
                           {selectedDoor.unit_label}
                         </Text>
-                        <Text style={styles.doorType} numberOfLines={1}>
+                        <Text style={styles.doorType}>
                           {selectedDoorType?.name || selectedDoorType?.code || selectedDoor.door_type_id}
                         </Text>
                       </View>
@@ -835,7 +879,7 @@ export default function ProjectDetailsScreen() {
                       ) : null}
                     </View>
                   </View>
-                </View>
+                </Reveal>
 
                 <View style={styles.doorFacts}>
                   <DoorFact label={lt("Order", "Заказ", "הזמנה")} value={selectedDoor.order_number} />
@@ -1234,24 +1278,22 @@ function DoorExplorerRow({
         <View style={[styles.doorThumbStatus, { backgroundColor: colors.text }]} />
       </View>
       <View style={styles.doorExplorerBody}>
-        <Text style={styles.doorExplorerNumber} numberOfLines={2}>{door.unit_label}</Text>
-        <Text style={styles.doorExplorerType} numberOfLines={1}>{typeLabel}</Text>
+        <Text style={styles.doorExplorerNumber}>{door.unit_label}</Text>
+        <Text style={styles.doorExplorerType}>{typeLabel}</Text>
         <View style={styles.doorExplorerMetaRow}>
           <Ionicons
             name="location-outline"
-            size={11}
-            color={installerTheme.textFaint}
+            size={13}
+            color={installerTheme.textMuted}
           />
-          <Text style={styles.doorExplorerMeta} numberOfLines={1}>{positionLabel}</Text>
+          <Text style={styles.doorExplorerMeta}>{positionLabel}</Text>
+        </View>
+        <View style={styles.doorExplorerState}>
+          <Ionicons name={doorStatusIcon(door, hasIssue)} size={14} color={colors.text} />
+          <Text style={[styles.doorExplorerStatus, { color: colors.text }]}>{translateEnum(locale, hasIssue ? "ISSUE_OPEN" : door.status)}</Text>
         </View>
       </View>
-      <View style={styles.doorExplorerState}>
-        <StatusPill
-          label={translateEnum(locale, hasIssue ? "ISSUE_OPEN" : door.status)}
-          tone={doorStatusTone(door, hasIssue)}
-        />
-        <Ionicons name="chevron-forward" size={16} color={installerTheme.textFaint} />
-      </View>
+      <Ionicons name={locale === "he" ? "chevron-back" : "chevron-forward"} size={16} color={selected ? installerTheme.info : installerTheme.textMuted} />
     </Pressable>
   );
 }
@@ -1365,7 +1407,12 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: installerTheme.background },
   content: { flex: 1 },
   scroll: { paddingBottom: installerTheme.layout.bottomNavClearance },
-  heroActions: { flexDirection: "row", gap: 7 },
+  projectHeader: { padding: 16, gap: 4, borderBottomWidth: 1, borderBottomColor: installerTheme.border, marginBottom: 10 },
+  projectHeadingRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  projectHeading: { flex: 1, minWidth: 0 },
+  projectEyebrow: { color: installerTheme.accent, fontSize: 10, lineHeight: 15, fontWeight: "700" },
+  projectTitle: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyDisplay, fontSize: 22, lineHeight: 29 },
+  projectAddress: { color: installerTheme.textMuted, fontSize: 12, lineHeight: 18, marginTop: 4 },
   heroBadges: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 10 },
   body: { gap: 14, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12 },
   errorBox: {
@@ -1382,25 +1429,26 @@ const styles = StyleSheet.create({
   actionFeedback: { borderStartWidth: 3, padding: 12, gap: 10, marginTop: 10 },
   actionFeedbackMessage: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   actionFeedbackText: { flex: 1, minWidth: 0, color: installerTheme.text, fontSize: 12, lineHeight: 18 },
-  progressCard: { position: "relative", overflow: "hidden", paddingStart: 16 },
+  progressCard: { position: "relative", overflow: "hidden", padding: 12, paddingStart: 16 },
   accentStrip: { position: "absolute", top: 0, bottom: 0, start: 0, width: 4, backgroundColor: installerTheme.accent },
-  progressHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  progressBody: { flex: 1 },
-  progressEyebrow: { color: installerTheme.textMuted, fontSize: 9, fontWeight: "800" },
-  progressValue: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyMono, fontSize: 22, marginTop: 3 },
+  progressHeader: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  progressEyebrow: { flex: 1, minWidth: 0, color: installerTheme.textMuted, fontSize: 12, fontWeight: "700" },
+  progressValue: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyMono, fontSize: 20 },
   progressTotal: { color: installerTheme.textFaint, fontSize: 15, fontWeight: "600" },
-  progressTrack: { height: 7, overflow: "hidden", borderRadius: installerTheme.radius.pill, backgroundColor: installerTheme.border, marginTop: 10 },
+  progressTrack: { height: 5, overflow: "hidden", borderRadius: installerTheme.radius.pill, backgroundColor: installerTheme.border, marginTop: 4 },
   progressFill: { height: "100%", borderRadius: installerTheme.radius.pill, backgroundColor: installerTheme.successFill },
   legend: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 10 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 4 },
   legendDot: { width: 7, height: 7, borderRadius: 2 },
-  legendText: { color: installerTheme.textMuted, fontSize: 9 },
+  legendText: { color: installerTheme.textMuted, fontSize: 11, lineHeight: 16 },
   legendValue: { color: installerTheme.text, fontWeight: "800" },
-  quickActions: { flexDirection: "row", gap: 7 },
+  quickActions: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
   quickAction: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: "45%",
     minWidth: 0,
-    minHeight: 68,
+    minHeight: 44,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
@@ -1415,9 +1463,11 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 2,
   },
-  quickIcon: { width: 32, height: 32, alignItems: "center", justifyContent: "center", borderRadius: installerTheme.radius.pill },
-  quickLabel: { color: installerTheme.text, fontSize: 9, lineHeight: 12, fontWeight: "800", textAlign: "center" },
-  issueSection: { borderColor: installerTheme.dangerBorder },
+  quickIcon: { width: 26, height: 26, alignItems: "center", justifyContent: "center", borderRadius: installerTheme.radius.pill },
+  quickLabel: { flexShrink: 1, color: installerTheme.text, fontSize: 12, lineHeight: 17, fontWeight: "700", textAlign: "center" },
+  issueSection: { borderColor: installerTheme.dangerBorder, paddingHorizontal: 10, paddingVertical: 2 },
+  issueToggle: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8 },
+  issueToggleLabel: { flex: 1, minWidth: 0, color: installerTheme.text, fontSize: 12, lineHeight: 17, fontWeight: "700" },
   issueFilter: { width: 148, maxWidth: "48%", flexShrink: 1 },
   issueList: { marginTop: 8 },
   issueRow: { minHeight: 65, flexDirection: "row", alignItems: "center", gap: 9, borderTopWidth: 1, borderTopColor: installerTheme.border, paddingVertical: 9 },
@@ -1425,6 +1475,11 @@ const styles = StyleSheet.create({
   issueBody: { flex: 1, minWidth: 0 },
   issueTitle: { color: installerTheme.text, fontSize: 11, fontWeight: "800" },
   issueMeta: { color: installerTheme.textMuted, fontSize: 9, lineHeight: 13, marginTop: 3 },
+  searchRow: { flexDirection: "row", gap: 8 },
+  searchField: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 8, minHeight: 46, paddingHorizontal: 12, borderRadius: installerTheme.radius.md, borderWidth: 1, borderColor: installerTheme.borderStrong, backgroundColor: installerTheme.shellRaised },
+  searchInput: { flex: 1, minWidth: 0, minHeight: 44, paddingVertical: 10, color: installerTheme.text, fontFamily: installerTheme.fontFamily, fontSize: 13 },
+  filterToggle: { width: 46, height: 46, alignItems: "center", justifyContent: "center", borderRadius: installerTheme.radius.md, borderWidth: 1, borderColor: installerTheme.infoBorder, backgroundColor: installerTheme.shellRaised },
+  activeFilterDot: { position: "absolute", top: 6, end: 6, width: 6, height: 6, borderRadius: 3, backgroundColor: installerTheme.accent },
   input: {
     minHeight: 44,
     borderRadius: installerTheme.radius.card,
@@ -1451,7 +1506,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   chipActive: { borderColor: installerTheme.infoBorder, backgroundColor: installerTheme.primarySoft },
-  chipText: { color: installerTheme.textMuted, fontSize: 10, fontWeight: "700" },
+  chipText: { color: installerTheme.textMuted, fontSize: 12, fontWeight: "700" },
   chipTextActive: { color: installerTheme.info },
   fieldLabel: { color: installerTheme.textMuted, fontSize: 9, fontWeight: "800", textTransform: "uppercase", marginTop: 13 },
   resetButton: { marginTop: 11 },
@@ -1496,7 +1551,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     elevation: 5,
   },
-  floorNavLabel: { color: installerTheme.textMuted, fontFamily: installerTheme.fontFamilyMono, fontSize: 11 },
+  floorNavLabel: { color: installerTheme.textMuted, fontFamily: installerTheme.fontFamilyMono, fontSize: 13, textAlign: "center", paddingHorizontal: 2 },
   floorNavLabelActive: { color: installerTheme.info },
   floorNavIssue: {
     position: "absolute",
@@ -1540,7 +1595,7 @@ const styles = StyleSheet.create({
   },
   floorHeading: { flex: 1, minWidth: 0 },
   floorTitle: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyDisplay, fontSize: 18 },
-  floorMeta: { color: installerTheme.textMuted, fontFamily: installerTheme.fontFamilyMono, fontSize: 10, marginTop: 3 },
+  floorMeta: { color: installerTheme.textMuted, fontSize: 12, marginTop: 3 },
   floorPercent: { color: installerTheme.info, fontFamily: installerTheme.fontFamilyMono, fontSize: 12 },
   floorProgressRow: {
     flexDirection: "row",
@@ -1549,22 +1604,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingBottom: 10,
   },
-  floorSummaryRow: { flexDirection: "row", gap: 5, paddingHorizontal: 10, paddingBottom: 10 },
+  floorSummaryRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 12, paddingBottom: 12 },
   floorSummary: {
-    flex: 1,
+    maxWidth: "100%",
     minWidth: 0,
-    minHeight: 42,
+    minHeight: 28,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
     borderRadius: 10,
     borderWidth: 1,
-    paddingHorizontal: 5,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
   },
   floorSummaryDot: { width: 5, height: 5, borderRadius: 3 },
-  floorSummaryValue: { fontFamily: installerTheme.fontFamilyMono, fontSize: 9 },
-  floorSummaryLabel: { flexShrink: 1, color: installerTheme.textMuted, fontSize: 8, lineHeight: 10 },
+  floorSummaryValue: { fontFamily: installerTheme.fontFamilyMono, fontSize: 12 },
+  floorSummaryLabel: { flexShrink: 1, color: installerTheme.textMuted, fontSize: 11, lineHeight: 16 },
   doorList: { borderTopWidth: 1, borderTopColor: installerTheme.border },
   doorExplorerRow: {
     position: "relative",
@@ -1574,7 +1630,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 9,
     paddingHorizontal: 10,
-    paddingVertical: 9,
+    paddingVertical: 13,
     borderBottomWidth: 1,
     borderBottomColor: installerTheme.border,
   },
@@ -1593,7 +1649,7 @@ const styles = StyleSheet.create({
   },
   doorThumb: {
     position: "relative",
-    width: 48,
+    width: 40,
     height: 56,
     flexShrink: 0,
     alignItems: "center",
@@ -1620,14 +1676,15 @@ const styles = StyleSheet.create({
   doorThumbHandle: { position: "absolute", end: 3, top: 19, width: 3, height: 3, borderRadius: 2 },
   doorThumbStatus: { position: "absolute", start: 0, end: 0, bottom: 0, height: 3 },
   doorExplorerBody: { flex: 1, minWidth: 0 },
-  doorExplorerNumber: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyDisplay, fontSize: 13, lineHeight: 18 },
-  doorExplorerType: { color: installerTheme.textMuted, fontSize: 11, marginTop: 3 },
+  doorExplorerNumber: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyDisplay, fontSize: 15, lineHeight: 21 },
+  doorExplorerType: { color: installerTheme.textMuted, fontSize: 12, lineHeight: 17, marginTop: 3 },
   doorExplorerMetaRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 5 },
-  doorExplorerMeta: { flex: 1, color: installerTheme.textMuted, fontFamily: installerTheme.fontFamilyMono, fontSize: 10 },
-  doorExplorerState: { maxWidth: 102, alignItems: "flex-end", gap: 7 },
+  doorExplorerMeta: { flex: 1, minWidth: 0, color: installerTheme.textMuted, fontSize: 12, lineHeight: 17 },
+  doorExplorerState: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8 },
+  doorExplorerStatus: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 17, fontWeight: "700" },
   floorProgressTrack: { flex: 1, minWidth: 0, height: 5, overflow: "hidden", borderRadius: installerTheme.radius.pill, backgroundColor: installerTheme.border },
   floorProgressFill: { height: "100%", borderRadius: installerTheme.radius.pill },
-  floorProgressText: { color: installerTheme.textMuted, fontFamily: installerTheme.fontFamilyMono, fontSize: 8 },
+  floorProgressText: { color: installerTheme.textMuted, fontFamily: installerTheme.fontFamilyMono, fontSize: 11 },
   corridor: {
     position: "relative",
     minHeight: 152,
@@ -1743,19 +1800,19 @@ const styles = StyleSheet.create({
   doorDetailStrip: { position: "absolute", top: 0, bottom: 0, start: 0, width: 4 },
   doorImageHero: {
     position: "relative",
-    height: 240,
+    minHeight: 240,
+    justifyContent: "flex-end",
     overflow: "hidden",
     borderRadius: installerTheme.radius.card,
     borderWidth: 1,
     borderColor: installerTheme.border,
   },
   doorImageContent: {
-    position: "absolute",
-    start: 14,
-    end: 14,
-    bottom: 13,
+    paddingHorizontal: 14,
+    paddingTop: 112,
+    paddingBottom: 13,
   },
-  doorImageTitleRow: { flexDirection: "row", alignItems: "flex-end", gap: 10, marginTop: 4 },
+  doorImageTitleRow: { alignItems: "flex-start", gap: 10, marginTop: 4 },
   doorHero: { flexDirection: "row", alignItems: "center", gap: 12 },
   doorGlyph: {
     width: 54,
@@ -1783,10 +1840,10 @@ const styles = StyleSheet.create({
   },
   doorHandle: { position: "absolute", end: 8, top: 34, width: 4, height: 4, borderRadius: installerTheme.radius.pill, backgroundColor: installerTheme.accent },
   doorGlyphThreshold: { position: "absolute", start: 4, end: 4, bottom: 3, height: 2, backgroundColor: installerTheme.shellBorder },
-  doorHeroBody: { flex: 1, minWidth: 0 },
+  doorHeroBody: { width: "100%", minWidth: 0 },
   doorEyebrow: { color: installerTheme.textMuted, fontFamily: installerTheme.fontFamilyMedium, fontSize: 9, letterSpacing: 0, textTransform: "uppercase" },
-  doorNumber: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyDisplayStrong, fontSize: 27, lineHeight: 33 },
-  doorType: { color: installerTheme.textMuted, fontSize: 11, lineHeight: 15, marginTop: 4 },
+  doorNumber: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyDisplayStrong, fontSize: 22, lineHeight: 29 },
+  doorType: { color: installerTheme.textMuted, fontSize: 12, lineHeight: 17, marginTop: 4 },
   doorBadges: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 7 },
   doorFacts: { flexDirection: "row", flexWrap: "wrap", gap: 1, overflow: "hidden", borderRadius: installerTheme.radius.card, backgroundColor: installerTheme.border, marginTop: 13 },
   doorFact: { width: "33%", flexGrow: 1, minWidth: 90, backgroundColor: installerTheme.card, padding: 9 },
