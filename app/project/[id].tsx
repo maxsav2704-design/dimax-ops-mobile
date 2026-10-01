@@ -257,7 +257,10 @@ export default function ProjectDetailsScreen() {
     if (params.issueStatus === "OPEN") setIssueFilter("OPEN");
   }, [params.doorSearch, params.doorStatus, params.issueStatus, params.locationCode, params.orderNumber]);
 
-  const issueDoorIds = useMemo(() => new Set(issues.map((issue) => issue.door_id)), [issues]);
+  const issueDoorIds = useMemo(
+    () => new Set(issues.filter((issue) => issue.status !== "CLOSED").map((issue) => issue.door_id)),
+    [issues]
+  );
   const selectedDoor = doors.find((door) => door.id === selectedDoorId) || null;
   const linkedScrollRequest = useRef("");
   const scrolledDoorRequest = useRef("");

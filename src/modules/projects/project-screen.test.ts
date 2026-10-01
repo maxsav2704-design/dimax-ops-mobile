@@ -245,6 +245,16 @@ describe("project execution screen", () => {
     expect(mocks.install).not.toHaveBeenCalled();
   });
 
+  it("keeps closed issue history without marking its floor or door as problematic", async () => {
+    workspace.issues = [{ id: "issue-a", project_id: "project-a", door_id: "door-a", status: "CLOSED", title: "Resolved access", details: null }];
+    await mount();
+    expect(text()).toContain("Open: 0");
+    expect(tabs("Floor 2. Doors: 1")).toHaveLength(1);
+    act(() => tabs("Issues")[0].props.onPress(event));
+    expect(doorRows()).toHaveLength(0);
+    expect(workspace.issues[0].status).toBe("CLOSED");
+  });
+
   it.each([
     ["ru", "Этаж 2. Двери: 1", "Двери: 1"],
     ["he", "קומה 2. דלתות: 1", "דלתות: 1"],
