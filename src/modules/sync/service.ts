@@ -265,6 +265,8 @@ async function markAckResult(
     await db.withTransactionAsync(async () => {
       if (eventRow?.type === "ADDON_FACT_CREATE") {
         await deleteLocalAddonFact(db, clientEventId);
+      } else if (eventRow?.type === "ISSUE_CREATE") {
+        await deleteLocalIssue(db, clientEventId);
       }
       await db.runAsync("DELETE FROM pending_events WHERE client_event_id = ?", [clientEventId]);
     });
@@ -617,6 +619,31 @@ async function deleteLocalIssue(
   await db.runAsync("DELETE FROM issues WHERE id = ?", [getLocalIssueId(clientEventId)]);
 }
 
+async function upsertServerIssue(
+  db: Awaited<ReturnType<typeof getDb>>,
+  issue: NonNullable<SyncSnapshot["issues"]>[number],
+): Promise<void> {
+  await db.runAsync(
+    `INSERT INTO issues(id, door_id, project_id, status, title, details)
+     VALUES(?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       door_id = excluded.door_id,
+       project_id = excluded.project_id,
+       status = excluded.status,
+       title = excluded.title,
+       details = excluded.details`,
+    [issue.id, issue.door_id, issue.project_id, issue.status, issue.title ?? null, issue.details ?? null],
+  );
+  // Remove copies left by older clients only after the server issue is stored.
+  await db.runAsync(
+    `DELETE FROM issues WHERE door_id = ? AND id LIKE 'local:%'
+     AND NOT EXISTS (
+       SELECT 1 FROM pending_events WHERE 'local:' || client_event_id = issues.id
+     )`,
+    [issue.door_id],
+  );
+}
+
 function normalizeStringSet(values: unknown): Set<string> {
   if (!Array.isArray(values)) {
     return new Set();
@@ -935,24 +962,7 @@ async function upsertSnapshot(snapshot: SyncSnapshot): Promise<void> {
     }
 
     for (const issue of snapshot.issues || []) {
-      await db.runAsync(
-        `INSERT INTO issues(id, door_id, project_id, status, title, details)
-         VALUES(?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           door_id = excluded.door_id,
-           project_id = excluded.project_id,
-           status = excluded.status,
-           title = excluded.title,
-           details = excluded.details`,
-        [
-          issue.id,
-          issue.door_id,
-          issue.project_id,
-          issue.status,
-          issue.title,
-          issue.details,
-        ]
-      );
+      await upsertServerIssue(db, issue);
     }
 
     for (const door of snapshot.doors) {
@@ -1003,6 +1013,12 @@ async function applyChange(change: SyncChange): Promise<void> {
   const payload = change.payload;
 
   switch (change.change_type) {
+    case "ISSUE":
+      await upsertServerIssue(db, {
+        id: payload.id, door_id: payload.door_id, project_id: payload.project_id,
+        status: payload.status, title: payload.title, details: payload.details,
+      });
+      break;
     case "DOOR":
       await db.withTransactionAsync(async () => {
         await db.runAsync(

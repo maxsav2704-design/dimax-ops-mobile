@@ -832,6 +832,28 @@ describe("mobile sync service", () => {
     ]);
   });
 
+  it.each(["OPEN", "CLOSED"])("applies incremental %s issues without dropping queued work", async (status) => {
+    apiFetchMock.mockResolvedValue({
+      server_time: "2026-10-01T19:00:00Z", next_cursor: 10,
+      reset_required: false, snapshot: null, acks: [], changes: [{
+        cursor_id: 10, change_type: "ISSUE", payload: {
+          id: "issue-1", door_id: "door-1", project_id: "project-1",
+          status, title: "Access", details: "Office update",
+        },
+      }],
+    });
+    await runSync();
+    const write = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("INSERT INTO issues"));
+    expect(write?.[1]).toEqual(["issue-1", "door-1", "project-1", status, "Access", "Office update"]);
+    expect(write?.[0]).toContain("ON CONFLICT(id) DO UPDATE SET");
+    const cleanup = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("id LIKE 'local:%'"));
+    expect(cleanup?.[0]).toContain("NOT EXISTS");
+    expect(cleanup?.[0]).toContain("'local:' || client_event_id = issues.id");
+    expect(cleanup?.[1]).toEqual(["door-1"]);
+    expect(dbRef.current.runAsync).not.toHaveBeenCalledWith("DELETE FROM pending_events");
+    expect(dbRef.current.runAsync).not.toHaveBeenCalledWith("DELETE FROM issues");
+  });
+
   it("removes a project shell when assignment removal leaves no local doors", async () => {
     dbRef.current.getFirstAsync.mockResolvedValueOnce({ total: 0 });
     apiFetchMock.mockResolvedValue({
@@ -1474,6 +1496,31 @@ describe("mobile sync service", () => {
       expect.stringContaining("SET status = 'BLOCKED'"),
       ["CONFLICT_ASSIGNMENT_CHANGED", "event-1"]
     );
+  });
+
+  it("removes only the acknowledged local issue and retains its server replacement", async () => {
+    const event = {
+      client_event_id: "event-issue", type: "ISSUE_CREATE", project_id: "project-1",
+      payload_json: JSON.stringify({ door_id: "door-1", title: "Access blocked" }),
+      status: "PENDING", attempts: 0,
+    };
+    dbRef.current.getAllAsync.mockResolvedValueOnce([event]);
+    dbRef.current.getFirstAsync.mockResolvedValueOnce(event);
+    apiFetchMock.mockResolvedValue({
+      server_time: "2026-10-01T19:00:00Z", next_cursor: 11,
+      reset_required: false, snapshot: null,
+      acks: [{ client_event_id: "event-issue", ok: true, applied: true, error: null }],
+      changes: [{ cursor_id: 11, change_type: "ISSUE", payload: {
+        id: "server-issue", door_id: "door-1", project_id: "project-1",
+        status: "OPEN", title: "Access blocked", details: null,
+      } }],
+    });
+    await runSync();
+    expect(dbRef.current.runAsync).toHaveBeenCalledWith("DELETE FROM issues WHERE id = ?", ["local:event-issue"]);
+    expect(dbRef.current.runAsync).toHaveBeenCalledWith("DELETE FROM pending_events WHERE client_event_id = ?", ["event-issue"]);
+    expect(dbRef.current.runAsync).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO issues"),
+      ["server-issue", "door-1", "project-1", "OPEN", "Access blocked", null]);
+    expect(dbRef.current.runAsync).not.toHaveBeenCalledWith("DELETE FROM pending_events");
   });
 
   it("removes the optimistic add-on fact when backend acknowledges the event", async () => {
