@@ -17,6 +17,10 @@ export function buildProjectRoute(projectId: string) {
   return buildProjectPath(projectId);
 }
 
+export function buildDoorProjectRoute(projectId: string, doorId: string) {
+  return buildProjectPath(projectId, { doorId, doorStatus: "ALL" });
+}
+
 export function buildIssueProjectRoute(projectId: string, options?: { doorSearch?: string }) {
   return buildProjectPath(projectId, {
     issueStatus: "OPEN",

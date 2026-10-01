@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { LocalProjectWorkspace } from "./local-workspace";
 
 const mocks = vi.hoisted(() => ({
-  params: { id: "project-a" },
+  params: { id: "project-a" } as { id: string; doorId?: string },
   focused: true,
   syncVersion: 0,
   locale: "en" as "en" | "ru" | "he",
@@ -116,6 +116,27 @@ beforeEach(() => {
 afterEach(() => { if (tree) act(() => tree.unmount()); vi.unstubAllGlobals(); });
 
 describe("project execution screen", () => {
+  it("selects an exact linked door even when labels are duplicated", async () => {
+    workspace.doors.push({ ...workspace.doors[0], id: "door-b" });
+    mocks.params.doorId = "door-b";
+    await mount();
+    await act(async () => button("Installed").props.onPress(event));
+    expect(mocks.install).toHaveBeenCalledWith("project-a", "door-b");
+  });
+  it("does not select another door for a missing door ID", async () => {
+    mocks.params.doorId = "missing";
+    await mount();
+    expect(text()).toContain("The linked door is no longer assigned");
+    expect(buttons("Installed")).toHaveLength(0);
+  });
+  it("preserves a later manual door selection when returning to a linked project", async () => {
+    workspace.doors.push({ ...workspace.doors[0], id: "door-b", unit_label: "A-202" });
+    mocks.params.doorId = "door-b"; await mount();
+    act(() => doorRows().find((row) => row.props.accessibilityLabel.includes("A-201"))!.props.onPress(event));
+    await focus(false); await focus(true);
+    await act(async () => button("Installed").props.onPress(event));
+    expect(mocks.install).toHaveBeenCalledWith("project-a", "door-a");
+  });
   it("keeps the compact progress summary expandable without changing door selection", async () => {
     await mount();
     expect(button("Door progress").props.accessibilityState.expanded).toBe(false);

@@ -14,7 +14,7 @@ export async function createNativeUiMock() {
   return {
     Pressable: host("pressable"), View: host("view"), ScrollView: host("scroll"),
     Text: "text", TextInput: "input", Image: "image", StatusBar: "statusbar",
-    Modal: "modal", ActivityIndicator: "spinner", Platform: { OS: "android" },
+    Modal: "modal", KeyboardAvoidingView: "keyboard-view", ActivityIndicator: "spinner", Platform: { OS: "android" },
     RefreshControl: "refresh-control", AppState: { addEventListener: vi.fn(() => ({ remove: vi.fn() })) },
     StyleSheet: { create: (value: unknown) => value, flatten, absoluteFillObject: {} },
     Easing: { out: (value: unknown) => value, cubic: "cubic" },

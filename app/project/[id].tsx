@@ -73,6 +73,7 @@ export default function ProjectDetailsScreen() {
   const { syncVersion } = useAuth();
   const params = useLocalSearchParams<{
     id: string;
+    doorId?: string;
     issueStatus?: string;
     doorSearch?: string;
     doorStatus?: string;
@@ -80,6 +81,8 @@ export default function ProjectDetailsScreen() {
     locationCode?: string;
   }>();
   const projectId = typeof params.id === "string" ? params.id : "";
+  const requestedDoorId = typeof params.doorId === "string" ? params.doorId.trim() : "";
+  const appliedDoorRequest = useRef("");
   const initialDoorSearch = typeof params.doorSearch === "string" ? params.doorSearch.trim().toLowerCase() : "";
   const activeProjectId = useRef(projectId);
   activeProjectId.current = projectId;
@@ -158,7 +161,13 @@ export default function ProjectDetailsScreen() {
     setAddonTypeId((current) =>
       workspace.addonTypes.some((addon) => addon.id === current) ? current : workspace.addonTypes[0]?.id || ""
     );
+    const doorRequest = `${projectId}:${requestedDoorId}`;
+    const newDoorRequest = appliedDoorRequest.current !== doorRequest;
+    appliedDoorRequest.current = doorRequest;
     setSelectedDoorId((current) => {
+      if (requestedDoorId && (newDoorRequest || !workspace.doors.some((door) => door.id === current))) {
+        return workspace.doors.some((door) => door.id === requestedDoorId) ? requestedDoorId : "";
+      }
       if (workspace.doors.some((door) => door.id === current)) return current;
       const matched = initialDoorSearch
         ? workspace.doors.find((door) => door.unit_label.toLowerCase().includes(initialDoorSearch))
@@ -167,7 +176,7 @@ export default function ProjectDetailsScreen() {
     });
 
     return pendingEventCount;
-  }, [initialDoorSearch, projectId]);
+  }, [initialDoorSearch, projectId, requestedDoorId]);
 
   const reload = useCallback(async ({ refreshRemote = true }: { refreshRemote?: boolean } = {}) => {
     if (!projectId) return;
@@ -507,6 +516,11 @@ export default function ProjectDetailsScreen() {
         </View>
 
         <View style={styles.body}>
+          {requestedDoorId && localWorkspace?.projectId === projectId && !doors.some((door) => door.id === requestedDoorId) ? (
+            <View style={styles.errorBox} accessibilityLiveRegion="polite">
+              <Text style={styles.errorText}>{lt("The linked door is no longer assigned. Another door was not selected automatically.", "Связанная дверь больше не назначена. Другая дверь не выбрана автоматически.", "הדלת המקושרת כבר אינה משויכת. דלת אחרת לא נבחרה אוטומטית.")}</Text>
+            </View>
+          ) : null}
           {error ? (
             <View style={styles.errorBox} accessibilityLiveRegion="polite">
               <Ionicons name="alert-circle-outline" size={18} color={installerTheme.danger} />

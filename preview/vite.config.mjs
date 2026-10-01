@@ -43,7 +43,7 @@ export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
   resolve: {
     alias: [
-      { find: "@/modules/projects/repository", replacement: fileURLToPath(new URL("./home-fixtures.ts", import.meta.url)) },
+      { find: "@/modules/projects/repository", replacement: fileURLToPath(new URL("./repository-fixtures.ts", import.meta.url)) },
       { find: "@/modules/journal/service", replacement: fileURLToPath(new URL("./journal-fixtures.ts", import.meta.url)) },
       { find: "@/modules/journal/workspace", replacement: fileURLToPath(new URL("./journal-fixtures.ts", import.meta.url)) },
       { find: "@/modules/earnings/service", replacement: fileURLToPath(new URL("./earnings-fixtures.ts", import.meta.url)) },

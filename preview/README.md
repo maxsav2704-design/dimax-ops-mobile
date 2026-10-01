@@ -216,3 +216,45 @@ Final quality gate: 629 tests in 44 files, TypeScript, Expo configuration and
 security/configuration checks passed. Android Hermes export: 1165 modules,
 35 assets, exit 0. Temporary `.tmp/home-visual-bundle` (4,978,323 bytes) was removed
 after path and reparse-point checks. No APK or phone acceptance was performed.
+
+## September 28 issue list / reporting workflow
+
+Open `/issues.html` for the actual issue screen with memory-only assigned doors,
+open/in-progress/closed issues, long labels and descriptions. Online, Cached,
+No data and Empty never access SQLite or the API. Fail next save exercises the
+durable-write error UI. Saving and sync change fixtures only; route destinations
+are displayed instead of opening an authenticated account.
+
+The screen has a compact header, scoped counts, search and readable issue cards.
+Cards open a scrollable detail dialog. Reporting uses the existing three steps
+in a dismissible dialog; dismissing retains the draft. The existing press and
+reduced-motion components are reused. No mock severity, reporter, discussion or
+resolution controls were added without a supporting data/API contract. Removed
+the old photo hint because this form has no attachment control; photos remain
+unnecessary for reporting.
+
+Loading and read failure are distinct from no open issues. Focus, sync and app
+resume refresh data with stale-response protection. Account/route changes isolate
+screen state. A same-frame lock prevents duplicate saves. A successful local write
+remains successful when later sync or refresh fails, so the composer cannot invite
+a duplicate submission. Saving still uses the existing durable outbox service.
+
+Issue details open the exact assigned door by ID. The project screen honors this
+link, warns when the door is absent and preserves subsequent manual selection.
+No backend, database, assignment or earnings rule changed.
+
+Verified RU layout at 393 CSS px and HE RTL / EN at 322 px, full descriptions,
+dialog closure, reporting/review and a saved offline fixture with one added queue
+entry. Loading/failure/empty states were checked separately. An exact door link
+opened the intended fixture position. No width overflow or new console errors
+remained after correcting the preview's initial import error.
+
+Full mobile quality gate: 655 tests in 45 files, TypeScript, Expo configuration and
+security/configuration guards passed. Includes 22 issue-screen tests, three exact
+door screen tests and one navigation regression test. Native keyboard, font scaling,
+screen-reader focus, reduced motion and live admin reconciliation still require
+device acceptance; the browser preview does not establish release readiness.
+
+Android Hermes export passed: 1165 modules, 35 assets, exit 0. Removed only the
+temporary `.tmp/issues-visual-bundle` (4,990,061 bytes) after resolved-path and
+reparse-point checks. This was a local JavaScript export, not an APK installation.

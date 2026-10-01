@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDashboardPrimaryAction,
   buildDoorPrepRoute,
+  buildDoorProjectRoute,
   buildIssueProjectRoute,
   buildIssueRouteFromCalendarEvent,
   buildPriorityRoute,
@@ -10,6 +11,9 @@ import {
 } from "@/modules/projects/navigation";
 
 describe("project navigation continuity", () => {
+  it("addresses a linked door by its exact encoded ID, not a display-label search", () => {
+    expect(buildDoorProjectRoute("project-a", "door +/1")).toBe("/project/project-a?doorId=door+%2B%2F1&doorStatus=ALL");
+  });
   it("opens the calendar when today has no assigned project", () => {
     expect(buildDashboardPrimaryAction([])).toEqual({
       kind: "CALENDAR",
