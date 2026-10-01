@@ -18,6 +18,12 @@ describe("earnings decimals and row contract", () => {
   it("normalizes a fractional work quantity while keeping server amounts", () => {
     expect(parseEarningsSummary(summary(), "2026-09")?.rows[0]).toEqual({ ...row, quantity: 1.25 });
   });
+  it.each([1.25, "1.25"])("preserves a fractional type summary quantity: %j", (quantity) => {
+    const type = { code: row.install_type_code, label: row.install_type_label, amount: row.amount, quantity };
+    const parsed = parseEarningsSummary({ ...summary(), install_types: [type] }, "2026-09");
+    expect(parsed?.install_types[0]).toEqual({ ...type, quantity: 1.25 });
+    expect(parsed?.rows[0].quantity).toBe(parsed?.install_types[0].quantity);
+  });
   it.each([
     { work_date: "2026-09-31" }, { work_date: "2026-08-31" }, { install_type_label: null },
     { rate: "3junk" }, { amount: "Infinity" }, { quantity: "-1" }, { quantity: "0" }, { quantity: "1.001" },
