@@ -62,10 +62,11 @@ export default function ProjectDetailsScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const doorDetailsRef = useRef<View>(null);
   const doorListRef = useRef<View>(null);
-  const scrollToSection = (section: React.RefObject<View>) => {
+  const scrollToSection = (section: React.RefObject<View>, canScroll?: () => boolean) => {
     const scroll = scrollRef.current;
     if (!scroll || !section.current) return;
     section.current.measureLayout(scroll.getInnerViewNode(), (_x, y) => {
+      if (canScroll && !canScroll()) return;
       scroll.scrollTo({ y: Math.max(0, y - 12), animated: !reducedMotion });
     });
   };
@@ -258,6 +259,24 @@ export default function ProjectDetailsScreen() {
 
   const issueDoorIds = useMemo(() => new Set(issues.map((issue) => issue.door_id)), [issues]);
   const selectedDoor = doors.find((door) => door.id === selectedDoorId) || null;
+  const linkedScrollRequest = useRef("");
+  const scrolledDoorRequest = useRef("");
+  linkedScrollRequest.current = requestedDoorId && selectedDoor?.id === requestedDoorId
+    ? `${projectId}:${requestedDoorId}` : "";
+  const scrollLinkedDoor = () => {
+    const request = linkedScrollRequest.current;
+    if (!focused.current || !request || scrolledDoorRequest.current === request) return;
+    scrollToSection(doorDetailsRef, () => {
+      if (!focused.current || linkedScrollRequest.current !== request || scrolledDoorRequest.current === request) return false;
+      scrolledDoorRequest.current = request;
+      return true;
+    });
+  };
+  useEffect(() => {
+    if (!requestedDoorId) scrolledDoorRequest.current = "";
+    const frame = requestAnimationFrame(scrollLinkedDoor);
+    return () => cancelAnimationFrame(frame);
+  }, [projectId, requestedDoorId, selectedDoor?.id, reducedMotion]);
   const selectedDoorIssues = issues.filter((issue) => issue.door_id === selectedDoorId);
   const selectedDoorPendingEvents = pendingEvents.filter(
     (event) => event.payload.door_id === selectedDoorId
@@ -494,7 +513,7 @@ export default function ProjectDetailsScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       <StatusBar barStyle="light-content" backgroundColor={installerTheme.shell} />
-      <ScrollView ref={scrollRef} style={styles.content} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={scrollRef} style={styles.content} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" onContentSizeChange={scrollLinkedDoor}>
         <View style={styles.projectHeader}>
           <View style={styles.projectHeadingRow}>
             <IconButton icon={locale === "he" ? "arrow-forward" : "arrow-back"} label={lt("Back", "Назад", "חזרה")} tone="dark" onPress={() => router.back()} />
@@ -846,7 +865,7 @@ export default function ProjectDetailsScreen() {
           </View>
 
           {selectedDoor ? (
-            <View ref={doorDetailsRef} collapsable={false}>
+            <View ref={doorDetailsRef} collapsable={false} onLayout={scrollLinkedDoor} testID="project-door-details">
               <SectionCard style={styles.doorDetail}>
                 <SectionHeader
                   title={lt("Door details", "Карточка двери", "פרטי דלת")}

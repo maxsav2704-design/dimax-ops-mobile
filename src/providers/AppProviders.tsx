@@ -59,6 +59,7 @@ const queryClient = new QueryClient();
 export function AppProviders({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthMe | null>(null);
   const [loading, setLoading] = useState(true);
+  const [bootstrapped, setBootstrapped] = useState(false);
   const [locale, setLocaleState] = useState<MobileLocale>("en");
   const [syncVersion, setSyncVersion] = useState(0);
   const authEpoch = useRef(0);
@@ -153,6 +154,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       } finally {
         if (authEpoch.current === expectedEpoch) {
           setLoading(false);
+          setBootstrapped(true);
         }
       }
     })();
@@ -318,7 +320,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
               isRtlLocale(locale) ? styles.providerRootRtl : styles.providerRootLtr,
             ]}
           >
-            {children}
+            {bootstrapped ? children : null}
             {loading ? (
               <View style={styles.loadingOverlay}>
                 <ActivityIndicator size="large" color={installerTheme.primary} />

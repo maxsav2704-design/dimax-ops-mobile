@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   locale: "en" as "en" | "ru" | "he",
   load: vi.fn(), refresh: vi.fn(), earnings: vi.fn(), sync: vi.fn(),
   install: vi.fn(), notInstalled: vi.fn(), addon: vi.fn(), push: vi.fn(),
+  scroll: vi.fn(), measure: vi.fn(),
 }));
 
 vi.mock("react-native", async () => (await vi.importActual<typeof import("@/test/native-ui")>("@/test/native-ui")).createNativeUiMock());
@@ -87,7 +88,15 @@ const deferred = () => {
   return { promise, resolve, reject };
 };
 async function mount() {
-  await act(async () => { tree = create(React.createElement(ProjectDetailsScreen)); });
+  await act(async () => {
+    tree = create(React.createElement(ProjectDetailsScreen), {
+      createNodeMock: (element) => {
+        if (element.type === "scroll") return { getInnerViewNode: () => 1, scrollTo: mocks.scroll };
+        if (element.props.testID === "project-door-details") return { measureLayout: mocks.measure };
+        return null;
+      },
+    });
+  });
 }
 async function focus(value: boolean) {
   mocks.focused = value;
@@ -101,6 +110,8 @@ beforeEach(() => {
   mocks.syncVersion = 0;
   mocks.locale = "en";
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  mocks.measure.mockImplementation((_node, callback) => callback(0, 600));
   workspace = {
     ...createEmptyLocalProjectWorkspace("project-a"),
     project: { id: "project-a", name: "Tower A", address: "Test address", status: "ACTIVE", lifecycle_status: "ACTIVE", health_status: "NORMAL", waze_url: null },
@@ -116,6 +127,40 @@ beforeEach(() => {
 afterEach(() => { if (tree) act(() => tree.unmount()); vi.unstubAllGlobals(); });
 
 describe("project execution screen", () => {
+  it("scrolls to a linked door once without jumping on later layout or sync updates", async () => {
+    mocks.params.doorId = "door-a";
+    await mount();
+    expect(mocks.scroll).toHaveBeenCalledExactlyOnceWith({ y: 588, animated: false });
+    act(() => tree.root.findByProps({ testID: "project-door-details" }).props.onLayout());
+    mocks.syncVersion += 1;
+    await act(async () => tree.update(React.createElement(ProjectDetailsScreen)));
+    expect(mocks.scroll).toHaveBeenCalledTimes(1);
+    expect(mocks.install).not.toHaveBeenCalled();
+  });
+  it("does not jump down on an ordinary project visit or for an unavailable linked door", async () => {
+    await mount();
+    expect(mocks.scroll).not.toHaveBeenCalled();
+    mocks.params.doorId = "missing";
+    await act(async () => tree.update(React.createElement(ProjectDetailsScreen)));
+    expect(mocks.scroll).not.toHaveBeenCalled();
+  });
+  it("scrolls to a new exact door link in the same project", async () => {
+    workspace.doors.push({ ...workspace.doors[0], id: "door-b" });
+    mocks.params.doorId = "door-a";
+    await mount();
+    mocks.params = { id: "project-a", doorId: "door-b" };
+    await act(async () => tree.update(React.createElement(ProjectDetailsScreen)));
+    expect(mocks.scroll).toHaveBeenCalledTimes(2);
+  });
+  it("ignores delayed native measurements after leaving the screen", async () => {
+    let measured!: (x: number, y: number) => void;
+    mocks.measure.mockImplementation((_node, callback) => { measured = callback; });
+    mocks.params.doorId = "door-a";
+    await mount();
+    await focus(false);
+    act(() => measured(0, 600));
+    expect(mocks.scroll).not.toHaveBeenCalled();
+  });
   it("selects an exact linked door even when labels are duplicated", async () => {
     workspace.doors.push({ ...workspace.doors[0], id: "door-b" });
     mocks.params.doorId = "door-b";
