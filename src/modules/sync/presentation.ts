@@ -77,12 +77,16 @@ export function buildProfileQueuePresentation(
   };
 }
 
-export function buildEventSummary(event: PendingSyncEvent, locale: MobileLocale = "en"): string {
+export function buildEventSummary(
+  event: PendingSyncEvent,
+  locale: MobileLocale = "en",
+  labels: { doorLabel?: string; addonLabel?: string } = {},
+): string {
   if (event.type === "DOOR_SET_STATUS") {
     const doorId =
-      typeof event.payload.door_id === "string"
+      labels.doorLabel || (typeof event.payload.door_id === "string"
         ? event.payload.door_id
-        : text(locale, "door", "дверь", "דלת");
+        : text(locale, "door", "дверь", "דלת"));
     const status =
       typeof event.payload.status === "string"
         ? translateEnum(locale, event.payload.status)
@@ -97,9 +101,9 @@ export function buildEventSummary(event: PendingSyncEvent, locale: MobileLocale 
 
   if (event.type === "ADDON_FACT_CREATE") {
     const addonId =
-      typeof event.payload.addon_type_id === "string"
+      labels.addonLabel || (typeof event.payload.addon_type_id === "string"
         ? event.payload.addon_type_id
-        : text(locale, "add-on", "допработа", "עבודה נוספת");
+        : text(locale, "add-on", "допработа", "עבודה נוספת"));
     const quantity = typeof event.payload.qty_done === "string" ? event.payload.qty_done : "-";
     return text(
       locale,
@@ -152,9 +156,9 @@ export function buildQueueResolution(
       ),
       action: text(
         locale,
-        "Refresh data first. If the door is still yours, retry; otherwise contact the office.",
-        "Сначала обновите данные. Если дверь всё ещё назначена вам, повторите; иначе свяжитесь с офисом.",
-        "רעננו נתונים. אם הדלת עדיין משויכת אליכם, נסו שוב; אחרת פנו למשרד."
+        "Sync to refresh assignments, then contact the office before discarding this action.",
+        "Обновите назначения через синхронизацию и свяжитесь с офисом перед удалением действия.",
+        "סנכרנו לרענון השיוכים ופנו למשרד לפני מחיקת הפעולה."
       ),
       retryAllowed: false,
       dropAllowed: true,

@@ -1,11 +1,14 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import type { LocalProjectWorkspace } from "../src/modules/projects/local-workspace";
 import { t, type MobileLocale, type MobileTranslationKey } from "../src/lib/i18n";
-import { syncHomePreview, getSyncQueueSummary as homeQueue } from "./home-fixtures";
+import { syncHomePreview, getSyncQueueSummary as homeQueue, getLastSyncAt as homeLastSync } from "./home-fixtures";
 import { syncIssuesPreview, getSyncQueueSummary as issuesQueue } from "./issues-fixtures";
 export { queueIssueCreateEvent } from "./issues-fixtures";
-export { forceColdResync, getLastSyncAt, canUseProjectCacheAfterSyncFailure } from "./home-fixtures";
-export const getSyncQueueSummary = () => window.location.pathname.endsWith("/issues.html") ? issuesQueue() : homeQueue();
+import { syncQueuePreview, getSyncQueueSummary as queueSummary, getLastSyncAt as queueLastSync } from "./sync-queue-fixtures";
+export { listPendingEvents, retryPendingEventNow, dropPendingEvent } from "./sync-queue-fixtures";
+export { forceColdResync, canUseProjectCacheAfterSyncFailure } from "./home-fixtures";
+export const getLastSyncAt = () => window.location.pathname.endsWith("/sync-queue.html") ? queueLastSync() : homeLastSync();
+export const getSyncQueueSummary = () => window.location.pathname.endsWith("/sync-queue.html") ? queueSummary() : window.location.pathname.endsWith("/issues.html") ? issuesQueue() : homeQueue();
 
 // Aliased only by the Vite preview. No authentication, network or SQLite access.
 const LocaleContext = createContext("ru");
@@ -92,6 +95,7 @@ export async function addAddonFact(projectId: string, addonTypeId: string, qtyDo
   workspace.addonFacts.push({ id: `local:${workspace.pendingEvents.length}`, project_id: projectId, addon_type_id: addonTypeId, addon_name: "Adjustment", unit: "pcs", qty_done: qtyDone, comment, done_at: new Date().toISOString(), source: "OFFLINE", updated_at: null });
 }
 export async function runSync() {
+  if (window.location.pathname.endsWith("/sync-queue.html")) return syncQueuePreview();
   if (window.location.pathname.endsWith("/issues.html")) return syncIssuesPreview();
   if (window.location.pathname.endsWith("/home.html")) return syncHomePreview();
   await new Promise((resolve) => setTimeout(resolve, 450));

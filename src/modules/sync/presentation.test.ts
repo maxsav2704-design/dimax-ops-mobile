@@ -124,7 +124,7 @@ describe("sync queue presentation", () => {
     const resolution = buildQueueResolution(event);
 
     expect(resolution.title).toBe("Assignment changed");
-    expect(resolution.action).toContain("Refresh data first");
+    expect(resolution.action).toContain("Sync to refresh assignments");
     expect(resolution.retryAllowed).toBe(false);
     expect(resolution.dropAllowed).toBe(true);
     expect(canRetrySyncEvent(event)).toBe(false);

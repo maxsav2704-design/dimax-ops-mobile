@@ -258,3 +258,38 @@ device acceptance; the browser preview does not establish release readiness.
 Android Hermes export passed: 1165 modules, 35 assets, exit 0. Removed only the
 temporary `.tmp/issues-visual-bundle` (4,990,061 bytes) after resolved-path and
 reparse-point checks. This was a local JavaScript export, not an APK installation.
+
+## October 1 sync queue / safe recovery actions
+
+Open `/sync-queue.html` for the actual queue screen with memory-only fixtures.
+Mixed, Offline, No data and Empty exercise pending work, failed delivery,
+assignment conflicts and read failure. SQLite and sync are aliased only in the
+preview; no real account, API, assignments or earnings are accessed.
+
+The compact header retains all four counters. Cards show project/door/add-on
+names, full work labels, explicit saved/retry times and attempts. Technical IDs
+and errors expand on demand. The linked-work button uses the exact local door;
+missing assignments never fall back to another door. Existing press feedback
+and reduced-motion-aware reveals are reused.
+
+All screen mutations share a same-frame lock. Retry/discard re-read current
+eligibility inside the captured account's short database operation. Network sync
+runs outside the DB activation queue. Account changes remount the workspace;
+focus, sync-version and app-resume reloads ignore stale results. Confirmed discard
+names its project/work and cannot be dismissed while the operation is pending.
+Sync remains available for a server pull even when the local queue is empty.
+The service protocol, durable outbox and conflict policy are unchanged.
+
+Full mobile quality gate passed: 675 tests in 46 files, including 20 new actual
+queue-screen tests; TypeScript, security and configuration contracts passed.
+Browser checks: RU at 393 CSS px; EN/HE RTL at 322 px; readable long labels,
+confirmation/cancel, expandable details, exact test route, offline retention,
+read-error vs empty, and empty-queue pull availability. No width overflow.
+Fixed an initial fixture-reset naming error; no later console errors observed.
+
+Android Hermes export passed: 1165 modules, 35 assets, exit 0. Removed only
+`.tmp/sync-queue-visual-bundle` (4,995,435 bytes) after path/reparse checks.
+The local preview is running at 127.0.0.1:4188. Viewport override reset and
+scenario restored to Mixed / RU. No APK, device interaction or live admin-to-phone
+acceptance was performed. Native accessibility, font scaling and real network
+recovery still need device verification; this is not a 100% release claim.
