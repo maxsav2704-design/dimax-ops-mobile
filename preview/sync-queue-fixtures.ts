@@ -18,6 +18,11 @@ export function resetQueuePreview(value: QueuePreviewMode) {
     { ...base, client_event_id: "preview-event-202", payload: { door_id: "door-202", status: "INSTALLED" }, status: "BLOCKED", error: "CONFLICT_ASSIGNMENT_CHANGED", attempts: 1 },
     { ...base, client_event_id: "preview-event-addon", type: "ADDON_FACT_CREATE", payload: { addon_type_id: "adjustment", qty_done: "3" }, status: "FAILED", error: "TEST: connection unavailable", attempts: 2, next_retry_at: "2026-10-01T08:35:00Z" },
   ];
+  if (value !== "empty" && new URLSearchParams(window.location.search).get("prices") === "conflict") {
+    events = [{ ...base, status: "BLOCKED", error: "CONFLICT_FACTORY_PRICE", attempts: 1,
+      happened_at: "2026-09-30T10:12:00Z",
+      payload: { ...base.payload, price_list_id: "00000000-0000-4000-8000-000000000001" } }];
+  }
 }
 resetQueuePreview("mixed");
 export async function listPendingEvents() {

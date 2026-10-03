@@ -70,6 +70,28 @@ describe("sync queue screen", () => {
     rows = [makeEvent({ type: "ADDON_FACT_CREATE", payload: { addon_type_id: "addon-a", qty_done: "3" } })]; await mount();
     expect(text()).toContain("Adjustment qty 3"); press("Open linked work"); expect(mocks.push).toHaveBeenCalledWith("/project/project-a");
   });
+  it.each(["DOOR_SET_STATUS", "ADDON_FACT_CREATE"] as const)("shows the saved execution price evidence for %s", async (type) => {
+    rows = [makeEvent({ type, payload: { door_id: "door-a", status: "INSTALLED", addon_type_id: "addon-a", qty_done: "1.5", price_list_id: "original-price-v1" },
+      happened_at: "2026-09-30T10:12:00Z", status: "BLOCKED", error: "CONFLICT_FACTORY_PRICE" })];
+    await mount();
+    expect(text()).not.toContain("original-price-v1");
+    press("Technical details");
+    expect(text()).toContain("original-price-v1");
+    expect(text()).toContain("2026-09-30T10:12:00Z");
+    expect(controls("Retry now")).toHaveLength(0);
+    expect(controls("Discard").filter((node) => {
+      for (let parent = node.parent; parent; parent = parent.parent) {
+        if (String(parent.type) === "modal" && !parent.props.visible) return false;
+      }
+      return true;
+    })).toHaveLength(0);
+    expect(mocks.retry).not.toHaveBeenCalled(); expect(mocks.drop).not.toHaveBeenCalled();
+  });
+  it("does not invent execution evidence for a legacy queue record", async () => {
+    await mount(); press("Technical details");
+    expect(text()).toMatch(/Execution price list ID.*Not recorded/);
+    expect(text()).toMatch(/Executed at.*Not recorded/);
+  });
   it("does not substitute another door for a removed assignment", async () => {
     mocks.doors.mockResolvedValue([]); await mount(); expect(text()).toContain("Door unavailable"); expect(controls("Open linked work")).toHaveLength(0);
   });

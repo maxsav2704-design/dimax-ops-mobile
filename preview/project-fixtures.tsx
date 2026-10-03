@@ -41,7 +41,7 @@ export const router = {
 };
 export const useRouter = () => router;
 export function createEmptyLocalProjectWorkspace(projectId = ""): LocalProjectWorkspace {
-  return { projectId, project: null, doors: [], doorTypes: [], issues: [], reasons: [], addonTypes: [], addonFacts: [], pendingEvents: [], queueSummary: null };
+  return { projectId, project: null, doors: [], doorTypes: [], issues: [], reasons: [], addonTypes: [], addonFacts: [], pendingEvents: [], queueSummary: null, factoryPrices: { status: "loading", snapshot: null } };
 }
 let workspace: LocalProjectWorkspace;
 let failNext = false;
@@ -61,8 +61,27 @@ export function resetPreviewProject() {
     reasons: [{ id: "no-access", code: "NO_ACCESS", name: "No access / Нет доступа / אין גישה" }],
     issues: [{ id: "preview-issue", project_id: "preview-project", door_id: "door-401", status: "OPEN", title: "No access / Нет доступа / אין גישה", details: "TEST / 401" }],
     addonTypes: [{ id: "adjustment", name: "Adjustment / Регулировка / כיוון", unit: "pcs", qty_planned: "2" }],
+    factoryPrices: { status: "ready", snapshot: {
+      price_list_id: "preview-price-v2", version: 2, currency: "ILS", effective_from: "2026-01-01T00:00:00Z",
+      items: [
+        { kind: "DOOR", target_id: "entrance", unit: "pcs", rate: "250.00" },
+        { kind: "ADDON", target_id: "adjustment", unit: "pcs", rate: "9.00" },
+      ],
+    } },
     queueSummary: { total: 0, pending: 0, failed: 0, blocked: 0, ready_to_send: 0, next_retry_at: null },
   };
+  const priceScenario = new URLSearchParams(window.location.search).get("prices");
+  if (priceScenario === "missing") workspace.factoryPrices = { status: "ready", snapshot: null };
+  if (priceScenario === "unavailable") workspace.factoryPrices = { status: "unavailable", snapshot: null };
+  if (priceScenario === "conflict") {
+    workspace.doors[0].status = "INSTALLED";
+    workspace.doors[0].is_locked = true;
+    workspace.pendingEvents = [{ client_event_id: "preview-price-conflict", project_id: "preview-project",
+      type: "DOOR_SET_STATUS", payload: { door_id: "door-201", status: "INSTALLED", price_list_id: "preview-price-v1" },
+      status: "BLOCKED", error: "CONFLICT_FACTORY_PRICE", attempts: 1,
+      happened_at: "2026-01-01T10:00:00Z", created_at: "2026-01-01T10:00:00Z", next_retry_at: null, last_attempt_at: null }];
+    workspace.queueSummary = { total: 1, pending: 0, failed: 0, blocked: 1, ready_to_send: 0, next_retry_at: null };
+  }
 }
 resetPreviewProject();
 export function failNextPreviewSave() { failNext = true; }
@@ -83,7 +102,7 @@ async function save(type: "DOOR_SET_STATUS" | "ADDON_FACT_CREATE", payload: Reco
   workspace.queueSummary = { ...workspace.queueSummary!, total: workspace.pendingEvents.length, pending: workspace.pendingEvents.length, ready_to_send: workspace.pendingEvents.length };
 }
 export async function markDoorInstalled(_projectId: string, doorId: string) {
-  await save("DOOR_SET_STATUS", { door_id: doorId, status: "INSTALLED" });
+  await save("DOOR_SET_STATUS", { door_id: doorId, status: "INSTALLED", ...previewPriceVersion() });
   workspace.doors = workspace.doors.map((door) => door.id === doorId ? { ...door, status: "INSTALLED", is_locked: true } : door);
 }
 export async function markDoorNotInstalled(_projectId: string, doorId: string, reasonId: string, comment: string) {
@@ -91,13 +110,18 @@ export async function markDoorNotInstalled(_projectId: string, doorId: string, r
   workspace.doors = workspace.doors.map((door) => door.id === doorId ? { ...door, status: "NOT_INSTALLED", reason_id: reasonId, comment } : door);
 }
 export async function addAddonFact(projectId: string, addonTypeId: string, qtyDone: string, comment: string) {
-  await save("ADDON_FACT_CREATE", { addon_type_id: addonTypeId, qty_done: qtyDone, comment });
+  await save("ADDON_FACT_CREATE", { addon_type_id: addonTypeId, qty_done: qtyDone, comment, ...previewPriceVersion() });
   workspace.addonFacts.push({ id: `local:${workspace.pendingEvents.length}`, project_id: projectId, addon_type_id: addonTypeId, addon_name: "Adjustment", unit: "pcs", qty_done: qtyDone, comment, done_at: new Date().toISOString(), source: "OFFLINE", updated_at: null });
+}
+function previewPriceVersion() {
+  const snapshot = workspace.factoryPrices.snapshot;
+  return snapshot ? { price_list_id: snapshot.price_list_id } : {};
 }
 export async function runSync() {
   if (window.location.pathname.endsWith("/sync-queue.html")) return syncQueuePreview();
   if (window.location.pathname.endsWith("/issues.html")) return syncIssuesPreview();
   if (window.location.pathname.endsWith("/home.html")) return syncHomePreview();
+  if (new URLSearchParams(window.location.search).get("prices") === "conflict") return;
   await new Promise((resolve) => setTimeout(resolve, 450));
   workspace.pendingEvents = [];
   workspace.queueSummary = { total: 0, pending: 0, failed: 0, blocked: 0, ready_to_send: 0, next_retry_at: null };

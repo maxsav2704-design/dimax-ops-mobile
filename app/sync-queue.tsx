@@ -487,6 +487,10 @@ function QueueCard({
       </View>
       {detailsOpen ? <View style={styles.technical}>
         <Text selectable style={styles.queueFact}>ID: {item.client_event_id}</Text>
+        <Text selectable style={styles.queueFact}>{lt("Executed at", "Время выполнения", "זמן הביצוע")}: {item.happened_at || lt("Not recorded", "Не записано", "לא נרשם")}</Text>
+        {item.type === "ADDON_FACT_CREATE" || (item.type === "DOOR_SET_STATUS" && item.payload.status === "INSTALLED")
+          ? <Text selectable style={styles.queueFact}>{lt("Execution price list ID", "ID прайса при выполнении", "מזהה המחירון בעת הביצוע")}: {typeof item.payload.price_list_id === "string"
+            ? item.payload.price_list_id : lt("Not recorded", "Не записано", "לא נרשם")}</Text> : null}
         {typeof item.payload.door_id === "string" ? <Text selectable style={styles.queueFact}>{lt("Door ID", "ID двери", "מזהה דלת")}: {item.payload.door_id}</Text> : null}
         {item.error ? <Text selectable style={styles.queueFact}>{item.error}</Text> : null}
       </View> : null}

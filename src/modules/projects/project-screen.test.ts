@@ -40,6 +40,8 @@ vi.mock("@/modules/projects/local-workspace", async (original) => ({
   ...await original<typeof import("./local-workspace")>(), loadLocalProjectWorkspace: mocks.load,
 }));
 vi.mock("@/modules/projects/repository", () => ({}));
+vi.mock("@/modules/prices/repository", () => ({}));
+vi.mock("@/lib/workspace-context", () => ({}));
 vi.mock("@/modules/projects/service", () => ({
   canRefreshProjectDetails: (pending: number) => pending === 0,
   isProjectAccessRevoked: () => false,
@@ -127,6 +129,75 @@ beforeEach(() => {
 afterEach(() => { if (tree) act(() => tree.unmount()); vi.unstubAllGlobals(); });
 
 describe("project execution screen", () => {
+  function confirmedPrices() {
+    workspace.factoryPrices = { status: "ready", snapshot: {
+      price_list_id: "price-list-v2", version: 2, currency: "ILS", effective_from: "2026-01-01T00:00:00Z",
+      items: [
+        { kind: "DOOR", target_id: "entrance", unit: "pcs", rate: "250.00" },
+        { kind: "ADDON", target_id: "addon-a", unit: "pcs", rate: "9.00" },
+      ],
+    } };
+  }
+  const priceText = (id: string) => text(tree.root.findByProps({ testID: id }));
+
+  it("shows read-only confirmed rates and estimates without passing money into work commands", async () => {
+    confirmedPrices();
+    await mount();
+    expect(priceText("door-work-price")).toContain("250.00 ILS");
+    expect(priceText("door-work-price")).toContain("Factory confirmed");
+    expect(tree.root.findByProps({ testID: "door-work-price" }).findAllByType("input" as never)).toHaveLength(0);
+    act(() => input("Completed quantity").props.onChangeText("1,50"));
+    expect(priceText("addon-work-price")).toContain("13.50 ILS");
+    expect(priceText("addon-work-price")).toContain("Estimated, not accrued");
+    await act(async () => button("Save completed add-on").props.onPress(event));
+    expect(mocks.addon).toHaveBeenCalledExactlyOnceWith("project-a", "addon-a", "1.50", "");
+    await act(async () => button("Installed").props.onPress(event));
+    expect(mocks.install).toHaveBeenCalledExactlyOnceWith("project-a", "door-a");
+  });
+
+  it("does not present the current rate as the earning for an already installed door", async () => {
+    confirmedPrices();
+    workspace.doors[0].status = "INSTALLED";
+    workspace.doors[0].is_locked = true;
+    await mount();
+    expect(priceText("door-work-price")).not.toContain("250.00");
+    act(() => button("View project earnings").props.onPress(event));
+    expect(mocks.push).toHaveBeenCalledWith("/earnings?project_id=project-a");
+  });
+
+  it("opens the saved conflict without estimating it from a newer price list", async () => {
+    confirmedPrices();
+    workspace.doors[0].status = "INSTALLED";
+    workspace.pendingEvents = [{ client_event_id: "event-1", project_id: "project-a", type: "DOOR_SET_STATUS",
+      payload: { door_id: "door-a", status: "INSTALLED", price_list_id: "price-list-v1" },
+      status: "BLOCKED", error: "CONFLICT_FACTORY_PRICE", attempts: 1, happened_at: "2026-01-02T10:00:00Z",
+      created_at: "2026-01-02T10:00:00Z", next_retry_at: null, last_attempt_at: null }];
+    await mount();
+    expect(priceText("door-work-price")).toContain("Price needs review");
+    expect(priceText("door-work-price")).not.toContain("250.00");
+    act(() => button("Open work queue").props.onPress(event));
+    expect(mocks.push).toHaveBeenCalledWith("/sync-queue");
+    expect(mocks.install).not.toHaveBeenCalled();
+  });
+
+  it("updates price availability when selecting a different add-on", async () => {
+    confirmedPrices();
+    workspace.addonTypes.push({ id: "addon-b", name: "Different work", unit: "m", qty_planned: null });
+    await mount();
+    expect(priceText("addon-work-price")).toContain("9.00 ILS");
+    act(() => tabs("Different work")[0].props.onPress(event));
+    expect(priceText("addon-work-price")).toContain("no rate");
+    expect(priceText("addon-work-price")).not.toContain("9.00 ILS");
+  });
+
+  it.each(["ru", "he"] as const)("renders price labels in %s", async (locale) => {
+    confirmedPrices(); mocks.locale = locale;
+    await mount();
+    const content = priceText("door-work-price");
+    expect(content).toContain(locale === "ru" ? "Подтверждено заводом" : "באישור המפעל");
+    expect(content).not.toContain("Factory confirmed");
+  });
+
   it("scrolls to a linked door once without jumping on later layout or sync updates", async () => {
     mocks.params.doorId = "door-a";
     await mount();

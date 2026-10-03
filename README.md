@@ -56,8 +56,17 @@ approval flag. Execution time and this reference survive retries/cold resync.
 Existing versionless outbox rows are not backfilled from the current cache.
 Server `CONFLICT_FACTORY_PRICE` keeps the work for administrator review rather
 than silently repricing it. The queue explains this in all three languages and
-disables retry/deletion for that conflict. Price-card presentation, authorized
-conflict resolution and physical-device rollout validation remain separate work.
+disables retry/deletion for that conflict. Technical details retain the original
+execution time and seen price-list ID; legacy records are explicitly unversioned.
+
+Door and addon work cards show only this confirmed, saved rate. Addon totals are
+quantity previews, not earnings; decimal HALF_UP matches the server's quote rules.
+Completed doors link to project earnings instead of using today's rate, and
+queued completions link to their work queue without repricing. Missing/damaged
+price caches never appear as zero rates. The project snapshot and price read use
+one account guard; a failed price read alone does not discard local door data.
+Price editing, authorized conflict resolution and physical-device rollout
+validation are not part of this installer-facing presentation.
 
 No SQLite schema bump is required for this additive JSON contract. Deployment
 does not activate factory prices; the activation route is not enabled yet.

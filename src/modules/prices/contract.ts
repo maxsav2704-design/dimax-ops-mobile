@@ -6,6 +6,10 @@ export type FactoryPriceSnapshot = {
   items: Array<{ kind: "DOOR" | "ADDON"; target_id: string; unit: string; rate: string }>;
 };
 
+export type FactoryPriceReadState =
+  | { status: "loading" | "unavailable"; snapshot: null }
+  | { status: "ready"; snapshot: FactoryPriceSnapshot | null };
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function record(value: unknown): Record<string, unknown> {

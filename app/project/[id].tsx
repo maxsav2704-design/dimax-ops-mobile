@@ -26,6 +26,8 @@ import { addAddonFact, markDoorInstalled, markDoorNotInstalled } from "@/modules
 import { buildProjectEarningsContext } from "@/modules/earnings/presentation";
 import { loadInstallerEarnings } from "@/modules/earnings/service";
 import type { InstallerEarningsViewModel } from "@/modules/earnings/types";
+import { buildWorkPrice } from "@/modules/prices/presentation";
+import { WorkPriceReadout } from "@/modules/prices/WorkPriceReadout";
 import {
   buildProjectExternalActions,
   openProjectExternalAction,
@@ -109,6 +111,7 @@ export default function ProjectDetailsScreen() {
     addonFacts,
     pendingEvents,
     queueSummary,
+    factoryPrices,
   } = activeWorkspace;
   const [earningsState, setEarningsState] = useState<InstallerEarningsViewModel>({
     snapshot: null,
@@ -291,6 +294,15 @@ export default function ProjectDetailsScreen() {
   const hasPendingDoorStatus = selectedDoorPendingEvents.some(
     (event) => event.type === "DOOR_SET_STATUS"
   );
+  const doorPrice = selectedDoor ? buildWorkPrice({
+    prices: factoryPrices,
+    kind: "DOOR",
+    targetId: selectedDoor.door_type_id,
+    locale,
+    completed: selectedDoor.status === "INSTALLED",
+    pending: selectedDoorPendingEvents.find((event) =>
+      event.type === "DOOR_SET_STATUS" && event.payload.status === "INSTALLED"),
+  }) : null;
   const doorActionState = selectedDoor
     ? buildDoorActionState({
         door: selectedDoor,
@@ -393,6 +405,11 @@ export default function ProjectDetailsScreen() {
     [earningsState.snapshot, projectId]
   );
   const externalActions = useMemo(() => buildProjectExternalActions(project), [project]);
+  const selectedAddonType = addonTypes.find((addon) => addon.id === addonTypeId);
+  const addonPrice = selectedAddonType ? buildWorkPrice({
+    prices: factoryPrices, kind: "ADDON", targetId: selectedAddonType.id,
+    locale, quantity: addonQty, unit: selectedAddonType.unit,
+  }) : null;
   const addonActionState = useMemo(
     () =>
       buildAddonFactActionState({
@@ -926,6 +943,10 @@ export default function ProjectDetailsScreen() {
                   <DoorFact label={lt("Version", "Версия", "גרסה")} value={String(selectedDoor.version)} />
                 </View>
 
+                {doorPrice ? <WorkPriceReadout testID="door-work-price" price={doorPrice} busy={busy}
+                  onOpen={() => router.push((doorPrice.link === "queue" ? "/sync-queue"
+                    : `/earnings?project_id=${encodeURIComponent(projectId)}`) as never)} /> : null}
+
                 {selectedDoorIssues.map((issue) => (
                   <View key={issue.id} style={styles.selectedIssue}>
                     <Ionicons name="alert-circle-outline" size={18} color={installerTheme.danger} />
@@ -1079,9 +1100,10 @@ export default function ProjectDetailsScreen() {
                     accessibilityLabel={lt("Add-on comment", "Комментарий к допработе", "הערה לעבודה נוספת")}
                     placeholder={lt("Comment…", "Комментарий…", "הערה…")}
                     placeholderTextColor={installerTheme.textFaint}
-                    style={[styles.input, styles.flex]}
+                    style={[styles.input, styles.addonCommentInput]}
                   />
                 </View>
+                {addonPrice ? <WorkPriceReadout testID="addon-work-price" price={addonPrice} /> : null}
                 <ActionButton
                   label={lt("Save completed add-on", "Сохранить допработу", "שמירת עבודה נוספת")}
                   icon="add"
@@ -1940,6 +1962,7 @@ const styles = StyleSheet.create({
   updatedText: { color: installerTheme.textFaint, fontSize: 9, textAlign: "center", marginTop: 9 },
   addonInputs: { flexDirection: "row", gap: 8, marginBottom: 10 },
   qtyInput: { width: 105 },
+  addonCommentInput: { flex: 1, minWidth: 0 },
   emptyCopy: { color: installerTheme.textMuted, fontSize: 11, lineHeight: 16, marginTop: 10 },
   factList: { marginTop: 10 },
   factRow: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 9, borderTopWidth: 1, borderTopColor: installerTheme.border, paddingVertical: 9 },
