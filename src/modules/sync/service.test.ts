@@ -52,6 +52,7 @@ import {
   runSync,
 } from "@/modules/sync/service";
 import { MAX_AUTO_RETRY_ATTEMPTS } from "@/modules/sync/policy";
+import { commandPayload } from "./command-payload";
 
 function makeDb() {
   return {
@@ -66,7 +67,7 @@ describe("mobile sync service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbRef.current = makeDb();
-    getStateMock.mockResolvedValue("0");
+    getStateMock.mockImplementation(async (key: string) => key === "factory_prices_v1" ? null : "0");
     getOrCreateDeviceIdMock.mockResolvedValue("test-device-id");
     initDbMock.mockResolvedValue(undefined);
     setStateMock.mockResolvedValue(undefined);
@@ -78,6 +79,65 @@ describe("mobile sync service", () => {
       acks: [],
       changes: [],
     });
+  });
+
+  const prices = {
+    price_list_id: "00000000-0000-0000-0000-000000000001", version: 1, currency: "ILS",
+    effective_from: "2026-10-01T08:00:00Z", items: [],
+  };
+
+  it.each(["DOOR", "ADDON"])("captures the cached version once for %s and never reprices a retry", async (kind) => {
+    getStateMock.mockImplementation(async (key: string) => key === "factory_prices_v1" ? JSON.stringify(prices) : "0");
+    if (kind === "DOOR") {
+      dbRef.current.getFirstAsync.mockResolvedValueOnce({
+        project_id: "project-1", status: "IN_PROGRESS", is_locked: 0, version: 3,
+      });
+      await queueDoorStatusEvent({ projectId: "project-1", doorId: "door-1", status: "INSTALLED" });
+    } else {
+      dbRef.current.getFirstAsync.mockResolvedValueOnce({ total: 1 }).mockResolvedValueOnce({ total: 1 });
+      await queueAddonFactEvent({ projectId: "project-1", addonTypeId: "addon-1", qtyDone: "1,50" });
+    }
+    const insert = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("INSERT INTO pending_events"));
+    const [id, project, at, json] = insert![1];
+    const payload = JSON.parse(json);
+    expect(payload.price_list_id).toBe(prices.price_list_id);
+    expect(payload).not.toHaveProperty("rate");
+    expect(payload).not.toHaveProperty("amount");
+    const type = kind === "DOOR" ? "DOOR_SET_STATUS" : "ADDON_FACT_CREATE";
+    dbRef.current.getAllAsync.mockResolvedValue([{
+      client_event_id: id, project_id: project, happened_at: at, created_at: at, type,
+      payload_json: json, status: "PENDING", attempts: 0, error: null,
+    }]);
+    getStateMock.mockImplementation(async (key: string) => key === "factory_prices_v1"
+      ? JSON.stringify({ ...prices, version: 2, price_list_id: "00000000-0000-0000-0000-000000000002" }) : "0");
+    await runSync();
+    await runSync({ forceRetry: true });
+    const requests = apiFetchMock.mock.calls.map(([, request]) => JSON.parse(request.body).events);
+    expect(requests[1]).toEqual(requests[0]);
+    expect(requests[0][0]).toEqual({ client_event_id: id, project_id: project, happened_at: at, type,
+      payload: commandPayload({ type, payload }) });
+    expect(requests[0][0].payload.price_list_id).toBe(prices.price_list_id);
+    expect(dbRef.current.runAsync.mock.calls.some(([sql]: [string]) => sql.includes("SET payload_json"))).toBe(false);
+  });
+
+  it.each([undefined, null, prices])("handles missing, inactive and active price contracts: %j", async (factory_prices) => {
+    apiFetchMock.mockResolvedValue({ server_time: "2026-10-03T08:00:00Z", next_cursor: 2,
+      reset_required: false, snapshot: null, acks: [], changes: [], factory_prices });
+    await runSync();
+    if (factory_prices === undefined) {
+      expect(setStateMock.mock.calls.some(([key]) => key === "factory_prices_v1")).toBe(false);
+    } else {
+      expect(setStateMock).toHaveBeenCalledWith("factory_prices_v1", factory_prices === null ? null : JSON.stringify(prices));
+    }
+  });
+
+  it("rejects a malformed price response before consuming acknowledgements or the cursor", async () => {
+    apiFetchMock.mockResolvedValue({ server_time: "2026-10-03T08:00:00Z", next_cursor: 9,
+      reset_required: false, changes: [], factory_prices: { ...prices, version: -1 },
+      acks: [{ client_event_id: "event", ok: true, applied: true, error: null }] });
+    await expect(runSync()).rejects.toThrow("Invalid confirmed price snapshot");
+    expect(dbRef.current.runAsync).not.toHaveBeenCalled();
+    expect(setStateMock).not.toHaveBeenCalled();
   });
 
   it.each([undefined, "project-1"])("excludes exhausted attempts from next retry for %s", async (projectId) => {
@@ -670,7 +730,7 @@ describe("mobile sync service", () => {
       expect(retryRequest.events).toEqual(firstRequest.events);
       expect(retryRequest.events).toEqual([{
         client_event_id: original.client_event_id, type: original.type, project_id: original.project_id,
-        happened_at: original.happened_at, payload: JSON.parse(original.payload_json),
+        happened_at: original.happened_at, payload: commandPayload({ type: "DOOR_SET_STATUS", payload: JSON.parse(original.payload_json) }),
       }]);
       expect(dbRef.current.runAsync.mock.calls.filter(([sql]: [string]) => sql.includes("DELETE FROM pending_events")))
         .toEqual([["DELETE FROM pending_events WHERE client_event_id = ?", [event.client_event_id]]]);
@@ -707,7 +767,7 @@ describe("mobile sync service", () => {
     expect(setStateMock).not.toHaveBeenCalled();
   });
 
-  it.each(["CONFLICT_ASSIGNMENT_CHANGED", "CONFLICT_INVALID_TRANSITION"])(
+  it.each(["CONFLICT_ASSIGNMENT_CHANGED", "CONFLICT_INVALID_TRANSITION", "CONFLICT_FACTORY_PRICE"])(
     "retains the queued payload when backend rejects the door event with %s", async (errorCode) => {
     dbRef.current.getAllAsync.mockResolvedValueOnce([
       {

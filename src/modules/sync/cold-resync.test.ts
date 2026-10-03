@@ -88,6 +88,24 @@ function writes(fragment: string): Array<[string, unknown[]]> {
 }
 
 describe("cold resync preserves the complete unresolved outbox", () => {
+  it("refreshes the price cache without altering blocked work evidence", async () => {
+    const event = queuedEvent("price-conflict", "DOOR_SET_STATUS", {
+      door_id: "door-1", status: "INSTALLED", previous_version: 2,
+      price_list_id: "00000000-0000-0000-0000-000000000001",
+    }, { status: "BLOCKED", error: "CONFLICT_FACTORY_PRICE" });
+    const original = JSON.stringify(event);
+    const response = arrangeReset([], [event]);
+    response.factory_prices = {
+      price_list_id: "00000000-0000-0000-0000-000000000002", version: 2,
+      currency: "ILS", effective_from: "2026-09-11T10:01:00Z", items: [],
+    };
+    await runSync({ includeEvents: false });
+    expect(JSON.stringify(event)).toBe(original);
+    expect(writes("DELETE FROM pending_events")).toEqual([]);
+    expect(writes("SET payload_json")).toEqual([]);
+    expect(setStateMock).toHaveBeenCalledWith("factory_prices_v1", JSON.stringify(response.factory_prices));
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     dbRef.current = {

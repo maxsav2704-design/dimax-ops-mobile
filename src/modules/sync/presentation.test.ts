@@ -28,6 +28,14 @@ function makeEvent(partial: Partial<PendingSyncEvent>): PendingSyncEvent {
 }
 
 describe("sync queue presentation", () => {
+  it.each(["en", "ru", "he"] as const)("protects unresolved price work in %s", (locale) => {
+    const resolution = buildQueueResolution(makeEvent({ status: "BLOCKED", error: "CONFLICT_FACTORY_PRICE" }), locale);
+    expect(resolution.retryAllowed).toBe(false);
+    expect(resolution.dropAllowed).toBe(false);
+    expect(resolution.title).not.toContain("CONFLICT");
+    expect(resolution.detail.length).toBeGreaterThan(20);
+  });
+
   const emptySummary: SyncQueueSummary = {
     total: 0, pending: 0, failed: 0, blocked: 0, ready_to_send: 0, next_retry_at: null,
   };
@@ -65,7 +73,7 @@ describe("sync queue presentation", () => {
     expect(buildQueueResolution(event, "he").title).toBe("הגעתם למגבלת הניסיונות");
   });
 
-  it.each(["AUTH_REQUIRED", "CONFLICT_ASSIGNMENT_CHANGED", "CONFLICT_INVALID_TRANSITION"])(
+  it.each(["AUTH_REQUIRED", "CONFLICT_ASSIGNMENT_CHANGED", "CONFLICT_INVALID_TRANSITION", "CONFLICT_FACTORY_PRICE"])(
     "keeps %s protection ahead of retry-limit recovery", (error) => {
       const event = makeEvent({ status: "BLOCKED", attempts: MAX_AUTO_RETRY_ATTEMPTS, error });
       expect(buildQueueResolution(event).retryAllowed).toBe(false);

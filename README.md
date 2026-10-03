@@ -43,6 +43,27 @@ Implemented in this step:
 
 ## Important contract assumption
 
+### Confirmed Installer Prices
+
+Sync may include `factory_prices`: a receipt-validated active company version
+with read-only installer rates, or `null` while factory pricing is inactive.
+It is separate from project addon plans; those plans remain price-free locally.
+`src/modules/prices` validates and stores this snapshot in the account-owned
+SQLite `sync_state`. A missing field from an older server does not clear it.
+
+New completed-work commands capture only `price_list_id`, never an amount or an
+approval flag. Execution time and this reference survive retries/cold resync.
+Existing versionless outbox rows are not backfilled from the current cache.
+Server `CONFLICT_FACTORY_PRICE` keeps the work for administrator review rather
+than silently repricing it. The queue explains this in all three languages and
+disables retry/deletion for that conflict. Price-card presentation, authorized
+conflict resolution and physical-device rollout validation remain separate work.
+
+No SQLite schema bump is required for this additive JSON contract. Deployment
+does not activate factory prices; the activation route is not enabled yet.
+
+### Cold Snapshot
+
 Cold snapshot must include `projects` with:
 
 - `id`

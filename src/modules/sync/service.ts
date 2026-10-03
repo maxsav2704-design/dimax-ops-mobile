@@ -10,6 +10,9 @@ import {
   type WorkspaceContext as SyncContext,
 } from "@/lib/workspace-context";
 import { normalizeAddonQuantity } from "@/modules/addons/quantity";
+import { capturePriceVersion, storeFactoryPrices } from "@/modules/prices/repository";
+import { parseFactoryPrices } from "@/modules/prices/contract";
+import { commandPayload } from "@/modules/sync/command-payload";
 import {
   MAX_AUTO_RETRY_ATTEMPTS,
   computeRetryDelayMinutes,
@@ -1254,7 +1257,7 @@ async function executeSync(context: SyncContext, options?: {
           type: event.type,
           project_id: event.project_id,
           happened_at: event.happened_at,
-          payload: event.payload,
+          payload: commandPayload(event),
         })),
       }),
     });
@@ -1272,6 +1275,8 @@ async function executeSync(context: SyncContext, options?: {
   }
 
   return withSyncDatabase(context, async () => {
+    // Reject malformed prices before changing the cursor, queue or snapshot.
+    const prices = response.factory_prices === undefined ? undefined : parseFactoryPrices(response.factory_prices);
     if (response.reset_required) {
       if (!response.snapshot) {
         const error = "Sync reset requested without snapshot";
@@ -1303,6 +1308,7 @@ async function executeSync(context: SyncContext, options?: {
       await reapplyPendingOptimisticChanges(response.snapshot);
     }
 
+    if (prices !== undefined) await storeFactoryPrices(prices);
     await setState(CURSOR_KEY, String(response.next_cursor));
     await setState(LAST_SYNC_AT_KEY, response.server_time);
     return response;
@@ -1344,6 +1350,7 @@ export async function queueDoorStatusEvent(input: {
 
   const payload = {
     door_id: input.doorId,
+    ...(input.status === "INSTALLED" ? await capturePriceVersion() : {}),
     status: input.status,
     reason_id: reasonId,
     comment: input.comment || null,
@@ -1410,6 +1417,7 @@ export async function queueAddonFactEvent(input: {
 
   const payload = {
     addon_type_id: addonTypeId,
+    ...await capturePriceVersion(),
     qty_done: qtyDone,
     comment: input.comment || null,
   };

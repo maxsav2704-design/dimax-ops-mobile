@@ -60,6 +60,24 @@ const auth = vi.hoisted(() => ({ generation: 0 }));
 vi.mock("@/lib/api", () => ({ getAuthSessionGeneration: () => auth.generation }));
 
 describe("mobile SQLite schema and account isolation", () => {
+  it("isolates confirmed prices by company and installer across sign-ins", async () => {
+    const { activateDbForIdentity } = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    const { storeFactoryPrices, readFactoryPrices, capturePriceVersion } =
+      await vi.importActual<typeof import("@/modules/prices/repository")>("@/modules/prices/repository");
+    const prices = { price_list_id: "00000000-0000-0000-0000-000000000001", version: 1,
+      currency: "ILS" as const, effective_from: "2026-10-03T08:00:00Z", items: [] };
+    await activateDbForIdentity("company-a", "installer-a");
+    await storeFactoryPrices(prices);
+    expect(await capturePriceVersion()).toEqual({ price_list_id: prices.price_list_id });
+    await activateDbForIdentity("company-b", "installer-b");
+    expect(await readFactoryPrices()).toBeNull();
+    expect(await capturePriceVersion()).toEqual({});
+    await activateDbForIdentity("company-a", "installer-b");
+    expect(await readFactoryPrices()).toBeNull();
+    await activateDbForIdentity("company-a", "installer-a");
+    expect(await readFactoryPrices()).toEqual(prices);
+  });
+
   beforeEach(() => {
     vi.resetModules();
     databases.clear();

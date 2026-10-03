@@ -145,6 +145,22 @@ export function buildQueueResolution(
 ): QueueResolution {
   const code = errorCode(event.error);
 
+  if (code === "CONFLICT_FACTORY_PRICE") {
+    return {
+      title: text(locale, "Price needs review", "Нужно проверить цену", "נדרשת בדיקת מחיר"),
+      detail: text(locale,
+        "The saved price version could not be confirmed for this work. No earnings were posted.",
+        "Сохранённую версию цены для этой работы подтвердить не удалось. Начисления не проведены.",
+        "לא ניתן לאמת את גרסת המחיר השמורה לעבודה זו. לא נרשמה הכנסה."),
+      action: text(locale,
+        "Keep this record and contact the administrator. Do not submit the same work again.",
+        "Сохраните запись и свяжитесь с администратором. Не создавайте эту работу повторно.",
+        "שמרו את הרשומה ופנו למנהל. אין להזין את אותה עבודה שוב."),
+      retryAllowed: false,
+      dropAllowed: false,
+    };
+  }
+
   if (code === "CONFLICT_ASSIGNMENT_CHANGED") {
     return {
       title: text(locale, "Assignment changed", "Назначение изменилось", "השיוך השתנה"),

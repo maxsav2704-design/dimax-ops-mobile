@@ -54,6 +54,10 @@ function makeDb(withEvent = false) {
 }
 
 const response = {
+  factory_prices: {
+    price_list_id: "00000000-0000-0000-0000-000000000001", version: 1,
+    currency: "ILS", effective_from: "2026-09-11T09:00:00Z", items: [],
+  },
   server_time: "2026-09-11T10:01:00Z", next_cursor: 2,
   reset_required: false, snapshot: null, acks: [],
   changes: [{ cursor_id: 2, change_type: "PROJECT_BASE", payload: {
