@@ -1227,7 +1227,7 @@ async function executeSync(context: SyncContext, options?: {
   sinceCursor?: number;
   includeEvents?: boolean;
 }): Promise<SyncResponse> {
-  const { sinceCursor, pendingEvents, pendingEventIds } = await withSyncDatabase(context, async () => {
+  const { sinceCursor, pendingEvents, pendingEventIds, priceResolutionChecks } = await withSyncDatabase(context, async () => {
     await initDb();
     const sinceCursor = options?.sinceCursor ?? Number((await getState(CURSOR_KEY)) || "0");
     const pendingEvents = options?.includeEvents === false
@@ -1237,7 +1237,14 @@ async function executeSync(context: SyncContext, options?: {
     if (pendingEventIds.length) {
       await markEventsAttempted(pendingEventIds);
     }
-    return { sinceCursor, pendingEvents, pendingEventIds };
+    const db = await getDb();
+    const blockedPrices = await db.getAllAsync<{ client_event_id: string }>(
+      `SELECT client_event_id FROM pending_events
+       WHERE status = 'BLOCKED' AND error = 'CONFLICT_FACTORY_PRICE'
+       ORDER BY created_at ASC LIMIT 500`
+    );
+    return { sinceCursor, pendingEvents, pendingEventIds,
+      priceResolutionChecks: blockedPrices.map((event) => event.client_event_id) };
   });
 
   let response: SyncResponse;
@@ -1252,6 +1259,7 @@ async function executeSync(context: SyncContext, options?: {
         ack_cursor: sinceCursor,
         app_version: `mobile-${MOBILE_APP_VERSION}`,
         device_id: deviceId,
+        price_resolution_checks: priceResolutionChecks,
         events: pendingEvents.map((event) => ({
           client_event_id: event.client_event_id,
           type: event.type,

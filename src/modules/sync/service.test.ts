@@ -86,6 +86,34 @@ describe("mobile sync service", () => {
     effective_from: "2026-10-01T08:00:00Z", items: [],
   };
 
+  it.each([false, true])("checks a blocked price decision without replaying work; resolved=%s", async (resolved) => {
+    const original = { client_event_id: "price-event-1", type: "ADDON_FACT_CREATE", project_id: "project-1",
+      happened_at: "2026-10-01T08:00:00Z", payload_json: JSON.stringify({ addon_type_id: "addon-1", qty_done: "1.50" }),
+      status: "BLOCKED", error: "CONFLICT_FACTORY_PRICE" };
+    dbRef.current.getAllAsync.mockImplementation(async (sql: string) => sql.includes("error = 'CONFLICT_FACTORY_PRICE'")
+      ? [{ client_event_id: original.client_event_id }] : []);
+    dbRef.current.getFirstAsync.mockResolvedValue(original);
+    apiFetchMock.mockResolvedValue({ server_time: "2026-10-04T08:00:00Z", next_cursor: 1, changes: [],
+      acks: resolved ? [{ client_event_id: original.client_event_id, ok: true, applied: false, error: null }] : [] });
+    await runSync();
+    const request = JSON.parse(apiFetchMock.mock.calls[0][1].body);
+    expect(request.events).toEqual([]);
+    expect(request.price_resolution_checks).toEqual([original.client_event_id]);
+    const commands = dbRef.current.runAsync.mock.calls;
+    expect(commands.some(([sql]: [string]) => sql.includes("DELETE FROM pending_events"))).toBe(resolved);
+    expect(commands.some(([sql]: [string]) => sql.includes("UPDATE pending_events"))).toBe(false);
+    expect(commands.some(([sql]: [string]) => sql.includes("SET payload_json"))).toBe(false);
+  });
+
+  it("retains a blocked price decision on network failure without retrying or dropping the work", async () => {
+    dbRef.current.getAllAsync.mockImplementation(async (sql: string) => sql.includes("error = 'CONFLICT_FACTORY_PRICE'")
+      ? [{ client_event_id: "price-event-1" }] : []);
+    apiFetchMock.mockRejectedValueOnce(new NetworkError("Offline"));
+    await expect(runSync()).rejects.toThrow();
+    expect(dbRef.current.runAsync).not.toHaveBeenCalled();
+    expect(setStateMock).not.toHaveBeenCalled();
+  });
+
   it.each(["DOOR", "ADDON"])("captures the cached version once for %s and never reprices a retry", async (kind) => {
     getStateMock.mockImplementation(async (key: string) => key === "factory_prices_v1" ? JSON.stringify(prices) : "0");
     if (kind === "DOOR") {
@@ -303,7 +331,11 @@ describe("mobile sync service", () => {
     await forceColdResync();
 
     expect(setStateMock).toHaveBeenNthCalledWith(1, "sync_cursor", "0");
-    expect(dbRef.current.getAllAsync).toHaveBeenCalledExactlyOnceWith(
+    expect(dbRef.current.getAllAsync).toHaveBeenCalledTimes(2);
+    expect(dbRef.current.getAllAsync).toHaveBeenCalledWith(
+      expect.stringContaining("error = 'CONFLICT_FACTORY_PRICE'"),
+    );
+    expect(dbRef.current.getAllAsync).toHaveBeenCalledWith(
       expect.stringContaining("ORDER BY created_at DESC"),
     );
     expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/sync", expect.objectContaining({
@@ -952,6 +984,7 @@ describe("mobile sync service", () => {
   it("blocks queued project events when assignment removal removes the project", async () => {
     dbRef.current.getAllAsync
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
           client_event_id: "door-event-1",
@@ -1001,6 +1034,7 @@ describe("mobile sync service", () => {
 
   it("blocks only affected door events when assignment removal keeps the project", async () => {
     dbRef.current.getAllAsync
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
