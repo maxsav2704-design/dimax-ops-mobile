@@ -6,6 +6,7 @@ import { StyleSheet, View } from "react-native";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandText as Text } from "@/components/mobile-ui";
+import { SyncStatusBar } from "@/components/sync-status-bar";
 import { installerTheme } from "@/lib/theme";
 import { useI18n } from "@/providers/AppProviders";
 
@@ -63,6 +64,7 @@ export function InstallerBottomNav() {
 
   return (
     <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+      <SyncStatusBar />
       <View style={styles.shell}>
         {tabs.map((tab) => {
           const active =

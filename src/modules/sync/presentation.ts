@@ -29,6 +29,42 @@ function text(locale: MobileLocale, en: string, ru: string, he: string): string 
   return en;
 }
 
+export type SyncStatusTone = "neutral" | "info" | "accent" | "warning" | "danger" | "success";
+
+/** One compact state for the persistent sync strip; mirrors the home screen's pill order. */
+export function buildSyncStatusPresentation(
+  status: { queue: SyncQueueSummary | null; lastSyncAt: string | null; syncing: boolean; offline: boolean },
+  locale: MobileLocale,
+): { tone: SyncStatusTone; label: string; icon: string; detail: string | null } {
+  const queued = status.queue?.total ?? 0;
+  const detail = status.lastSyncAt
+    ? new Intl.DateTimeFormat(locale === "ru" ? "ru-RU" : locale === "he" ? "he-IL" : "en-GB", { hour: "2-digit", minute: "2-digit" })
+      .format(new Date(status.lastSyncAt))
+    : null;
+  if (status.syncing) {
+    return { tone: "info", icon: "sync", detail, label: text(locale, "Synchronizing", "Синхронизация", "מסתנכרן") };
+  }
+  if (status.offline) {
+    return {
+      tone: "warning", icon: "cloud-offline-outline", detail,
+      label: queued
+        ? text(locale, `Offline · ${queued} queued`, `Офлайн · ${queued} в очереди`, `לא מקוון · ${queued} בתור`)
+        : text(locale, "Offline", "Офлайн", "לא מקוון"),
+    };
+  }
+  if (status.queue?.blocked) {
+    const blocked = status.queue.blocked;
+    return { tone: "danger", icon: "alert-circle-outline", detail, label: text(locale, `${blocked} blocked`, `${blocked} заблокировано`, `${blocked} חסומים`) };
+  }
+  if (queued) {
+    return { tone: "accent", icon: "cloud-upload-outline", detail, label: text(locale, `${queued} queued`, `${queued} в очереди`, `${queued} בתור`) };
+  }
+  if (!status.lastSyncAt) {
+    return { tone: "neutral", icon: "time-outline", detail, label: text(locale, "Not synced yet", "Ещё не синхронизировано", "טרם סונכרן") };
+  }
+  return { tone: "success", icon: "checkmark-circle-outline", detail, label: text(locale, "Synced", "Синхронизировано", "מסונכרן") };
+}
+
 export function buildProfileQueuePresentation(
   summary: SyncQueueSummary | null,
   loading: boolean,

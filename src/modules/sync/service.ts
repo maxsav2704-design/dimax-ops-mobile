@@ -13,6 +13,7 @@ import { normalizeAddonQuantity } from "@/modules/addons/quantity";
 import { capturePriceVersion, storeFactoryPrices } from "@/modules/prices/repository";
 import { parseFactoryPrices } from "@/modules/prices/contract";
 import { commandPayload } from "@/modules/sync/command-payload";
+import { markSyncFinished, markSyncStarted, notifySyncQueueChanged } from "@/modules/sync/status";
 import {
   MAX_AUTO_RETRY_ATTEMPTS,
   computeRetryDelayMinutes,
@@ -39,7 +40,12 @@ function mapPendingEventRow(row: PendingSyncEventRow): PendingSyncEvent {
 }
 
 function enqueueSync<T>(operation: () => Promise<T>): Promise<T> {
-  const result = syncExecutionTail.then(operation);
+  const result = syncExecutionTail.then(() => {
+    markSyncStarted();
+    return operation();
+  });
+  // Status reporting observes the run; it never alters the sync result.
+  result.then(() => markSyncFinished(null), (error) => markSyncFinished(error));
   syncExecutionTail = result.then(
     () => undefined,
     () => undefined,
@@ -792,6 +798,7 @@ export async function retryPendingEventNow(clientEventId: string): Promise<void>
       [clientEventId]
     );
   });
+  notifySyncQueueChanged();
 }
 
 export async function dropPendingEvent(clientEventId: string): Promise<void> {
@@ -812,6 +819,7 @@ export async function dropPendingEvent(clientEventId: string): Promise<void> {
     }
     await db.runAsync("DELETE FROM pending_events WHERE client_event_id = ?", [clientEventId]);
   });
+  notifySyncQueueChanged();
 }
 
 async function reapplyPendingOptimisticChanges(snapshot: SyncSnapshot): Promise<void> {
@@ -1389,6 +1397,7 @@ export async function queueDoorStatusEvent(input: {
 
     await applyLocalDoorStatus(db, payload);
   });
+  notifySyncQueueChanged();
 }
 
 export async function queueAddonFactEvent(input: {
@@ -1446,6 +1455,7 @@ export async function queueAddonFactEvent(input: {
       comment: input.comment || null,
     });
   });
+  notifySyncQueueChanged();
 }
 
 export async function queueIssueCreateEvent(input: {
@@ -1497,6 +1507,7 @@ export async function queueIssueCreateEvent(input: {
       details,
     });
   });
+  notifySyncQueueChanged();
 }
 
 export async function getLastSyncAt(): Promise<string | null> {
