@@ -21,6 +21,7 @@ export async function createNativeUiMock() {
     Animated: {
       Value, View: "animated-view", createAnimatedComponent: (component: unknown) => component,
       timing: (value: Value, options: { toValue: number }) => ({ start: () => value.setValue(options.toValue), stop: vi.fn() }),
+      spring: (value: Value, options: { toValue: number }) => ({ start: () => value.setValue(options.toValue), stop: vi.fn() }),
     },
   };
 }

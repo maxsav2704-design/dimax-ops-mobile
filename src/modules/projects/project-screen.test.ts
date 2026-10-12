@@ -11,12 +11,16 @@ const mocks = vi.hoisted(() => ({
   locale: "en" as "en" | "ru" | "he",
   load: vi.fn(), refresh: vi.fn(), earnings: vi.fn(), sync: vi.fn(),
   install: vi.fn(), notInstalled: vi.fn(), addon: vi.fn(), push: vi.fn(),
-  scroll: vi.fn(), measure: vi.fn(),
+  scroll: vi.fn(), measure: vi.fn(), haptic: vi.fn(),
 }));
 
 vi.mock("react-native", async () => (await vi.importActual<typeof import("@/test/native-ui")>("@/test/native-ui")).createNativeUiMock());
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "icon" }));
 vi.mock("expo-linear-gradient", () => ({ LinearGradient: "gradient" }));
+vi.mock("expo-haptics", () => ({
+  notificationAsync: mocks.haptic, impactAsync: vi.fn(),
+  NotificationFeedbackType: { Success: "success", Warning: "warning", Error: "error" }, ImpactFeedbackStyle: { Light: "light" },
+}));
 vi.mock("react-native-svg", () => ({
   default: "svg", Circle: "circle", Defs: "defs", LinearGradient: "svg-gradient", Path: "path", Stop: "stop",
 }));
@@ -153,6 +157,7 @@ describe("project execution screen", () => {
     expect(mocks.addon).toHaveBeenCalledExactlyOnceWith("project-a", "addon-a", "1.50", "");
     await act(async () => button("Installed").props.onPress(event));
     expect(mocks.install).toHaveBeenCalledExactlyOnceWith("project-a", "door-a");
+    expect(mocks.haptic).toHaveBeenLastCalledWith("success");
   });
 
   it("does not present the current rate as the earning for an already installed door", async () => {
@@ -373,6 +378,7 @@ describe("project execution screen", () => {
     expect(input("Completed quantity").props.value).toBe("2");
     const notice = tree.root.findByProps({ testID: "project-action-addon" });
     expect(text(notice)).toContain("Local storage unavailable");
+    expect(mocks.haptic).toHaveBeenCalledExactlyOnceWith("error");
     await act(async () => button("Save completed add-on").props.onPress(event));
     expect(mocks.addon).toHaveBeenCalledTimes(2);
   });
@@ -384,6 +390,7 @@ describe("project execution screen", () => {
     expect(mocks.addon).toHaveBeenCalledOnce();
     expect(text()).toContain("Saved on this device");
     expect(text()).toContain("Could not refresh the view");
+    expect(mocks.haptic.mock.calls).toEqual([["success"], ["warning"]]);
     expect(input("Completed quantity").props.value).toBe("1");
   });
 

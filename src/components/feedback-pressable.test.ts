@@ -7,6 +7,7 @@ const native = vi.hoisted(() => ({
   listener: null as null | ((value: boolean) => void),
   remove: vi.fn(),
   timing: vi.fn(),
+  spring: vi.fn(),
   stop: vi.fn(),
   push: vi.fn(),
   loadJournals: vi.fn(),
@@ -34,6 +35,10 @@ vi.mock("react-native", async () => {
       Value, View: "animated-view", createAnimatedComponent: (component: unknown) => component,
       timing: (value: Value, options: { toValue: number }) => {
         native.timing(options);
+        return { start: () => value.setValue(options.toValue), stop: native.stop };
+      },
+      spring: (value: Value, options: { toValue: number }) => {
+        native.spring(options);
         return { start: () => value.setValue(options.toValue), stop: native.stop };
       },
     },
@@ -69,7 +74,7 @@ vi.mock("@/modules/projects/repository", () => ({
 }));
 
 import { FeedbackPressable } from "./feedback-pressable";
-import { MotionProvider, Reveal } from "./motion";
+import { AnimatedFill, MotionProvider, Pop, Pulse, Reveal } from "./motion";
 import { ActionButton, BrandText, ConfirmDialog, IconButton, MetricTile, SegmentedControl } from "./mobile-ui";
 import JournalScreen from "../../app/journal";
 
@@ -164,6 +169,46 @@ describe("shared mobile interaction", () => {
     const view = tree.root.findByType("animated-view" as never);
     expect(flatten(view.props.style).opacity.value).toBe(1);
     expect(native.timing).not.toHaveBeenCalled();
+  });
+
+  it("success effects stay static with reduced motion and never hide their content", async () => {
+    native.reduced = true;
+    await mount(React.createElement(
+      "view", null,
+      React.createElement(Pop, null, "Saved"),
+      React.createElement(Pulse, { trigger: true, color: "#0f0" }, "Installed"),
+      React.createElement(AnimatedFill, { percent: 40 }),
+    ));
+    const views = tree.root.findAllByType("animated-view" as never);
+    expect(views).toHaveLength(3);
+    expect(flatten(views[0].props.style).transform[0].scale.value).toBe(1);
+    expect(views[1].props.children.filter(Boolean)).toEqual(["Installed"]);
+    expect(flatten(views[2].props.style).width.value).toBe(40);
+    expect(native.spring).not.toHaveBeenCalled();
+    expect(native.timing).not.toHaveBeenCalled();
+  });
+
+  it("success effects spring the mark, ring the beacon and glide the fill when motion is allowed", async () => {
+    native.reduced = false;
+    await mount(React.createElement(
+      "view", null,
+      React.createElement(Pop, null, "Saved"),
+      React.createElement(Pulse, { trigger: true, color: "#0f0" }, "Installed"),
+      React.createElement(AnimatedFill, { percent: 40 }),
+    ));
+    const views = tree.root.findAllByType("animated-view" as never);
+    expect(views).toHaveLength(4);
+    expect(native.spring).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ toValue: 1, useNativeDriver: true }));
+    expect(native.timing).toHaveBeenCalledWith(expect.objectContaining({ toValue: 1, useNativeDriver: true }));
+    expect(native.timing).toHaveBeenCalledWith(expect.objectContaining({ toValue: 40, useNativeDriver: false }));
+    expect(flatten(views[3].props.style).width.value).toBe(40);
+    act(() => tree.update(React.createElement(
+      "view", null,
+      React.createElement(Pop, null, "Saved"),
+      React.createElement(Pulse, { trigger: false, color: "#0f0" }, "Installed"),
+      React.createElement(AnimatedFill, { percent: 40 }),
+    )));
+    expect(tree.root.findAllByType("animated-view" as never)).toHaveLength(3);
   });
 });
 

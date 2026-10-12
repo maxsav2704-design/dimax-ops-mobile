@@ -6,7 +6,7 @@ import { Image, ScrollView, StatusBar, StyleSheet, TextInput, View } from "react
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
-import { Reveal, useReducedMotion } from "@/components/motion";
+import { AnimatedFill, Pop, Pulse, Reveal, useReducedMotion } from "@/components/motion";
 import {
   ActionButton,
   BrandText as Text,
@@ -20,6 +20,7 @@ import {
 } from "@/components/mobile-ui";
 import { currentLocalDateKey } from "@/lib/date-key";
 import { NetworkError } from "@/lib/errors";
+import { triggerHaptic, type HapticSignal } from "@/lib/haptics";
 import { translateEnum } from "@/lib/i18n";
 import { installerTheme, toneColors, type InstallerTone } from "@/lib/theme";
 import { addAddonFact, markDoorInstalled, markDoorNotInstalled } from "@/modules/doors/actions";
@@ -426,6 +427,7 @@ export default function ProjectDetailsScreen() {
     action: () => Promise<unknown>,
     onSaved?: () => void,
     doorId?: string,
+    savedSignal: HapticSignal = "success",
   ) => {
     // State alone cannot block a second press in the same render frame.
     if (actionInFlight.current) return;
@@ -444,16 +446,19 @@ export default function ProjectDetailsScreen() {
       if (activeProjectId.current !== projectId) return;
       onSaved?.();
       setActionFeedback({ projectId, target, doorId, tone: "success", message: savedMessage });
+      void triggerHaptic(savedSignal);
       if (!focused.current) return;
       try {
         await reload({ refreshRemote: target === "sync" });
       } catch {
+        void triggerHaptic("warning");
         if (isCurrent()) setActionFeedback({
           projectId, target, doorId, tone: "warning",
           message: `${savedMessage} ${lt("Could not refresh the view. Do not submit this work again.", "Не удалось обновить экран. Не сохраняйте эту работу повторно.", "לא ניתן לרענן את התצוגה. אין לשמור עבודה זו שוב.")}`,
         });
       }
     } catch (reason) {
+      void triggerHaptic("error");
       if (isCurrent()) setActionFeedback({
         projectId, target, doorId, tone: "danger",
         message: reason instanceof Error ? reason.message : lt("Action failed. Please try again.", "Действие не выполнено. Попробуйте ещё раз.", "הפעולה נכשלה. נסו שוב."),
@@ -474,7 +479,7 @@ export default function ProjectDetailsScreen() {
     await performAction("door", () => markDoorNotInstalled(projectId, selectedDoor.id, selectedReasonId, doorComment), () => {
       setDoorComment("");
       setShowNotInstalledForm(false);
-    }, selectedDoor.id);
+    }, selectedDoor.id, "warning");
   };
 
   const handleAddonFact = async () => {
@@ -495,7 +500,9 @@ export default function ProjectDetailsScreen() {
     return (
       <View testID={`project-action-${target}`} accessibilityLiveRegion="polite" style={[styles.actionFeedback, { borderColor: colors.border, backgroundColor: colors.background }]}>
         <View style={styles.actionFeedbackMessage}>
-          <Ionicons name={actionFeedback.tone === "success" ? "checkmark-circle-outline" : "alert-circle-outline"} size={18} color={colors.text} />
+          <Pop>
+            <Ionicons name={actionFeedback.tone === "success" ? "checkmark-circle" : "alert-circle-outline"} size={18} color={colors.text} />
+          </Pop>
           <Text style={styles.actionFeedbackText}>{actionFeedback.message}</Text>
         </View>
         <ActionButton label={lt("Open queue", "Открыть очередь", "פתיחת התור")} icon="list-outline" variant="secondary" onPress={() => router.push("/sync-queue" as never)} />
@@ -583,7 +590,7 @@ export default function ProjectDetailsScreen() {
               <Ionicons name={showProgressDetails ? "chevron-up" : "chevron-down"} size={14} color={installerTheme.textMuted} />
             </Pressable>
             <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${completion.percent}%` }]} />
+              <AnimatedFill percent={completion.percent} style={styles.progressFill} />
             </View>
             {showProgressDetails ? <Reveal style={styles.legend}>
               <LegendDot color={installerTheme.successFill} label={lt("Installed", "Установлено", "הותקן")} value={completion.installed} />
@@ -832,15 +839,11 @@ export default function ProjectDetailsScreen() {
                         </View>
                         <View style={styles.floorProgressRow}>
                           <View style={styles.floorProgressTrack}>
-                            <View
+                            <AnimatedFill
+                              percent={floorPercent}
                               style={[
                                 styles.floorProgressFill,
-                                {
-                                  width: `${floorPercent}%`,
-                                  backgroundColor: floorIssues
-                                    ? installerTheme.warning
-                                    : installerTheme.success,
-                                },
+                                { backgroundColor: floorIssues ? installerTheme.warning : installerTheme.success },
                               ]}
                             />
                           </View>
@@ -861,6 +864,8 @@ export default function ProjectDetailsScreen() {
                               typeLabel={doorTypes.find((doorType) => doorType.id === door.door_type_id)?.name || door.door_type_id}
                               positionLabel={buildDoorPositionLabel(door, locale)}
                               selected={door.id === selectedDoorId}
+                              celebrate={door.status === "INSTALLED" && actionFeedback?.tone === "success"
+                                && actionFeedback.target === "door" && actionFeedback.doorId === door.id}
                               disabled={busy}
                               hasIssue={issueDoorIds.has(door.id)}
                               locale={locale}
@@ -1292,6 +1297,7 @@ function DoorExplorerRow({
   typeLabel,
   positionLabel,
   selected,
+  celebrate,
   disabled,
   hasIssue,
   locale,
@@ -1301,6 +1307,7 @@ function DoorExplorerRow({
   typeLabel: string;
   positionLabel: string;
   selected: boolean;
+  celebrate: boolean;
   disabled: boolean;
   hasIssue: boolean;
   locale: "en" | "ru" | "he";
@@ -1347,7 +1354,9 @@ function DoorExplorerRow({
           <Text style={styles.doorExplorerMeta}>{positionLabel}</Text>
         </View>
         <View style={styles.doorExplorerState}>
-          <Ionicons name={doorStatusIcon(door, hasIssue)} size={14} color={colors.text} />
+          <Pulse trigger={celebrate} color={colors.text} style={styles.doorExplorerStateIcon}>
+            <Ionicons name={doorStatusIcon(door, hasIssue)} size={14} color={colors.text} />
+          </Pulse>
           <Text style={[styles.doorExplorerStatus, { color: colors.text }]}>{translateEnum(locale, hasIssue ? "ISSUE_OPEN" : door.status)}</Text>
         </View>
       </View>
@@ -1739,6 +1748,7 @@ const styles = StyleSheet.create({
   doorExplorerMetaRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 5 },
   doorExplorerMeta: { flex: 1, minWidth: 0, color: installerTheme.textMuted, fontSize: 12, lineHeight: 17 },
   doorExplorerState: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8 },
+  doorExplorerStateIcon: { width: 18, height: 18, alignItems: "center", justifyContent: "center", borderRadius: installerTheme.radius.pill },
   doorExplorerStatus: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 17, fontWeight: "700" },
   floorProgressTrack: { flex: 1, minWidth: 0, height: 5, overflow: "hidden", borderRadius: installerTheme.radius.pill, backgroundColor: installerTheme.border },
   floorProgressFill: { height: "100%", borderRadius: installerTheme.radius.pill },
