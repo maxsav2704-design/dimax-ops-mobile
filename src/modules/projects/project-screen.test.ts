@@ -249,6 +249,26 @@ describe("project execution screen", () => {
     await act(async () => button("Installed").props.onPress(event));
     expect(mocks.install).toHaveBeenCalledWith("project-a", "door-a");
   });
+  it("offers the next open door in display order and wraps around the floor list", async () => {
+    workspace.doors.push(
+      { ...workspace.doors[0], id: "door-b", unit_label: "A-202", apartment_number: "202", status: "PENDING" },
+      { ...workspace.doors[0], id: "door-c", unit_label: "A-203", apartment_number: "203", status: "INSTALLED", is_locked: true },
+    );
+    await mount();
+    const details = () => text(tree.root.findByProps({ testID: "project-door-details" }));
+    expect(details()).toContain("A-201");
+    const next = () => tree.root.findAllByType("pressable" as never).find((node) => node.props.testID === "project-next-door");
+    expect(next()!.props.accessibilityLabel).toBe("Next door: A-202 · 2 left");
+    act(() => next()!.props.onPress(event));
+    expect(details()).toContain("A-202");
+    expect(doorRows().find((row) => row.props.accessibilityLabel.includes("A-202"))!.props.accessibilityState.selected).toBe(true);
+    expect(next()!.props.accessibilityLabel).toBe("Next door: A-201 · 2 left");
+    mocks.install.mockResolvedValue(undefined);
+    await act(async () => button("Installed").props.onPress(event));
+    expect(mocks.install).toHaveBeenCalledExactlyOnceWith("project-a", "door-b");
+    expect(details()).toContain("A-202");
+  });
+
   it("keeps the compact progress summary expandable without changing door selection", async () => {
     await mount();
     expect(button("Door progress").props.accessibilityState.expanded).toBe(false);

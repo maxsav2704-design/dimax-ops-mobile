@@ -3,7 +3,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
-import { DirectionalChevron } from "@/components/directional-chevron";
+import { DirectionalChevron, chevronIcon } from "@/components/directional-chevron";
 import { DoorGlyph } from "@/components/door-glyph";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -23,7 +23,7 @@ import {
 import { currentLocalDateKey } from "@/lib/date-key";
 import { NetworkError } from "@/lib/errors";
 import { triggerHaptic, type HapticSignal } from "@/lib/haptics";
-import { translateEnum } from "@/lib/i18n";
+import { isRtlLocale, translateEnum } from "@/lib/i18n";
 import { installerTheme, toneColors, type InstallerTone } from "@/lib/theme";
 import { addAddonFact, markDoorInstalled, markDoorNotInstalled } from "@/modules/doors/actions";
 import { buildProjectEarningsContext } from "@/modules/earnings/presentation";
@@ -37,6 +37,7 @@ import {
   type ProjectExternalAction,
 } from "@/modules/projects/external-actions";
 import { buildAddonFactActionState, buildDoorActionState } from "@/modules/projects/door-action-state";
+import { countDoorsOpenForWork, findNextDoor } from "@/modules/projects/door-walkthrough";
 import {
   createEmptyLocalProjectWorkspace,
   loadLocalProjectWorkspace,
@@ -368,6 +369,10 @@ export default function ProjectDetailsScreen() {
     () => focusedFloor === "ALL" ? groupedDoors : groupedDoors.filter(([floor]) => floor === focusedFloor),
     [focusedFloor, groupedDoors]
   );
+  // Walkthrough order is exactly what the installer sees: floors in order, doors within each floor.
+  const walkthroughDoors = useMemo(() => displayedFloorGroups.flatMap(([, floorDoors]) => floorDoors), [displayedFloorGroups]);
+  const nextDoor = useMemo(() => (selectedDoorId ? findNextDoor(walkthroughDoors, selectedDoorId) : null), [selectedDoorId, walkthroughDoors]);
+  const doorsLeftInView = useMemo(() => countDoorsOpenForWork(walkthroughDoors), [walkthroughDoors]);
 
   useEffect(() => {
     if (focusedFloor !== "ALL" && !groupedDoors.some(([floor]) => floor === focusedFloor)) {
@@ -1066,6 +1071,17 @@ export default function ProjectDetailsScreen() {
                   </>
                 )}
                 {renderActionFeedback("door")}
+                {nextDoor ? (
+                  <ActionButton
+                    testID="project-next-door"
+                    label={`${lt("Next door", "Следующая дверь", "הדלת הבאה")}: ${nextDoor.unit_label} · ${lt(`${doorsLeftInView} left`, `осталось ${doorsLeftInView}`, `נותרו ${doorsLeftInView}`)}`}
+                    icon={chevronIcon(isRtlLocale(locale), "forward")}
+                    variant="secondary"
+                    disabled={busy}
+                    style={styles.reportButton}
+                    onPress={() => openDoor(nextDoor.id)}
+                  />
+                ) : null}
                 <ActionButton
                   label={lt("Report issue for this door", "Сообщить о проблеме двери", "דיווח תקלה בדלת")}
                   icon="alert-circle-outline"
