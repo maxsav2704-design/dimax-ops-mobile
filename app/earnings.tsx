@@ -5,6 +5,7 @@ import { ActivityIndicator, Modal, ScrollView, StatusBar, StyleSheet, View } fro
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
+import { EarningsDayChart, buildEarningsDayChart } from "@/components/earnings-day-chart";
 import { useReducedMotion } from "@/components/motion";
 import {
   ActionButton,
@@ -150,6 +151,12 @@ export default function EarningsScreen() {
     }
     return Array.from(lanes.values()).sort((left, right) => right.amount - left.amount);
   }, [rows, locale]);
+  // The whole period, so a single selected day still shows its neighbours.
+  const chartBars = useMemo(
+    () => buildEarningsDayChart((snapshot?.rows || []).filter((row) =>
+      (!focusedProjectId || row.project_id === focusedProjectId) && (installType === "ALL" || row.install_type_code === installType))),
+    [snapshot?.rows, focusedProjectId, installType]
+  );
   const totalAmount = sumEarningsValues(rows.map((row) => row.amount));
   const totalQuantity = sumEarningsValues(rows.map((row) => row.quantity));
   const projectCount = new Set(rows.map((row) => row.project_id).filter(Boolean)).size;
@@ -336,6 +343,21 @@ export default function EarningsScreen() {
             <MetricTile label={lt("Projects", "Объекты", "פרויקטים")} value={snapshot ? projectCount : "—"} meta={lt("with completed work", "с выполненными работами", "עם עבודה שהושלמה")} tone="accent" />
             <MetricTile label={lt("Days", "Дни", "ימים")} value={snapshot ? dayLanes.length : "—"} meta={lt("in current view", "в выбранном периоде", "בתצוגה")} tone="info" />
           </View>
+
+          {snapshot && chartBars.length > 1 ? (
+            <SectionCard>
+              <SectionHeader title={lt("Daily trend", "Динамика по дням", "מגמה יומית")} meta={chartBars.length} />
+              <EarningsDayChart
+                bars={chartBars}
+                selectedDate={focus === "DAY" ? selectedDay : focus === "TODAY" ? today : null}
+                today={today}
+                dateLabel={dateLabel}
+                money={money}
+                onSelect={(date) => { setFocus("DAY"); setSelectedDay(date); }}
+                testID="earnings-day-chart"
+              />
+            </SectionCard>
+          ) : null}
 
           <SectionCard>
             <SectionHeader title={lt("Period", "Период", "תקופה")} />

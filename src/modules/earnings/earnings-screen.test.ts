@@ -108,6 +108,19 @@ describe("installer earnings screen", () => {
     expect(total()).toContain("0.00"); expect(text()).toContain("No earnings for this project");
     expect(text()).not.toContain("Tower A");
   });
+  it("charts the whole period by day and selects a day from its bar", async () => {
+    mocks.load.mockResolvedValue(view([row, { ...row, id: "work-b", work_date: "2026-09-26", amount: "100.00" }]));
+    await mount();
+    const bars = targets().filter((item) => String(item.props.testID || "").startsWith("earnings-day-chart-"));
+    expect(bars.map((bar) => bar.props.testID)).toEqual(["earnings-day-chart-2026-09-26", "earnings-day-chart-2026-09-27"]);
+    expect(bars.map((bar) => bar.props.accessibilityState.selected)).toEqual([false, false]);
+    press("Today");
+    expect(byId("earnings-day-chart-2026-09-27").props.accessibilityState.selected).toBe(true);
+    act(() => bars[0].props.onPress(event));
+    expect(total()).toContain("100.00");
+    expect(byId("earnings-day-chart-2026-09-26").props.accessibilityState.selected).toBe(true);
+    expect(byId("earnings-day-chart-2026-09-27")).toBeDefined();
+  });
   it("disables day navigation at boundaries and keeps a selected empty day", async () => {
     mocks.params = { focus: "DAY", day: "2026-09-26" }; await mount();
     expect(total()).toContain("0.00"); expect(target("Previous day").props.disabled).toBe(true);
