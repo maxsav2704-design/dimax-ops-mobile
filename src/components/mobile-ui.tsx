@@ -22,7 +22,9 @@ import Svg, {
 } from "react-native-svg";
 import { installerTheme, toneColors, type InstallerTone } from "@/lib/theme";
 import { FeedbackPressable as Pressable } from "./feedback-pressable";
+import { DirectionalChevron } from "./directional-chevron";
 import { Reveal, useReducedMotion } from "./motion";
+import { useI18n } from "@/providers/AppProviders";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -262,7 +264,7 @@ export function MetricTile({
       <Text style={styles.metricLabel}>{label}</Text>
       <Text style={styles.metricValue} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.85}>{value}</Text>
       {meta ? <Text style={styles.metricMeta} numberOfLines={2}>{meta}</Text> : null}
-      {onPress ? <Ionicons name="chevron-forward" size={14} color={colors.text} style={styles.metricChevron} /> : null}
+      {onPress ? <DirectionalChevron size={14} color={colors.text} style={styles.metricChevron} /> : null}
     </>
   );
   const containerStyle = [styles.metric, { borderStartColor: colors.text }, style];
@@ -544,6 +546,7 @@ export function Row({
   onPress?: () => void;
 }) {
   const colors = toneColors(tone);
+  const { isRTL } = useI18n();
   const content = (
     <>
       <View style={[styles.rowIcon, { backgroundColor: colors.background, borderColor: colors.border }]}>
@@ -553,8 +556,8 @@ export function Row({
         <Text style={styles.rowTitle} numberOfLines={1}>{title}</Text>
         {subtitle ? <Text style={styles.rowSubtitle} numberOfLines={2}>{subtitle}</Text> : null}
       </View>
-      {value ? <Text style={styles.rowValue} numberOfLines={1}>{value}</Text> : null}
-      {onPress ? <Ionicons name="chevron-forward" size={16} color={installerTheme.textFaint} /> : null}
+      {value ? <Text style={[styles.rowValue, { textAlign: isRTL ? "left" : "right" }]} numberOfLines={1}>{value}</Text> : null}
+      {onPress ? <DirectionalChevron size={16} color={installerTheme.textFaint} /> : null}
     </>
   );
   return onPress ? (
@@ -1048,6 +1051,5 @@ const styles = StyleSheet.create({
     color: installerTheme.text,
     fontFamily: installerTheme.fontFamilyMono,
     fontSize: installerTheme.type.caption,
-    textAlign: "right",
   },
 });

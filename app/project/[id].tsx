@@ -3,6 +3,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
+import { DirectionalChevron } from "@/components/directional-chevron";
 import { DoorGlyph } from "@/components/door-glyph";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -1370,7 +1371,7 @@ function DoorExplorerRow({
           <Text style={[styles.doorExplorerStatus, { color: colors.text }]}>{translateEnum(locale, hasIssue ? "ISSUE_OPEN" : door.status)}</Text>
         </View>
       </View>
-      <Ionicons name={locale === "he" ? "chevron-back" : "chevron-forward"} size={16} color={selected ? installerTheme.info : installerTheme.textMuted} />
+      <DirectionalChevron size={16} color={selected ? installerTheme.info : installerTheme.textMuted} />
     </Pressable>
   );
 }

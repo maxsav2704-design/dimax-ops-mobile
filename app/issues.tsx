@@ -1,4 +1,5 @@
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
+import { DirectionalChevron } from "@/components/directional-chevron";
 import { SkeletonList } from "@/components/skeleton";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
@@ -81,7 +82,7 @@ type IssueSnapshot = { projects: ProjectListItem[]; doors: InstallerDoor[]; issu
 const EMPTY_SNAPSHOT: IssueSnapshot = { projects: [], doors: [], issues: [], queueCount: 0 };
 
 function IssuesWorkspace({ routeParams, syncVersion }: { routeParams: IssueRouteParams; syncVersion: number }) {
-  const { locale } = useI18n();
+  const { locale, isRTL } = useI18n();
   const [snapshot, setSnapshot] = useState<IssueSnapshot | null>(null);
   const { projects, doors, issues, queueCount } = snapshot || EMPTY_SNAPSHOT;
   const loaded = snapshot !== null;
@@ -440,7 +441,7 @@ function IssuesWorkspace({ routeParams, syncVersion }: { routeParams: IssueRoute
                     maxLength={2000}
                     style={styles.textarea}
                   />
-                  <Text style={styles.charCount}>{details.length}/2000</Text>
+                  <Text style={[styles.charCount, { textAlign: isRTL ? "left" : "right" }]}>{details.length}/2000</Text>
                   <View style={styles.actionRow}>
                     <ActionButton label={lt("Back", "Назад", "חזרה")} icon={locale === "he" ? "arrow-forward" : "arrow-back"} variant="secondary" style={styles.flex} disabled={busy} onPress={() => setStep("CATEGORY")} />
                     <ActionButton label={lt("Review", "Проверить", "בדיקה")} icon={locale === "he" ? "arrow-back" : "arrow-forward"} style={styles.flex} disabled={!canSave || busy} onPress={() => setStep("REVIEW")} />
@@ -494,7 +495,7 @@ function IssuesWorkspace({ routeParams, syncVersion }: { routeParams: IssueRoute
                   <View style={styles.issueHeading}>
                     <View style={[styles.issueIcon, issue.status === "CLOSED" && styles.resolvedIcon]}><Ionicons name={issue.status === "CLOSED" ? "checkmark-circle-outline" : "alert-circle-outline"} size={21} color={issue.status === "CLOSED" ? installerTheme.success : installerTheme.danger} /></View>
                     <Text style={styles.issueTitle}>{issue.title || lt("Reported issue", "Заявленная проблема", "תקלה שדווחה")}</Text>
-                    <Ionicons name={locale === "he" ? "chevron-back" : "chevron-forward"} size={18} color={installerTheme.textMuted} />
+                    <DirectionalChevron size={18} color={installerTheme.textMuted} />
                   </View>
                   <Text style={styles.issueMeta}>{project.name}</Text>
                   <Text style={styles.doorLabel}>{door?.unit_label || lt("Door unavailable", "Дверь недоступна", "הדלת אינה זמינה")}</Text>
@@ -726,7 +727,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     padding: 12,
   },
-  charCount: { color: installerTheme.textFaint, fontSize: installerTheme.type.caption, textAlign: "right", marginTop: 4 },
+  charCount: { color: installerTheme.textFaint, fontSize: installerTheme.type.caption, marginTop: 4 },
   actionRow: { flexDirection: "row", gap: 8, marginTop: 12 },
   flex: { flex: 1 },
   reviewBox: { gap: 8, borderRadius: installerTheme.radius.card, borderWidth: 1, borderColor: installerTheme.border, backgroundColor: installerTheme.cardMuted, padding: 13 },

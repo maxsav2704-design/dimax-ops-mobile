@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("react-native", async () => (await vi.importActual<typeof import("@/test/native-ui")>("@/test/native-ui")).createNativeUiMock());
 vi.mock("expo-linear-gradient", () => ({ LinearGradient: "gradient" }));
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "icon" }));
+vi.mock("@/providers/AppProviders", () => ({ useI18n: () => ({ locale: "en", isRTL: false }) }));
 vi.mock("react-native-svg", () => ({
   default: "svg", Circle: "circle", Defs: "defs", LinearGradient: "svg-gradient", Path: "path", Stop: "stop",
 }));

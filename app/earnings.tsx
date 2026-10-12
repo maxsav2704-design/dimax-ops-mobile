@@ -2,6 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal, ScrollView, StatusBar, StyleSheet, View } from "react-native";
+import { DirectionalChevron, chevronIcon } from "@/components/directional-chevron";
 import { SkeletonList } from "@/components/skeleton";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -21,6 +22,7 @@ import {
   StatusPill,
 } from "@/components/mobile-ui";
 import { currentLocalDateKey, parseLocalDateKey } from "@/lib/date-key";
+import { isRtlLocale } from "@/lib/i18n";
 import { installerTheme } from "@/lib/theme";
 import {
   buildScopedEarningsFocusContext,
@@ -250,12 +252,12 @@ export default function EarningsScreen() {
           }
         >
           <View style={styles.periodNav}>
-            <IconButton icon={locale === "he" ? "chevron-forward" : "chevron-back"} label={lt("Previous day", "Предыдущий день", "יום קודם")} tone="dark" disabled={!previousDay || !snapshot} onPress={() => moveDay(previousDay)} />
+            <IconButton icon={chevronIcon(isRtlLocale(locale), "back")} label={lt("Previous day", "Предыдущий день", "יום קודם")} tone="dark" disabled={!previousDay || !snapshot} onPress={() => moveDay(previousDay)} />
             <View style={styles.periodBody}>
               <Text style={styles.periodTitle}>{periodLabel}</Text>
               <Text style={styles.periodMeta}>{snapshot ? rows.length : "—"} {lt("work rows", "строк работ", "שורות עבודה")}</Text>
             </View>
-            <IconButton icon={locale === "he" ? "chevron-back" : "chevron-forward"} label={lt("Next day", "Следующий день", "יום הבא")} tone="dark" disabled={!nextDay || !snapshot} onPress={() => moveDay(nextDay)} />
+            <IconButton icon={chevronIcon(isRtlLocale(locale), "forward")} label={lt("Next day", "Следующий день", "יום הבא")} tone="dark" disabled={!nextDay || !snapshot} onPress={() => moveDay(nextDay)} />
           </View>
           <Text style={styles.totalLabel}>{lt("EARNINGS IN VIEW", "ЗАРАБОТОК В ВЫБРАННОМ ПЕРИОДЕ", "שכר בתקופה")}</Text>
           <Text testID="earnings-total" style={[styles.totalValue, totalAmount < 0 && styles.debit]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>{snapshot ? money(totalAmount) : "—"}</Text>
@@ -480,7 +482,9 @@ export default function EarningsScreen() {
                       </View>
                       <View style={styles.projectRight}>
                         <Text style={[styles.projectAmount, lane.amount < 0 && styles.debit]}>{money(lane.amount)}</Text>
-                        <Ionicons name={open ? "chevron-down" : locale === "he" ? "chevron-back" : "chevron-forward"} size={16} color={installerTheme.textFaint} />
+                        {open
+                          ? <Ionicons name="chevron-down" size={16} color={installerTheme.textFaint} />
+                          : <DirectionalChevron size={16} color={installerTheme.textFaint} />}
                       </View>
                     </Pressable>
                     {open ? (
@@ -524,7 +528,7 @@ export default function EarningsScreen() {
                       <Text style={styles.lineMeta}>{lane.rows} {lt("rows", "строк", "שורות")} · {quantityLabel(lane.quantity)} {lt("units", "ед.", "יח׳")}</Text>
                     </View>
                     <Text style={[styles.lineAmount, lane.amount < 0 && styles.debit]}>{money(lane.amount)}</Text>
-                    <Ionicons name={locale === "he" ? "chevron-back" : "chevron-forward"} size={15} color={installerTheme.textFaint} />
+                    <DirectionalChevron size={15} color={installerTheme.textFaint} />
                   </Pressable>
                 )) : (
                   <EmptyState icon="calendar-outline" title={lt("No daily rows", "Нет начислений по дням", "אין שורות יומיות")} />
@@ -613,7 +617,7 @@ function EarningsLine({ row, money, onPress }: { row: InstallerEarningsRow; mone
         <Text style={styles.lineMeta} numberOfLines={2}>{row.install_type_label} · {quantity} × {money(row.rate)}</Text>
       </View>
       <Text style={[styles.lineAmount, debit && styles.debit]}>{money(row.amount)}</Text>
-      <Ionicons name={locale === "he" ? "chevron-back" : "chevron-forward"} size={14} color={installerTheme.textFaint} />
+      <DirectionalChevron size={14} color={installerTheme.textFaint} />
     </Pressable>
   );
 }

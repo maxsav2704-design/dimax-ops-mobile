@@ -2,6 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
 import { RefreshControl, ScrollView, StatusBar, StyleSheet, View } from "react-native";
+import { DirectionalChevron } from "@/components/directional-chevron";
 import { SkeletonList } from "@/components/skeleton";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
@@ -92,7 +93,7 @@ export default function JournalScreen() {
                 onPress={() => router.push(buildProjectRoute(project.id) as never)} style={styles.projectHeader}>
                 <View style={styles.projectIcon}><Ionicons name="business-outline" size={22} color={installerTheme.accent} /></View>
                 <View style={styles.flex}><Text style={styles.projectName}>{project.name}</Text>{project.address ? <Text style={styles.muted}>{project.address}</Text> : null}</View>
-                <Ionicons name={locale === "he" ? "chevron-back" : "chevron-forward"} size={18} color={installerTheme.textFaint} />
+                <DirectionalChevron size={18} color={installerTheme.textFaint} />
               </Pressable>
               {journals.map((journal) => (
                 <Pressable key={journal.id} testID={`journal-document-${journal.id}`} accessibilityRole="button" disabled={disabled}

@@ -2,6 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, usePathname } from "expo-router";
 import React from "react";
 import { StyleSheet, View } from "react-native";
+import { DirectionalChevron } from "@/components/directional-chevron";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { BrandText as Text } from "@/components/mobile-ui";
 import { installerTheme, toneColors } from "@/lib/theme";
@@ -35,7 +36,7 @@ export function SyncStatusBar() {
       <Ionicons name={view.icon as IconName} size={14} color={colors.text} />
       <Text style={[styles.label, { color: colors.text }]} numberOfLines={1}>{view.label}</Text>
       {view.detail ? <Text style={styles.detail}>{view.detail}</Text> : null}
-      {!onQueue ? <Ionicons name={locale === "he" ? "chevron-back" : "chevron-forward"} size={13} color={installerTheme.textFaint} /> : <View style={styles.spacer} />}
+      {!onQueue ? <DirectionalChevron size={13} color={installerTheme.textFaint} /> : <View style={styles.spacer} />}
     </Pressable>
   );
 }

@@ -3,6 +3,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
+import { DirectionalChevron } from "@/components/directional-chevron";
 import { SkeletonList } from "@/components/skeleton";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -83,7 +84,7 @@ function LegendRow({ color, label, value }: { color: string; label: string; valu
 export default function ProjectsScreen() {
   const router = useRouter();
   const { user, syncVersion } = useAuth();
-  const { locale } = useI18n();
+  const { locale, isRTL } = useI18n();
   const identity = `${user?.company_id || ""}:${user?.id || ""}`;
   const activeIdentity = useRef(identity);
   activeIdentity.current = identity;
@@ -342,10 +343,10 @@ export default function ProjectsScreen() {
             style={styles.syncRow}
           >
             <StatusPill label={queueLabel} tone={queueTone} icon={queueIcon} />
-            <Text style={styles.syncMeta}>
+            <Text style={[styles.syncMeta, { textAlign: isRTL ? "left" : "right" }]}>
               {lastSyncAt ? formatSyncTime(lastSyncAt) : lt("Sync queue", "Очередь работ", "תור עבודות")}
             </Text>
-            <Ionicons name={locale === "he" ? "chevron-back" : "chevron-forward"} size={16} color={installerTheme.textMuted} />
+            <DirectionalChevron size={16} color={installerTheme.textMuted} />
           </Pressable>
         </View>
 
@@ -431,7 +432,7 @@ export default function ProjectsScreen() {
                     <Text style={styles.rowTitle}>{item.title}</Text>
                     <Text style={styles.rowMeta}>{item.location || translateEnum(locale, item.event_type)}</Text>
                   </View>
-                  <Ionicons name={locale === "he" ? "chevron-back" : "chevron-forward"} size={17} color={installerTheme.textMuted} />
+                  <DirectionalChevron size={17} color={installerTheme.textMuted} />
                 </Pressable>
               )) : <EmptyState
                 icon={calendar.snapshot ? "calendar-outline" : "cloud-offline-outline"}
@@ -471,7 +472,7 @@ export default function ProjectsScreen() {
                         <Text style={styles.projectTitle}>{project.name}</Text>
                         <Text style={styles.projectAddress}>{project.address || lt("Address not set", "Адрес не указан", "הכתובת לא הוגדרה")}</Text>
                       </View>
-                      <Ionicons name={locale === "he" ? "chevron-back" : "chevron-forward"} size={18} color={installerTheme.info} />
+                      <DirectionalChevron size={18} color={installerTheme.info} />
                     </View>
                     <View style={styles.projectStatus}>
                       <StatusPill label={translateEnum(locale, project.status)} tone={project.status === "COMPLETED" ? "success" : "accent"} />
@@ -519,7 +520,7 @@ const styles = StyleSheet.create({
   welcomeName: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyDisplay, fontSize: 23, lineHeight: 31, marginTop: 3 },
   eyebrow: { color: installerTheme.accent, fontFamily: installerTheme.fontFamilyMedium, fontSize: installerTheme.type.caption, lineHeight: 15 },
   syncRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 },
-  syncMeta: { flex: 1, minWidth: 0, textAlign: "right", color: installerTheme.textMuted, fontSize: installerTheme.type.caption, lineHeight: 16 },
+  syncMeta: { flex: 1, minWidth: 0, color: installerTheme.textMuted, fontSize: installerTheme.type.caption, lineHeight: 16 },
   body: { gap: 14, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 },
   sectionContent: { gap: 12 },
   portfolioCard: { overflow: "hidden", padding: 0 },

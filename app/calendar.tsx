@@ -2,6 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal, ScrollView, StatusBar, StyleSheet, View } from "react-native";
+import { DirectionalChevron } from "@/components/directional-chevron";
 import { SkeletonList } from "@/components/skeleton";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -329,7 +330,7 @@ export default function CalendarScreen() {
                           <Text style={styles.eventTime}>{eventTime(item)}</Text>
                           <View style={styles.eventType}><StatusPill label={eventLabel(item)} tone={appearance.tone} /></View>
                         </View>
-                        <Ionicons name={locale === "he" ? "chevron-back" : "chevron-forward"} size={16} color={installerTheme.textFaint} />
+                        <DirectionalChevron size={16} color={installerTheme.textFaint} />
                       </Pressable>
                       {item.location ? (
                         <View style={styles.metaRow}>

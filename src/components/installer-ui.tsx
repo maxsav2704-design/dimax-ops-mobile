@@ -37,7 +37,7 @@ export function InstallerBottomNav() {
     },
     {
       href: "/calendar",
-      label: label("Plan", "План", "יומן"),
+      label: label("Plan", "План", "תכנית"),
       icon: "calendar-outline",
       activeIcon: "calendar",
     },
