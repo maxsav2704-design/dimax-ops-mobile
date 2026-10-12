@@ -503,9 +503,9 @@ const styles = StyleSheet.create({
   content: { flex: 1 },
   header: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 20, gap: 8 },
   headerRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  eyebrow: { color: installerTheme.textFaint, fontSize: 10, fontWeight: "700" },
+  eyebrow: { color: installerTheme.textFaint, fontSize: installerTheme.type.caption, fontWeight: "700" },
   title: { color: installerTheme.text, fontSize: 24, fontWeight: "800", marginTop: 6 },
-  lastSync: { color: installerTheme.textMuted, fontSize: 11, lineHeight: 17 },
+  lastSync: { color: installerTheme.textMuted, fontSize: installerTheme.type.caption, lineHeight: 17 },
   scroll: { paddingBottom: installerTheme.layout.bottomNavClearance },
   connectionRow: { flexDirection: "row", alignItems: "center", gap: 11, marginTop: 12 },
   connectionIcon: {
@@ -527,7 +527,7 @@ const styles = StyleSheet.create({
   },
   heroStat: { flex: 1, alignItems: "center", paddingHorizontal: 4, paddingVertical: 10 },
   heroStatValue: { fontFamily: installerTheme.fontFamilyMono, fontSize: 20 },
-  heroStatLabel: { color: installerTheme.textFaint, fontSize: 11, lineHeight: 16, textAlign: "center", marginTop: 4 },
+  heroStatLabel: { color: installerTheme.textFaint, fontSize: installerTheme.type.caption, lineHeight: 16, textAlign: "center", marginTop: 4 },
   body: { gap: 14, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12 },
   errorBox: {
     flexDirection: "row",
@@ -562,7 +562,7 @@ const styles = StyleSheet.create({
   resolutionDetail: { color: installerTheme.textMuted, fontSize: 12, lineHeight: 18, marginTop: 6 },
   resolutionAction: { color: installerTheme.text, fontSize: 12, lineHeight: 18, fontWeight: "700", marginTop: 6 },
   queueFacts: { flexDirection: "row", flexWrap: "wrap", gap: 9, marginTop: 9 },
-  queueFact: { color: installerTheme.textFaint, fontSize: 11, lineHeight: 17 },
+  queueFact: { color: installerTheme.textFaint, fontSize: installerTheme.type.caption, lineHeight: 17 },
   itemActions: { flexDirection: "row", gap: 7, marginTop: 11 },
   flex: { flex: 1 },
 });

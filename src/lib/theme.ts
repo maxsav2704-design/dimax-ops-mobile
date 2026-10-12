@@ -77,6 +77,16 @@ export const installerTheme = {
   layout: {
     bottomNavClearance: 112,
   },
+  // Field-readable type scale: caption is the smallest size allowed in any screen style.
+  type: {
+    caption: 12,
+    meta: 13,
+    body: 15,
+    title: 17,
+    display: 22,
+  },
+  // Cap OS font scaling so dense tiles and pills keep their layout at large accessibility sizes.
+  maxFontScale: 1.4,
 } as const;
 
 export type InstallerTone = "neutral" | "accent" | "success" | "warning" | "danger" | "info" | "purple";

@@ -35,7 +35,7 @@ const styles = StyleSheet.create({
   heading: { flexDirection: "row", alignItems: "center", gap: 8 },
   title: { flex: 1, minWidth: 0, fontSize: 13, lineHeight: 19, color: theme.text, fontWeight: "700" },
   amount: { fontSize: 20, lineHeight: 28, fontWeight: "700", writingDirection: "ltr" },
-  meta: { fontSize: 11, lineHeight: 17, color: theme.textMuted },
+  meta: { fontSize: theme.type.caption, lineHeight: 17, color: theme.textMuted },
   note: { fontSize: 12, lineHeight: 18, color: theme.textMuted },
   estimate: { gap: 4, paddingTop: 8, borderTopWidth: 1, borderColor: theme.border },
   estimateLabel: { fontSize: 12, lineHeight: 18, color: theme.textMuted },

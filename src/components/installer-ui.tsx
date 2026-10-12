@@ -220,7 +220,7 @@ const styles = StyleSheet.create({
   label: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamilyStrong,
-    fontSize: 9,
+    fontSize: installerTheme.type.caption,
   },
   centerOuter: {
     position: "absolute",

@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
   heroEyebrow: {
     color: installerTheme.accent,
     fontFamily: installerTheme.fontFamily,
-    fontSize: 10,
+    fontSize: installerTheme.type.caption,
     fontWeight: "800",
     marginBottom: 9,
   },
@@ -332,7 +332,7 @@ const styles = StyleSheet.create({
   heroFeatureText: {
     color: installerTheme.textOnDark,
     fontFamily: installerTheme.fontFamily,
-    fontSize: 10,
+    fontSize: installerTheme.type.caption,
     fontWeight: "700",
   },
   form: {
@@ -359,7 +359,7 @@ const styles = StyleSheet.create({
   productMeta: {
     color: installerTheme.textFaint,
     fontFamily: installerTheme.fontFamily,
-    fontSize: 9,
+    fontSize: installerTheme.type.caption,
     fontWeight: "800",
     marginTop: 2,
   },
@@ -383,7 +383,7 @@ const styles = StyleSheet.create({
   systemText: {
     color: installerTheme.text,
     fontFamily: installerTheme.fontFamily,
-    fontSize: 10,
+    fontSize: installerTheme.type.caption,
     fontWeight: "800",
   },
   fields: {
@@ -392,7 +392,7 @@ const styles = StyleSheet.create({
   fieldLabel: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamily,
-    fontSize: 10,
+    fontSize: installerTheme.type.caption,
     fontWeight: "700",
     marginBottom: 6,
   },
@@ -428,7 +428,7 @@ const styles = StyleSheet.create({
     flex: 1,
     color: installerTheme.danger,
     fontFamily: installerTheme.fontFamily,
-    fontSize: 11,
+    fontSize: installerTheme.type.caption,
   },
   submit: {
     position: "relative",
@@ -464,7 +464,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     color: installerTheme.textFaint,
     fontFamily: installerTheme.fontFamily,
-    fontSize: 9,
+    fontSize: installerTheme.type.caption,
     textAlign: "center",
   },
   pressed: {

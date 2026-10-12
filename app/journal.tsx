@@ -130,7 +130,7 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: installerTheme.layout.bottomNavClearance + 24, gap: 16 },
   heroMetrics: { flexDirection: "row", alignItems: "center", gap: 18, marginTop: 18 },
   heroMetricValue: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyDisplayStrong, fontSize: 25 },
-  heroMetricLabel: { color: installerTheme.textMuted, fontFamily: installerTheme.fontFamilyMedium, fontSize: 11, marginTop: 2 },
+  heroMetricLabel: { color: installerTheme.textMuted, fontFamily: installerTheme.fontFamilyMedium, fontSize: installerTheme.type.caption, marginTop: 2 },
   metricDivider: { width: 1, height: 34, backgroundColor: installerTheme.borderStrong },
   loading: { paddingVertical: 32, alignItems: "center", gap: 12 },
   notice: { color: installerTheme.warning, fontSize: 12, lineHeight: 18, padding: 12, backgroundColor: installerTheme.warningSoft, borderRadius: installerTheme.radius.md },
@@ -143,7 +143,7 @@ const styles = StyleSheet.create({
   muted: { color: installerTheme.textMuted, fontSize: 12, lineHeight: 18 },
   document: { gap: 10, borderTopWidth: 1, borderTopColor: installerTheme.border, paddingTop: 14, paddingBottom: 4 },
   documentHeader: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  documentCode: { color: installerTheme.textFaint, fontFamily: installerTheme.fontFamilyMono, fontSize: 10 },
+  documentCode: { color: installerTheme.textFaint, fontFamily: installerTheme.fontFamilyMono, fontSize: installerTheme.type.caption },
   documentFooter: { flexDirection: "row", alignItems: "center", gap: 10 },
   workCount: { color: installerTheme.text, fontSize: 13, lineHeight: 20 },
 });

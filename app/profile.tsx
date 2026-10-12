@@ -291,7 +291,7 @@ const styles = StyleSheet.create({
     backgroundColor: installerTheme.dangerSoft,
     padding: 11,
   },
-  errorText: { flex: 1, color: installerTheme.danger, fontSize: 11 },
+  errorText: { flex: 1, color: installerTheme.danger, fontSize: installerTheme.type.caption },
   sectionAction: { marginTop: 12 },
   languageRow: {
     minHeight: 64,
@@ -303,6 +303,6 @@ const styles = StyleSheet.create({
     borderBottomColor: installerTheme.border,
   },
   settingTitle: { color: installerTheme.text, fontSize: 12, fontWeight: "800" },
-  settingMeta: { color: installerTheme.textMuted, fontSize: 9, marginTop: 3 },
-  version: { color: installerTheme.textFaint, fontSize: 9, textAlign: "center", marginTop: 2 },
+  settingMeta: { color: installerTheme.textMuted, fontSize: installerTheme.type.caption, marginTop: 3 },
+  version: { color: installerTheme.textFaint, fontSize: installerTheme.type.caption, textAlign: "center", marginTop: 2 },
 });

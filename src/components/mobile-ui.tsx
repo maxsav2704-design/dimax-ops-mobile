@@ -55,6 +55,7 @@ export function BrandText({ style, ...props }: TextProps) {
 
   return (
     <NativeText
+      maxFontSizeMultiplier={installerTheme.maxFontScale}
       {...props}
       style={[styles.brandText, style, { fontFamily, fontWeight }]}
     />
@@ -585,13 +586,13 @@ export const mobileText = StyleSheet.create({
   label: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamilyStrong,
-    fontSize: 10,
+    fontSize: installerTheme.type.caption,
     textTransform: "uppercase",
   },
   mono: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamilyMono,
-    fontSize: 11,
+    fontSize: installerTheme.type.caption,
   } satisfies TextStyle,
 });
 
@@ -622,13 +623,13 @@ const styles = StyleSheet.create({
   brandProduct: {
     color: installerTheme.accent,
     fontFamily: installerTheme.fontFamilyStrong,
-    fontSize: 8,
-    lineHeight: 10,
+    fontSize: installerTheme.type.caption,
+    lineHeight: 14,
     letterSpacing: 0,
   },
   brandProductCompact: {
-    fontSize: 6,
-    lineHeight: 8,
+    fontSize: installerTheme.type.caption,
+    lineHeight: 14,
     letterSpacing: 0,
   },
   hero: {
@@ -653,7 +654,7 @@ const styles = StyleSheet.create({
     zIndex: 1,
     color: installerTheme.textFaint,
     fontFamily: installerTheme.fontFamilyMedium,
-    fontSize: 11,
+    fontSize: installerTheme.type.caption,
     letterSpacing: 0,
     textTransform: "uppercase",
     marginBottom: 5,
@@ -717,7 +718,7 @@ const styles = StyleSheet.create({
   counterText: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamilyMono,
-    fontSize: 9,
+    fontSize: installerTheme.type.caption,
   },
   statusPill: {
     maxWidth: "100%",
@@ -732,7 +733,7 @@ const styles = StyleSheet.create({
   },
   statusPillText: {
     fontFamily: installerTheme.fontFamilyStrong,
-    fontSize: 10,
+    fontSize: installerTheme.type.caption,
     flexShrink: 1,
   },
   progressRingSvg: {
@@ -746,7 +747,7 @@ const styles = StyleSheet.create({
   progressRingText: {
     color: installerTheme.text,
     fontFamily: installerTheme.fontFamilyMono,
-    fontSize: 10,
+    fontSize: installerTheme.type.caption,
   },
   metric: {
     flex: 1,
@@ -767,7 +768,7 @@ const styles = StyleSheet.create({
   metricLabel: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamilyMedium,
-    fontSize: 10,
+    fontSize: installerTheme.type.caption,
     textTransform: "uppercase",
   },
   metricChevron: { position: "absolute", end: 7, top: 34 },
@@ -780,8 +781,8 @@ const styles = StyleSheet.create({
   metricMeta: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamily,
-    fontSize: 9,
-    lineHeight: 12,
+    fontSize: installerTheme.type.caption,
+    lineHeight: 16,
     marginTop: 2,
   },
   action: {
@@ -952,7 +953,7 @@ const styles = StyleSheet.create({
   segmentText: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamilyStrong,
-    fontSize: 10,
+    fontSize: installerTheme.type.caption,
     flexShrink: 1,
   },
   segmentTextDark: {
@@ -967,7 +968,7 @@ const styles = StyleSheet.create({
   segmentCount: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamilyStrong,
-    fontSize: 8,
+    fontSize: installerTheme.type.caption,
   },
   segmentCountActive: {
     color: installerTheme.text,
@@ -1037,7 +1038,7 @@ const styles = StyleSheet.create({
   rowSubtitle: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamily,
-    fontSize: 10,
+    fontSize: installerTheme.type.caption,
     lineHeight: 14,
     marginTop: 2,
   },
@@ -1046,7 +1047,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     color: installerTheme.text,
     fontFamily: installerTheme.fontFamilyMono,
-    fontSize: 11,
+    fontSize: installerTheme.type.caption,
     textAlign: "right",
   },
 });

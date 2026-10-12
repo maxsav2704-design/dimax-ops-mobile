@@ -59,7 +59,7 @@ const styles = StyleSheet.create({
   label: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamilyStrong,
-    fontSize: 10,
+    fontSize: installerTheme.type.caption,
   },
   labelDark: {
     color: installerTheme.textFaint,

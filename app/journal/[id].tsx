@@ -543,7 +543,7 @@ const styles = StyleSheet.create({
   workRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 12, borderTopWidth: 1, borderTopColor: installerTheme.border },
   workTitle: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyStrong, fontSize: 13, lineHeight: 20 },
   workMeta: { color: installerTheme.textMuted, fontSize: 12, lineHeight: 18, marginTop: 3 },
-  workDate: { color: installerTheme.textFaint, fontSize: 11, lineHeight: 16, marginTop: 5 },
+  workDate: { color: installerTheme.textFaint, fontSize: installerTheme.type.caption, lineHeight: 16, marginTop: 5 },
   heroStatus: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -555,7 +555,7 @@ const styles = StyleSheet.create({
   documentCode: {
     color: installerTheme.textFaint,
     fontFamily: installerTheme.fontFamilyMono,
-    fontSize: 11,
+    fontSize: installerTheme.type.caption,
   },
   actionNotice: {
     color: installerTheme.textMuted,
@@ -591,7 +591,7 @@ const styles = StyleSheet.create({
   metricLabel: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamilyMedium,
-    fontSize: 10,
+    fontSize: installerTheme.type.caption,
     lineHeight: 14,
   },
   workflowCard: { gap: 0 },
@@ -610,7 +610,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  stepIndex: { fontFamily: installerTheme.fontFamilyMono, fontSize: 9 },
+  stepIndex: { fontFamily: installerTheme.fontFamilyMono, fontSize: installerTheme.type.caption },
   stepLine: {
     width: 1,
     flex: 1,
@@ -629,7 +629,7 @@ const styles = StyleSheet.create({
   caption: {
     color: installerTheme.textFaint,
     fontFamily: installerTheme.fontFamily,
-    fontSize: 11,
+    fontSize: installerTheme.type.caption,
     lineHeight: 17,
     marginTop: 10,
   },
@@ -637,7 +637,7 @@ const styles = StyleSheet.create({
   blockedHint: {
     color: installerTheme.warning,
     fontFamily: installerTheme.fontFamily,
-    fontSize: 11,
+    fontSize: installerTheme.type.caption,
     lineHeight: 17,
   },
   signedBlock: {
@@ -659,7 +659,7 @@ const styles = StyleSheet.create({
   signedMeta: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamily,
-    fontSize: 11,
+    fontSize: installerTheme.type.caption,
     marginTop: 3,
   },
 });
