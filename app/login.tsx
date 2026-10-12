@@ -5,7 +5,6 @@ import { router } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
-  Image,
   Platform,
   ScrollView,
   StatusBar,
@@ -14,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { DoorGlyph } from "@/components/door-glyph";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { BrandText as Text, DimaxMark } from "@/components/mobile-ui";
 import { DEV_AUTO_LOGIN } from "@/lib/config";
@@ -111,12 +111,12 @@ export default function LoginScreen() {
           contentContainerStyle={styles.scroll}
         >
           <View style={styles.hero}>
-            <Image
-              source={require("../assets/premium/door-premium.jpg")}
-              resizeMode="cover"
-              style={styles.heroImage}
-              accessibilityIgnoresInvertColors
-            />
+            <View pointerEvents="none" style={styles.heroGlyph}>
+              <DoorGlyph
+                width={132}
+                tone={{ background: installerTheme.shellRaised, border: installerTheme.shellBorder, text: installerTheme.accentEdge }}
+              />
+            </View>
             <LinearGradient
               pointerEvents="none"
               colors={["rgba(8,14,21,0.22)", "rgba(8,14,21,0.82)", installerTheme.background]}
@@ -249,9 +249,12 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 28,
   },
-  heroImage: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.5,
+  heroGlyph: {
+    position: "absolute",
+    top: 44,
+    end: 28,
+    opacity: 0.85,
+    transform: [{ rotate: "-6deg" }],
   },
   heroArchitecture: {
     ...StyleSheet.absoluteFillObject,

@@ -2,7 +2,8 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image, ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
+import { ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
+import { DoorGlyph } from "@/components/door-glyph";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
@@ -898,12 +899,21 @@ export default function ProjectDetailsScreen() {
                 />
                 <View style={[styles.doorDetailStrip, { backgroundColor: doorStatusColors(selectedDoor, selectedDoorIssues.length > 0).text }]} />
                 <Reveal key={selectedDoor.id} style={styles.doorImageHero}>
-                  <Image
-                    source={require("../../assets/premium/door-premium.jpg")}
-                    resizeMode="cover"
+                  <LinearGradient
+                    pointerEvents="none"
+                    colors={[installerTheme.shellRaised, installerTheme.shell]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
                     style={StyleSheet.absoluteFillObject}
-                    accessibilityIgnoresInvertColors
                   />
+                  <View pointerEvents="none" style={styles.doorHeroGlyph}>
+                    <DoorGlyph
+                      width={104}
+                      tone={doorStatusColors(selectedDoor, selectedDoorIssues.length > 0)}
+                      hasIssue={selectedDoorIssues.length > 0}
+                      icon={doorStatusIcon(selectedDoor, selectedDoorIssues.length > 0)}
+                    />
+                  </View>
                   <LinearGradient
                     pointerEvents="none"
                     colors={["rgba(8,14,21,0.04)", "rgba(8,14,21,0.46)", installerTheme.background]}
@@ -1365,65 +1375,6 @@ function DoorExplorerRow({
   );
 }
 
-function DoorTile({
-  door,
-  sequence,
-  positionLabel,
-  selected,
-  hasIssue,
-  locale,
-  onPress,
-}: {
-  door: InstallerDoor;
-  sequence: number;
-  positionLabel: string;
-  selected: boolean;
-  hasIssue: boolean;
-  locale: "en" | "ru" | "he";
-  onPress: () => void;
-}) {
-  const colors = doorStatusColors(door, hasIssue);
-  const statusIcon = doorStatusIcon(door, hasIssue);
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`${door.unit_label}, ${positionLabel}, ${translateEnum(locale, door.status)}${hasIssue ? `, ${locale === "ru" ? "есть проблема" : locale === "he" ? "קיימת תקלה" : "has issue"}` : ""}`}
-      accessibilityState={{ selected }}
-      style={({ pressed }) => [
-        styles.doorTile,
-        selected && styles.doorTileSelected,
-        pressed && styles.doorTilePressed,
-      ]}
-    >
-      <View style={styles.doorSequenceRow}>
-        <Text style={styles.doorSequence}>{String(sequence).padStart(2, "0")}</Text>
-        {selected ? <View style={styles.selectedBeacon} /> : null}
-      </View>
-      <View
-        style={[
-          styles.doorElevation,
-          { backgroundColor: colors.background, borderColor: colors.text, shadowColor: colors.text },
-          selected && styles.doorElevationSelected,
-        ]}
-      >
-        <View style={[styles.doorElevationInset, { borderColor: colors.border }]} />
-        <View style={[styles.doorHinge, styles.doorHingeTop]} />
-        <View style={[styles.doorHinge, styles.doorHingeBottom]} />
-        <View style={[styles.doorStatusBeacon, { backgroundColor: colors.text }]}>
-          <Ionicons name={statusIcon} size={10} color={installerTheme.textOnDark} />
-        </View>
-        <View style={[styles.miniDoorHandle, { backgroundColor: hasIssue ? installerTheme.dangerFill : installerTheme.accent }]} />
-        <View style={styles.doorThreshold} />
-        {hasIssue ? <View style={styles.issueFlag}><Ionicons name="alert" size={8} color={installerTheme.textOnDark} /></View> : null}
-      </View>
-      <Text style={styles.doorTileNumber} numberOfLines={1}>{door.unit_label}</Text>
-      <Text style={styles.doorTilePosition} numberOfLines={1}>{positionLabel}</Text>
-      <View style={[styles.doorGroundLight, { backgroundColor: colors.text }, selected && styles.doorGroundLightSelected]} />
-    </Pressable>
-  );
-}
-
 function buildDoorPositionLabel(door: InstallerDoor, locale: "en" | "ru" | "he") {
   if (door.apartment_number) {
     const prefix = locale === "ru" ? "кв." : locale === "he" ? "דירה" : "Apt";
@@ -1793,71 +1744,7 @@ const styles = StyleSheet.create({
     end: 24,
     transform: [{ rotate: "-17deg" }],
   },
-  doorRail: { alignItems: "flex-end", gap: 7, paddingHorizontal: 12, paddingTop: 16, paddingBottom: 14 },
-  doorTile: {
-    width: 76,
-    minHeight: 120,
-    alignItems: "center",
-    justifyContent: "flex-end",
-    borderRadius: installerTheme.radius.md,
-    borderWidth: 1,
-    borderColor: "transparent",
-    paddingHorizontal: 4,
-    paddingTop: 5,
-    paddingBottom: 6,
-    position: "relative",
-  },
-  doorTileSelected: {
-    transform: [{ translateY: -5 }],
-    borderColor: installerTheme.infoBorder,
-    backgroundColor: installerTheme.primarySoft,
-    elevation: 6,
-    shadowColor: installerTheme.info,
-    shadowOpacity: 0.28,
-    shadowRadius: 11,
-    shadowOffset: { width: 0, height: 4 },
-  },
   doorTilePressed: { opacity: 0.94 },
-  doorSequenceRow: { width: 54, minHeight: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
-  doorSequence: { color: installerTheme.textFaint, fontFamily: installerTheme.fontFamilyMono, fontSize: installerTheme.type.caption },
-  selectedBeacon: {
-    width: 6,
-    height: 6,
-    borderRadius: installerTheme.radius.pill,
-    backgroundColor: installerTheme.info,
-    shadowColor: installerTheme.info,
-    shadowOpacity: 1,
-    shadowRadius: 5,
-    shadowOffset: { width: 0, height: 0 },
-  },
-  doorElevation: {
-    width: 54,
-    height: 68,
-    position: "relative",
-    borderRadius: 4,
-    borderWidth: 2,
-    padding: 4,
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 0 },
-  },
-  doorElevationSelected: {
-    shadowOpacity: 0.46,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  doorElevationInset: { flex: 1, borderRadius: 2, borderWidth: 1, backgroundColor: installerTheme.shellOverlayFaint },
-  doorHinge: { position: "absolute", start: 3, width: 2, height: 7, borderRadius: 1, backgroundColor: installerTheme.textFaint },
-  doorHingeTop: { top: 16 },
-  doorHingeBottom: { bottom: 12 },
-  doorStatusBeacon: { position: "absolute", top: 4, start: 4, width: 17, height: 17, alignItems: "center", justifyContent: "center", borderRadius: installerTheme.radius.pill },
-  miniDoorHandle: { position: "absolute", end: 7, top: 34, width: 4, height: 4, borderRadius: installerTheme.radius.pill },
-  doorThreshold: { position: "absolute", start: 3, end: 3, bottom: 3, height: 2, backgroundColor: installerTheme.shellBorder },
-  issueFlag: { position: "absolute", top: -6, end: -6, width: 18, height: 18, alignItems: "center", justifyContent: "center", borderRadius: installerTheme.radius.pill, borderWidth: 2, borderColor: installerTheme.card, backgroundColor: installerTheme.dangerFill },
-  doorTileNumber: { maxWidth: "100%", color: installerTheme.text, fontFamily: installerTheme.fontFamilyMono, fontSize: installerTheme.type.caption, lineHeight: 16, marginTop: 4 },
-  doorTilePosition: { maxWidth: "100%", color: installerTheme.textMuted, fontSize: installerTheme.type.caption, lineHeight: 16, marginTop: 1 },
-  doorGroundLight: { width: 44, height: 2, borderRadius: installerTheme.radius.pill, opacity: 0.28, marginTop: 5 },
-  doorGroundLightSelected: { width: 56, height: 3, opacity: 1 },
   doorDetail: {
     position: "relative",
     overflow: "hidden",
@@ -1875,39 +1762,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: installerTheme.border,
   },
+  doorHeroGlyph: { position: "absolute", top: 22, end: 22 },
   doorImageContent: {
     paddingHorizontal: 14,
     paddingTop: 112,
     paddingBottom: 13,
   },
   doorImageTitleRow: { alignItems: "flex-start", gap: 10, marginTop: 4 },
-  doorHero: { flexDirection: "row", alignItems: "center", gap: 12 },
-  doorGlyph: {
-    width: 54,
-    height: 72,
-    borderRadius: 5,
-    borderWidth: 2,
-    backgroundColor: installerTheme.doorMaterial,
-    padding: 5,
-    shadowColor: installerTheme.accent,
-    shadowOpacity: 0.15,
-    shadowRadius: 9,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 3,
-  },
-  doorGlyphInset: { flex: 1, borderRadius: 2, borderWidth: 1, borderColor: installerTheme.doorMaterialInset },
-  doorGlyphStatus: {
-    position: "absolute",
-    top: 5,
-    start: 5,
-    width: 19,
-    height: 19,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: installerTheme.radius.pill,
-  },
-  doorHandle: { position: "absolute", end: 8, top: 34, width: 4, height: 4, borderRadius: installerTheme.radius.pill, backgroundColor: installerTheme.accent },
-  doorGlyphThreshold: { position: "absolute", start: 4, end: 4, bottom: 3, height: 2, backgroundColor: installerTheme.shellBorder },
   doorHeroBody: { width: "100%", minWidth: 0 },
   doorEyebrow: { color: installerTheme.textMuted, fontFamily: installerTheme.fontFamilyMedium, fontSize: installerTheme.type.caption, letterSpacing: 0, textTransform: "uppercase" },
   doorNumber: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyDisplayStrong, fontSize: 22, lineHeight: 29 },

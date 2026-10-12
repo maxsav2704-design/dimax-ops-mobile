@@ -1,7 +1,6 @@
 import React from "react";
-import { createRequire } from "node:module";
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectListItem } from "./types";
 import { NetworkError } from "@/lib/errors";
 
@@ -29,10 +28,6 @@ vi.mock("@/modules/projects/external-actions", () => ({ openProjectExternalActio
 
 import ProjectsScreen from "../../../app/projects";
 
-const require = createRequire(__filename);
-const imageLoader = require.extensions[".jpg"];
-beforeAll(() => { require.extensions[".jpg"] = (module) => { module.exports = 1; }; });
-afterAll(() => { if (imageLoader) require.extensions[".jpg"] = imageLoader; else delete require.extensions[".jpg"]; });
 let tree: ReactTestRenderer;
 const event = {} as never;
 const emptyQueue = { total: 0, pending: 0, failed: 0, blocked: 0, ready_to_send: 0, next_retry_at: null };

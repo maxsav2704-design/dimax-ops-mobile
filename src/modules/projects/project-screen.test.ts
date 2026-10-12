@@ -1,7 +1,6 @@
 import React from "react";
-import { createRequire } from "node:module";
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LocalProjectWorkspace } from "./local-workspace";
 
 const mocks = vi.hoisted(() => ({
@@ -60,14 +59,6 @@ vi.mock("@/modules/sync/service", () => ({ runSync: mocks.sync }));
 
 import ProjectDetailsScreen from "../../../app/project/[id]";
 import { createEmptyLocalProjectWorkspace } from "./local-workspace";
-
-const require = createRequire(__filename);
-const originalImageLoader = require.extensions[".jpg"];
-beforeAll(() => { require.extensions[".jpg"] = (module) => { module.exports = 1; }; });
-afterAll(() => {
-  if (originalImageLoader) require.extensions[".jpg"] = originalImageLoader;
-  else delete require.extensions[".jpg"];
-});
 
 let tree: ReactTestRenderer;
 let workspace: LocalProjectWorkspace;

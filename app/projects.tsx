@@ -2,12 +2,13 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Image, ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
+import { ActivityIndicator, ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { Reveal } from "@/components/motion";
+import { ProjectSkyline, buildSkyline } from "@/components/project-skyline";
 import {
   ActionButton,
   BrandText as Text,
@@ -275,6 +276,7 @@ export default function ProjectsScreen() {
     () => Object.values(summaries).reduce((total, summary) => total + summary.total, 0),
     [summaries]
   );
+  const skylineBars = useMemo(() => buildSkyline(projects, summaries), [projects, summaries]);
   const installedDoors = useMemo(
     () => Object.values(summaries).reduce((total, summary) => total + summary.installed, 0),
     [summaries]
@@ -380,7 +382,7 @@ export default function ProjectsScreen() {
             />
 
             <SectionCard style={styles.portfolioCard}>
-              <Image source={require("../assets/premium/tower-a.jpg")} resizeMode="cover" style={styles.portfolioImage} accessibilityIgnoresInvertColors />
+              <ProjectSkyline bars={skylineBars} height={84} style={styles.portfolioSkyline} testID="portfolio-skyline" />
               <LinearGradient pointerEvents="none" colors={[installerTheme.background, "rgba(8,14,21,0.8)", "rgba(8,14,21,0.18)"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.5 }} style={StyleSheet.absoluteFillObject} />
               <Pressable accessibilityRole="button" accessibilityLabel={lt("Overall progress", "Общий прогресс", "התקדמות כוללת")} accessibilityState={{ expanded: showProgress }} onPress={() => setShowProgress((value) => !value)} style={styles.portfolioHeader}>
                 <ProgressRing value={portfolioProgress} size={56} stroke={4} />
@@ -522,7 +524,7 @@ const styles = StyleSheet.create({
   sectionContent: { gap: 12 },
   loadingBox: { minHeight: 180, alignItems: "center", justifyContent: "center", gap: 10 },
   portfolioCard: { overflow: "hidden", padding: 0 },
-  portfolioImage: { position: "absolute", top: 0, end: 0, width: "65%", height: "100%", opacity: 0.55 },
+  portfolioSkyline: { position: "absolute", end: 12, bottom: 0, width: "56%", opacity: 0.9 },
   portfolioHeader: { flexDirection: "row", alignItems: "center", gap: 14, padding: 14, minHeight: 92 },
   portfolioLegend: { paddingHorizontal: 16, paddingBottom: 16, gap: 10 },
   legendRow: { flexDirection: "row", alignItems: "center", gap: 8 },
