@@ -1,7 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Modal, ScrollView, StatusBar, StyleSheet, View } from "react-native";
+import { Modal, ScrollView, StatusBar, StyleSheet, View } from "react-native";
+import { SkeletonList } from "@/components/skeleton";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
@@ -344,10 +345,9 @@ export default function CalendarScreen() {
               </View>
             </View>
           )) : loading ? (
-            <View style={styles.loading} accessibilityLiveRegion="polite">
-              <ActivityIndicator color={installerTheme.info} />
-              <Text style={styles.metaText}>{lt("Loading plan", "Загрузка плана", "טעינת התכנית")}</Text>
-            </View>
+            <SectionCard>
+              <SkeletonList variant="cards" rows={3} label={lt("Loading plan", "Загрузка плана", "טעינת התכנית")} testID="calendar-loading" />
+            </SectionCard>
           ) : !state.snapshot ? (
             <SectionCard>
               <EmptyState icon="cloud-offline-outline" title={lt("Plan unavailable", "План недоступен", "התכנית אינה זמינה")} description={lt("Connect to refresh your assigned visits.", "Подключитесь к сети, чтобы обновить назначенные выезды.", "התחברו לרשת כדי לעדכן ביקורים שהוקצו.")} action={<ActionButton label={lt("Retry", "Повторить", "ניסיון נוסף")} icon="refresh" onPress={() => void reload()} />} />
@@ -415,7 +415,6 @@ const styles = StyleSheet.create({
   },
   noticeText: { flex: 1, color: installerTheme.info, fontSize: installerTheme.type.caption, lineHeight: 16 },
   errorText: { color: installerTheme.danger, fontSize: 12, lineHeight: 18, marginTop: 8 },
-  loading: { flexDirection: "row", alignItems: "center", gap: 10, padding: 16 },
   dayStrip: { gap: 7, paddingEnd: 12 },
   dayChip: {
     minHeight: 44,

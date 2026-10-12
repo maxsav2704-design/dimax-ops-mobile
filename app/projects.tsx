@@ -2,7 +2,8 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
+import { ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
+import { SkeletonList } from "@/components/skeleton";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
@@ -363,10 +364,9 @@ export default function ProjectsScreen() {
           ) : null}
 
           {!hasData ? (
-            loading ? <View style={styles.loadingBox} accessibilityLiveRegion="polite">
-              <ActivityIndicator color={installerTheme.accent} />
-              <Text style={styles.emptyText}>{lt("Loading assignments", "Загрузка заданий", "טעינת משימות")}</Text>
-            </View> : <EmptyState
+            loading ? <SectionCard>
+              <SkeletonList variant="cards" rows={3} label={lt("Loading assignments", "Загрузка заданий", "טעינת משימות")} testID="projects-loading" />
+            </SectionCard> : <EmptyState
               icon="cloud-offline-outline"
               title={lt("Assignments unavailable", "Задания недоступны", "המשימות אינן זמינות")}
               action={<ActionButton label={lt("Try again", "Повторить", "ניסיון נוסף")} icon="refresh" onPress={() => void loadScreen()} />}
@@ -522,7 +522,6 @@ const styles = StyleSheet.create({
   syncMeta: { flex: 1, minWidth: 0, textAlign: "right", color: installerTheme.textMuted, fontSize: installerTheme.type.caption, lineHeight: 16 },
   body: { gap: 14, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 },
   sectionContent: { gap: 12 },
-  loadingBox: { minHeight: 180, alignItems: "center", justifyContent: "center", gap: 10 },
   portfolioCard: { overflow: "hidden", padding: 0 },
   portfolioSkyline: { position: "absolute", end: 12, bottom: 0, width: "56%", opacity: 0.9 },
   portfolioHeader: { flexDirection: "row", alignItems: "center", gap: 14, padding: 14, minHeight: 92 },
@@ -542,7 +541,6 @@ const styles = StyleSheet.create({
   rowBody: { flex: 1, minWidth: 0 },
   rowTitle: { color: installerTheme.text, fontSize: 14, lineHeight: 20, fontWeight: "700" },
   rowMeta: { color: installerTheme.textMuted, fontSize: 12, lineHeight: 17, marginTop: 3 },
-  emptyText: { color: installerTheme.textMuted, fontSize: 13, lineHeight: 19 },
   searchField: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 46, paddingHorizontal: 12, borderRadius: installerTheme.radius.md, borderWidth: 1, borderColor: installerTheme.borderStrong, backgroundColor: installerTheme.shellRaised },
   searchInput: { flex: 1, minWidth: 0, minHeight: 44, paddingVertical: 10, color: installerTheme.text, fontFamily: installerTheme.fontFamily, fontSize: 13 },
   filterRow: { gap: 8 },

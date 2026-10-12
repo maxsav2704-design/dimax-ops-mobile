@@ -30,7 +30,7 @@ vi.mock("react-native", async () => {
     ScrollView: "scroll", RefreshControl: "refresh", StatusBar: "statusbar",
     AppState: { addEventListener: () => ({ remove: vi.fn() }) },
     StyleSheet: { create: (value: unknown) => value, flatten, absoluteFillObject: {} },
-    Easing: { out: (value: unknown) => value, cubic: "cubic" },
+    Easing: { out: (value: unknown) => value, inOut: (value: unknown) => value, cubic: "cubic", quad: "quad" },
     Animated: {
       Value, View: "animated-view", createAnimatedComponent: (component: unknown) => component,
       timing: (value: Value, options: { toValue: number }) => {
@@ -41,6 +41,10 @@ vi.mock("react-native", async () => {
         native.spring(options);
         return { start: () => value.setValue(options.toValue), stop: native.stop };
       },
+      sequence: (animations: Array<{ start: () => void; stop: () => void }>) => ({
+        start: () => animations.forEach((animation) => animation.start()), stop: () => animations.forEach((animation) => animation.stop()),
+      }),
+      loop: (animation: { start: () => void; stop: () => void }) => animation,
     },
     AccessibilityInfo: {
       isReduceMotionEnabled: () => Promise.resolve(native.reduced),

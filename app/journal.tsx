@@ -1,7 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
-import { ActivityIndicator, RefreshControl, ScrollView, StatusBar, StyleSheet, View } from "react-native";
+import { RefreshControl, ScrollView, StatusBar, StyleSheet, View } from "react-native";
+import { SkeletonList } from "@/components/skeleton";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { InstallerBottomNav } from "@/components/installer-ui";
@@ -75,7 +76,7 @@ export default function JournalScreen() {
         {resource.result?.source === "online" && resource.result.message && <Text style={styles.notice}>{lt("Fresh data loaded, but the offline copy could not be saved.", "Данные загружены, но офлайн-копия не сохранилась.", "הנתונים נטענו, אך העותק הלא מקוון לא נשמר.")}</Text>}
         {workspace?.localUnavailable && <Text style={styles.notice}>{lt("Local project list is unavailable. Showing available documents.", "Локальный список объектов недоступен. Показаны доступные акты.", "רשימת הפרויקטים המקומית אינה זמינה. מוצגים המסמכים הזמינים.")}</Text>}
         {failure === scope && <Text accessibilityRole="alert" style={[styles.notice, styles.error]}>{lt("Could not prepare the document. Refresh the journal before trying again.", "Не удалось сформировать акт. Обновите журнал перед повторной попыткой.", "לא ניתן להכין את המסמך. יש לרענן את היומן לפני ניסיון נוסף.")}</Text>}
-        {!workspace ? resource.loading ? <View style={styles.loading}><ActivityIndicator color={installerTheme.accent} /><Text style={styles.muted}>{lt("Loading journal", "Загружаем журнал", "טוען יומן")}</Text></View> : <EmptyState icon="cloud-offline-outline" title={lt("Journal unavailable", "Журнал недоступен", "היומן אינו זמין")}
+        {!workspace ? resource.loading ? <SkeletonList variant="cards" rows={3} label={lt("Loading journal", "Загружаем журнал", "טוען יומן")} testID="journal-loading" /> : <EmptyState icon="cloud-offline-outline" title={lt("Journal unavailable", "Журнал недоступен", "היומן אינו זמין")}
           description={lt("Check your connection and access to the project, then retry.", "Проверьте подключение и доступ к объекту, затем повторите загрузку.", "בדקו את החיבור והגישה לפרויקט ונסו שוב.")}
           action={<ActionButton label={lt("Retry", "Повторить", "ניסיון נוסף")} onPress={() => void resource.reload()} />} /> : <>
           <SegmentedControl dark stackedCounts value={filter} onChange={setFilter} options={[
@@ -132,7 +133,6 @@ const styles = StyleSheet.create({
   heroMetricValue: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyDisplayStrong, fontSize: 25 },
   heroMetricLabel: { color: installerTheme.textMuted, fontFamily: installerTheme.fontFamilyMedium, fontSize: installerTheme.type.caption, marginTop: 2 },
   metricDivider: { width: 1, height: 34, backgroundColor: installerTheme.borderStrong },
-  loading: { paddingVertical: 32, alignItems: "center", gap: 12 },
   notice: { color: installerTheme.warning, fontSize: 12, lineHeight: 18, padding: 12, backgroundColor: installerTheme.warningSoft, borderRadius: installerTheme.radius.md },
   error: { color: installerTheme.danger },
   projectCard: { gap: 14 },

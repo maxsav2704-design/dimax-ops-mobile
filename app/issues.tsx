@@ -1,9 +1,9 @@
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
+import { SkeletonList } from "@/components/skeleton";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   AppState,
   KeyboardAvoidingView,
   Modal,
@@ -254,7 +254,7 @@ function IssuesWorkspace({ routeParams, syncVersion }: { routeParams: IssueRoute
             <Text style={styles.errorText}>{loadError}</Text>
             <ActionButton label={lt("Try again", "Повторить", "ניסיון נוסף")} icon="refresh" variant="secondary" loading={loading} onPress={() => void reload()} />
           </View> : null}
-          {!loaded ? loading ? <View style={styles.loadingBox}><ActivityIndicator color={installerTheme.accent} /><Text style={styles.issueMeta}>{lt("Loading issues", "Загрузка проблем", "טעינת תקלות")}</Text></View>
+          {!loaded ? loading ? <SkeletonList variant="rows" rows={4} label={lt("Loading issues", "Загрузка проблем", "טעינת תקלות")} testID="issues-loading" />
             : <EmptyState icon="cloud-offline-outline" title={lt("Issues unavailable", "Проблемы недоступны", "התקלות אינן זמינות")} />
           : null}
           {issueSaved ? (
@@ -596,7 +596,6 @@ const styles = StyleSheet.create({
   headerTop: { flexDirection: "row", alignItems: "center", gap: 12 },
   heading: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyDisplay, fontSize: 23, lineHeight: 31 },
   summaryRow: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
-  loadingBox: { minHeight: 160, gap: 12, justifyContent: "center", alignItems: "center" },
   loadError: { gap: 8 },
   searchField: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 46, paddingHorizontal: 12, borderRadius: installerTheme.radius.md, borderWidth: 1, borderColor: installerTheme.borderStrong, backgroundColor: installerTheme.shellRaised },
   searchInput: { flex: 1, minWidth: 0, minHeight: 44, paddingVertical: 10, color: installerTheme.text, fontFamily: installerTheme.fontFamily, fontSize: 13 },

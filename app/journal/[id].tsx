@@ -3,13 +3,13 @@ import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
   RefreshControl,
-  ActivityIndicator,
   ScrollView,
   StatusBar,
   StyleSheet,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { SkeletonList } from "@/components/skeleton";
 
 import {
   ActionButton,
@@ -148,7 +148,7 @@ export default function JournalDetailsScreen() {
     return (
       <SafeAreaView style={[styles.safe, { direction: locale === "he" ? "rtl" : "ltr" }]}>
         <View style={styles.fallback}>
-          {loading ? <><ActivityIndicator color={installerTheme.accent} /><Text style={styles.caption}>{lt("Loading document", "Загружаем акт", "טוען מסמך")}</Text></> : <EmptyState
+          {loading ? <SkeletonList variant="cards" rows={2} label={lt("Loading document", "Загружаем акт", "טוען מסמך")} testID="journal-document-loading" /> : <EmptyState
             icon="document-text-outline"
             title={lt(
               "Document unavailable",

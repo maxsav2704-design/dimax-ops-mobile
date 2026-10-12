@@ -1,7 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Modal, ScrollView, StatusBar, StyleSheet, View } from "react-native";
+import { Modal, ScrollView, StatusBar, StyleSheet, View } from "react-native";
+import { SkeletonList } from "@/components/skeleton";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
@@ -406,7 +407,7 @@ export default function EarningsScreen() {
 
           {!snapshot ? (
             <SectionCard>
-              {loading ? <View style={styles.loading}><ActivityIndicator color={installerTheme.info} /><Text style={styles.noticeText}>{lt("Loading earnings", "Загрузка начислений", "טעינת שכר")}</Text></View> : <EmptyState icon="cloud-offline-outline" title={lt("Earnings unavailable", "Начисления недоступны", "השכר אינו זמין")} action={<ActionButton label={lt("Retry", "Повторить", "ניסיון נוסף")} icon="refresh" onPress={() => void reload()} />} />}
+              {loading ? <SkeletonList variant="rows" rows={4} label={lt("Loading earnings", "Загрузка начислений", "טעינת שכר")} testID="earnings-loading" /> : <EmptyState icon="cloud-offline-outline" title={lt("Earnings unavailable", "Начисления недоступны", "השכר אינו זמין")} action={<ActionButton label={lt("Retry", "Повторить", "ניסיון נוסף")} icon="refresh" onPress={() => void reload()} />} />}
             </SectionCard>
           ) : <>
           {tab === "BREAKDOWN" ? (
@@ -671,7 +672,6 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   noticeActionText: { color: installerTheme.text, fontSize: installerTheme.type.caption, fontWeight: "800" },
-  loading: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12 },
   modalRoot: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 16 },
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.72)" },
   modalPanel: { width: "100%", maxWidth: 480, maxHeight: "90%", flexShrink: 1, borderWidth: 1, borderColor: installerTheme.borderStrong, borderRadius: installerTheme.radius.card, backgroundColor: installerTheme.shellRaised, overflow: "hidden" },
