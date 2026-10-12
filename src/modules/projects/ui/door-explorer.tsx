@@ -16,10 +16,9 @@ type FloorGroup = [string, InstallerDoor[]];
 
 /** Floor navigator plus per-floor door lists; selection and filters stay in the screen. */
 export function DoorExplorer({
-  listRef, lt, locale, filteredCount, totalCount, groupedDoors, displayedFloorGroups, focusedFloor, onFocusFloor,
+  lt, locale, filteredCount, totalCount, groupedDoors, displayedFloorGroups, focusedFloor, onFocusFloor,
   selectedDoorId, celebrateDoorId, busy, issueDoorIds, doorTypes, onOpenDoor, onResetFilters,
 }: {
-  listRef: React.RefObject<View>;
   lt: (en: string, ru: string, he: string) => string;
   locale: Locale;
   filteredCount: number;
@@ -37,7 +36,7 @@ export function DoorExplorer({
   onResetFilters: () => void;
 }) {
   return (
-    <View ref={listRef} collapsable={false} style={styles.floorSection}>
+    <View style={styles.floorSection}>
       <SectionHeader title={lt("Doors by floor", "Двери по этажам", "דלתות לפי קומה")} meta={`${filteredCount}/${totalCount}`} />
       {groupedDoors.length ? (
         <View style={styles.explorerLayout}>

@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   locale: "en" as "en" | "ru" | "he",
   load: vi.fn(), refresh: vi.fn(), earnings: vi.fn(), sync: vi.fn(),
   install: vi.fn(), notInstalled: vi.fn(), addon: vi.fn(), push: vi.fn(),
-  scroll: vi.fn(), measure: vi.fn(), haptic: vi.fn(),
+  haptic: vi.fn(),
 }));
 
 vi.mock("react-native", async () => (await vi.importActual<typeof import("@/test/native-ui")>("@/test/native-ui")).createNativeUiMock());
@@ -76,6 +76,8 @@ const tabs = (label: string) => tree.root.findAllByType("pressable" as never)
   .filter((node) => node.props.accessibilityLabel === label && node.props.accessibilityRole === "tab");
 const doorRows = () => tree.root.findAllByType("pressable" as never)
   .filter((node) => node.props.accessibilityRole === "button" && node.props.accessibilityState?.selected !== undefined);
+const sheets = () => tree.root.findAllByType("modal" as never);
+const openFirstDoor = () => act(() => doorRows()[0].props.onPress(event));
 const text = (node: ReactTestInstance = tree.root) => node.findAllByType("text" as never)
   .flatMap((node) => node.children.filter((child) => typeof child === "string")).join(" ");
 const deferred = () => {
@@ -86,13 +88,7 @@ const deferred = () => {
 };
 async function mount() {
   await act(async () => {
-    tree = create(React.createElement(ProjectDetailsScreen), {
-      createNodeMock: (element) => {
-        if (element.type === "scroll") return { getInnerViewNode: () => 1, scrollTo: mocks.scroll };
-        if (element.props.testID === "project-door-details") return { measureLayout: mocks.measure };
-        return null;
-      },
-    });
+    tree = create(React.createElement(ProjectDetailsScreen));
   });
 }
 async function focus(value: boolean) {
@@ -108,7 +104,6 @@ beforeEach(() => {
   mocks.locale = "en";
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { callback(0); return 1; });
   vi.stubGlobal("cancelAnimationFrame", vi.fn());
-  mocks.measure.mockImplementation((_node, callback) => callback(0, 600));
   workspace = {
     ...createEmptyLocalProjectWorkspace("project-a"),
     project: { id: "project-a", name: "Tower A", address: "Test address", status: "ACTIVE", lifecycle_status: "ACTIVE", health_status: "NORMAL", waze_url: null },
@@ -137,7 +132,7 @@ describe("project execution screen", () => {
 
   it("shows read-only confirmed rates and estimates without passing money into work commands", async () => {
     confirmedPrices();
-    await mount();
+    await mount(); openFirstDoor();
     expect(priceText("door-work-price")).toContain("250.00 ILS");
     expect(priceText("door-work-price")).toContain("Factory confirmed");
     expect(tree.root.findByProps({ testID: "door-work-price" }).findAllByType("input" as never)).toHaveLength(0);
@@ -155,7 +150,7 @@ describe("project execution screen", () => {
     confirmedPrices();
     workspace.doors[0].status = "INSTALLED";
     workspace.doors[0].is_locked = true;
-    await mount();
+    await mount(); openFirstDoor();
     expect(priceText("door-work-price")).not.toContain("250.00");
     act(() => button("View project earnings").props.onPress(event));
     expect(mocks.push).toHaveBeenCalledWith("/earnings?project_id=project-a");
@@ -168,7 +163,7 @@ describe("project execution screen", () => {
       payload: { door_id: "door-a", status: "INSTALLED", price_list_id: "price-list-v1" },
       status: "BLOCKED", error: "CONFLICT_FACTORY_PRICE", attempts: 1, happened_at: "2026-01-02T10:00:00Z",
       created_at: "2026-01-02T10:00:00Z", next_retry_at: null, last_attempt_at: null }];
-    await mount();
+    await mount(); openFirstDoor();
     expect(priceText("door-work-price")).toContain("Price needs review");
     expect(priceText("door-work-price")).not.toContain("250.00");
     act(() => button("Open work queue").props.onPress(event));
@@ -188,45 +183,55 @@ describe("project execution screen", () => {
 
   it.each(["ru", "he"] as const)("renders price labels in %s", async (locale) => {
     confirmedPrices(); mocks.locale = locale;
-    await mount();
+    await mount(); openFirstDoor();
     const content = priceText("door-work-price");
     expect(content).toContain(locale === "ru" ? "Подтверждено заводом" : "באישור המפעל");
     expect(content).not.toContain("Factory confirmed");
   });
 
-  it("scrolls to a linked door once without jumping on later layout or sync updates", async () => {
+  it("opens a linked door's sheet once and does not reopen it after closing on later sync updates", async () => {
     mocks.params.doorId = "door-a";
     await mount();
-    expect(mocks.scroll).toHaveBeenCalledExactlyOnceWith({ y: 588, animated: false });
-    act(() => tree.root.findByProps({ testID: "project-door-details" }).props.onLayout());
+    expect(sheets()).toHaveLength(1);
+    expect(text(tree.root.findByProps({ testID: "project-door-details" }))).toContain("A-201");
+    act(() => sheets()[0].props.onRequestClose());
+    expect(sheets()).toHaveLength(0);
     mocks.syncVersion += 1;
     await act(async () => tree.update(React.createElement(ProjectDetailsScreen)));
-    expect(mocks.scroll).toHaveBeenCalledTimes(1);
+    expect(sheets()).toHaveLength(0);
     expect(mocks.install).not.toHaveBeenCalled();
   });
-  it("does not jump down on an ordinary project visit or for an unavailable linked door", async () => {
+  it("keeps the sheet closed on an ordinary project visit or for an unavailable linked door", async () => {
     await mount();
-    expect(mocks.scroll).not.toHaveBeenCalled();
+    expect(sheets()).toHaveLength(0);
+    expect(buttons("Installed")).toHaveLength(0);
+    expect(doorRows()[0].props.accessibilityState.selected).toBe(true);
     mocks.params.doorId = "missing";
     await act(async () => tree.update(React.createElement(ProjectDetailsScreen)));
-    expect(mocks.scroll).not.toHaveBeenCalled();
+    expect(sheets()).toHaveLength(0);
   });
-  it("scrolls to a new exact door link in the same project", async () => {
-    workspace.doors.push({ ...workspace.doors[0], id: "door-b" });
+  it("opens the sheet again for a new exact door link in the same project", async () => {
+    workspace.doors.push({ ...workspace.doors[0], id: "door-b", unit_label: "A-202" });
     mocks.params.doorId = "door-a";
     await mount();
+    act(() => sheets()[0].props.onRequestClose());
     mocks.params = { id: "project-a", doorId: "door-b" };
     await act(async () => tree.update(React.createElement(ProjectDetailsScreen)));
-    expect(mocks.scroll).toHaveBeenCalledTimes(2);
+    expect(sheets()).toHaveLength(1);
+    expect(text(tree.root.findByProps({ testID: "project-door-details" }))).toContain("A-202");
   });
-  it("ignores delayed native measurements after leaving the screen", async () => {
-    let measured!: (x: number, y: number) => void;
-    mocks.measure.mockImplementation((_node, callback) => { measured = callback; });
-    mocks.params.doorId = "door-a";
+  it("opens the sheet from a door row, closes it from the backdrop and keeps the row selected", async () => {
     await mount();
-    await focus(false);
-    act(() => measured(0, 600));
-    expect(mocks.scroll).not.toHaveBeenCalled();
+    openFirstDoor();
+    expect(sheets()).toHaveLength(1);
+    expect(buttons("Installed")).toHaveLength(1);
+    act(() => button("Close door card").props.onPress(event));
+    expect(sheets()).toHaveLength(0);
+    expect(doorRows()[0].props.accessibilityState.selected).toBe(true);
+    openFirstDoor();
+    act(() => button("Back to doors").props.onPress(event));
+    expect(sheets()).toHaveLength(0);
+    expect(mocks.install).not.toHaveBeenCalled();
   });
   it("selects an exact linked door even when labels are duplicated", async () => {
     workspace.doors.push({ ...workspace.doors[0], id: "door-b" });
@@ -254,7 +259,7 @@ describe("project execution screen", () => {
       { ...workspace.doors[0], id: "door-b", unit_label: "A-202", apartment_number: "202", status: "PENDING" },
       { ...workspace.doors[0], id: "door-c", unit_label: "A-203", apartment_number: "203", status: "INSTALLED", is_locked: true },
     );
-    await mount();
+    await mount(); openFirstDoor();
     const details = () => text(tree.root.findByProps({ testID: "project-door-details" }));
     expect(details()).toContain("A-201");
     const next = () => tree.root.findAllByType("pressable" as never).find((node) => node.props.testID === "project-next-door");
@@ -368,7 +373,7 @@ describe("project execution screen", () => {
   it("queues the selected door once and blocks sync until saving finishes", async () => {
     const pending = deferred();
     mocks.install.mockReturnValue(pending.promise);
-    await mount();
+    await mount(); openFirstDoor();
     const install = button("Installed").props.onPress;
     const sync = button("Sync now").props.onPress;
     act(() => { install(event); install(event); sync(event); });
@@ -408,7 +413,7 @@ describe("project execution screen", () => {
   it("submits the not-installed reason and comment once", async () => {
     const pending = deferred();
     mocks.notInstalled.mockReturnValue(pending.promise);
-    await mount();
+    await mount(); openFirstDoor();
     act(() => button("Not installed").props.onPress(event));
     act(() => input("Door comment").props.onChangeText("Apartment closed"));
     const press = button("Confirm not installed").props.onPress;
@@ -419,7 +424,7 @@ describe("project execution screen", () => {
   });
 
   it("reloads local status when returning from the sync queue", async () => {
-    await mount();
+    await mount(); openFirstDoor();
     expect(buttons("Installed")).toHaveLength(1);
     act(() => button("Open queue").props.onPress(event));
     expect(mocks.push).toHaveBeenCalledWith("/sync-queue");
@@ -430,7 +435,7 @@ describe("project execution screen", () => {
   });
 
   it("updates the focused project after background sync", async () => {
-    await mount();
+    await mount(); openFirstDoor();
     workspace = { ...workspace, doors: workspace.doors.map((door) => ({ ...door, status: "INSTALLED", is_locked: true })) };
     mocks.syncVersion += 1;
     await act(async () => tree.update(React.createElement(ProjectDetailsScreen)));
@@ -438,7 +443,7 @@ describe("project execution screen", () => {
   });
 
   it("shows the saved door and queued action without requesting a server snapshot", async () => {
-    await mount();
+    await mount(); openFirstDoor();
     mocks.refresh.mockClear();
     mocks.install.mockImplementation(async () => {
       workspace = {

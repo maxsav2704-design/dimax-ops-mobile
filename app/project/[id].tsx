@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, Modal, Platform, ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
@@ -64,17 +64,9 @@ const EMPTY_LOCAL_PROJECT_WORKSPACE = createEmptyLocalProjectWorkspace();
 
 export default function ProjectDetailsScreen() {
   const reducedMotion = useReducedMotion();
-  const scrollRef = useRef<ScrollView>(null);
-  const doorDetailsRef = useRef<View>(null);
-  const doorListRef = useRef<View>(null);
-  const scrollToSection = (section: React.RefObject<View>, canScroll?: () => boolean) => {
-    const scroll = scrollRef.current;
-    if (!scroll || !section.current) return;
-    section.current.measureLayout(scroll.getInnerViewNode(), (_x, y) => {
-      if (canScroll && !canScroll()) return;
-      scroll.scrollTo({ y: Math.max(0, y - 12), animated: !reducedMotion });
-    });
-  };
+  // The door card lives in a bottom sheet; selection (list highlight) and opening are separate.
+  const [doorSheetOpen, setDoorSheetOpen] = useState(false);
+  const closeDoorSheet = () => setDoorSheetOpen(false);
   const { locale } = useI18n();
   const { syncVersion } = useAuth();
   const params = useLocalSearchParams<{
@@ -125,7 +117,7 @@ export default function ProjectDetailsScreen() {
   const openDoor = (doorId: string) => {
     if (actionInFlight.current) return;
     setSelectedDoorId(doorId);
-    requestAnimationFrame(() => scrollToSection(doorDetailsRef));
+    setDoorSheetOpen(true);
   };
   const [doorSearch, setDoorSearch] = useState("");
   const [doorStatusFilter, setDoorStatusFilter] = useState("ALL");
@@ -268,24 +260,16 @@ export default function ProjectDetailsScreen() {
     [issues]
   );
   const selectedDoor = doors.find((door) => door.id === selectedDoorId) || null;
-  const linkedScrollRequest = useRef("");
-  const scrolledDoorRequest = useRef("");
-  linkedScrollRequest.current = requestedDoorId && selectedDoor?.id === requestedDoorId
+  // A door link opens the sheet once; closing it must not reopen on later layout or sync updates.
+  const linkedDoorRequest = requestedDoorId && selectedDoor?.id === requestedDoorId
     ? `${projectId}:${requestedDoorId}` : "";
-  const scrollLinkedDoor = () => {
-    const request = linkedScrollRequest.current;
-    if (!focused.current || !request || scrolledDoorRequest.current === request) return;
-    scrollToSection(doorDetailsRef, () => {
-      if (!focused.current || linkedScrollRequest.current !== request || scrolledDoorRequest.current === request) return false;
-      scrolledDoorRequest.current = request;
-      return true;
-    });
-  };
+  const openedLinkedDoor = useRef("");
   useEffect(() => {
-    if (!requestedDoorId) scrolledDoorRequest.current = "";
-    const frame = requestAnimationFrame(scrollLinkedDoor);
-    return () => cancelAnimationFrame(frame);
-  }, [projectId, requestedDoorId, selectedDoor?.id, reducedMotion]);
+    if (!requestedDoorId) openedLinkedDoor.current = "";
+    if (!linkedDoorRequest || openedLinkedDoor.current === linkedDoorRequest || !focused.current) return;
+    openedLinkedDoor.current = linkedDoorRequest;
+    setDoorSheetOpen(true);
+  }, [linkedDoorRequest, requestedDoorId]);
   const selectedDoorIssues = issues.filter((issue) => issue.door_id === selectedDoorId);
   const selectedDoorPendingEvents = pendingEvents.filter(
     (event) => event.payload.door_id === selectedDoorId
@@ -546,7 +530,7 @@ export default function ProjectDetailsScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       <StatusBar barStyle="light-content" backgroundColor={installerTheme.shell} />
-      <ScrollView ref={scrollRef} style={styles.content} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" onContentSizeChange={scrollLinkedDoor}>
+      <ScrollView style={styles.content} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <View style={styles.projectHeader}>
           <View style={styles.projectHeadingRow}>
             <IconButton icon={locale === "he" ? "arrow-forward" : "arrow-back"} label={lt("Back", "Назад", "חזרה")} tone="dark" onPress={() => router.back()} />
@@ -774,7 +758,6 @@ export default function ProjectDetailsScreen() {
           </View>
 
           <DoorExplorer
-            listRef={doorListRef}
             lt={lt}
             locale={locale}
             filteredCount={filteredDoors.length}
@@ -794,40 +777,6 @@ export default function ProjectDetailsScreen() {
             onOpenDoor={openDoor}
             onResetFilters={resetFilters}
           />
-
-          {selectedDoor ? (
-            <View ref={doorDetailsRef} collapsable={false} onLayout={scrollLinkedDoor} testID="project-door-details">
-              <DoorDetailCard
-                door={selectedDoor}
-                doorType={selectedDoorType}
-                issues={selectedDoorIssues}
-                pendingEvents={selectedDoorPendingEvents}
-                doorPrice={doorPrice}
-                doorActionState={doorActionState}
-                lt={lt}
-                locale={locale}
-                projectId={projectId}
-                busy={busy}
-                activeAction={activeAction}
-                showNotInstalledForm={showNotInstalledForm}
-                setShowNotInstalledForm={setShowNotInstalledForm}
-                reasons={reasons}
-                selectedReasonId={selectedReasonId}
-                setSelectedReasonId={setSelectedReasonId}
-                selectedReason={selectedReason}
-                doorComment={doorComment}
-                setDoorComment={setDoorComment}
-                onInstall={() => void handleInstall()}
-                onNotInstalled={() => void handleNotInstalled()}
-                onBackToList={() => scrollToSection(doorListRef)}
-                onOpenDoor={openDoor}
-                nextDoor={nextDoor}
-                doorsLeftInView={doorsLeftInView}
-                feedback={renderActionFeedback("door")}
-                formatDateTime={formatDateTime}
-              />
-            </View>
-          ) : null}
 
           <SectionCard>
             <SectionHeader title={lt("Completed add-on work", "Выполненные допработы", "עבודות נוספות שבוצעו")} meta={addonFacts.length} />
@@ -960,6 +909,55 @@ export default function ProjectDetailsScreen() {
           </SectionCard>
         </View>
       </ScrollView>
+      {selectedDoor && doorSheetOpen ? (
+        <Modal visible transparent statusBarTranslucent animationType={reducedMotion ? "none" : "slide"} onRequestClose={closeDoorSheet}>
+          <SafeAreaView style={[styles.sheetRoot, { direction: locale === "he" ? "rtl" : "ltr" }]} edges={["top", "bottom", "left", "right"]}>
+            <Pressable
+              feedback="none"
+              accessibilityRole="button"
+              accessibilityLabel={lt("Close door card", "Закрыть карточку двери", "סגירת כרטיס הדלת")}
+              style={styles.sheetBackdrop}
+              onPress={closeDoorSheet}
+            />
+            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.sheetPanelWrap}>
+              <View testID="project-door-details" accessibilityViewIsModal onAccessibilityEscape={closeDoorSheet} style={styles.sheetPanel}>
+                <View style={styles.sheetGrip} />
+                <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetBody} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                  <DoorDetailCard
+                    door={selectedDoor}
+                    doorType={selectedDoorType}
+                    issues={selectedDoorIssues}
+                    pendingEvents={selectedDoorPendingEvents}
+                    doorPrice={doorPrice}
+                    doorActionState={doorActionState}
+                    lt={lt}
+                    locale={locale}
+                    projectId={projectId}
+                    busy={busy}
+                    activeAction={activeAction}
+                    showNotInstalledForm={showNotInstalledForm}
+                    setShowNotInstalledForm={setShowNotInstalledForm}
+                    reasons={reasons}
+                    selectedReasonId={selectedReasonId}
+                    setSelectedReasonId={setSelectedReasonId}
+                    selectedReason={selectedReason}
+                    doorComment={doorComment}
+                    setDoorComment={setDoorComment}
+                    onInstall={() => void handleInstall()}
+                    onNotInstalled={() => void handleNotInstalled()}
+                    onBackToList={closeDoorSheet}
+                    onOpenDoor={openDoor}
+                    nextDoor={nextDoor}
+                    doorsLeftInView={doorsLeftInView}
+                    feedback={renderActionFeedback("door")}
+                    formatDateTime={formatDateTime}
+                  />
+                </ScrollView>
+              </View>
+            </KeyboardAvoidingView>
+          </SafeAreaView>
+        </Modal>
+      ) : null}
       <InstallerBottomNav />
     </SafeAreaView>
   );
@@ -1004,6 +1002,22 @@ function QuickAction({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: installerTheme.background },
+  sheetRoot: { flex: 1, justifyContent: "flex-end" },
+  sheetBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.66)" },
+  sheetPanelWrap: { maxHeight: "92%" },
+  sheetPanel: {
+    flexShrink: 1,
+    paddingTop: 8,
+    borderTopStartRadius: installerTheme.radius.glass,
+    borderTopEndRadius: installerTheme.radius.glass,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: installerTheme.borderStrong,
+    backgroundColor: installerTheme.background,
+  },
+  sheetGrip: { alignSelf: "center", width: 40, height: 4, borderRadius: installerTheme.radius.pill, backgroundColor: installerTheme.borderStrong, marginBottom: 6 },
+  sheetScroll: { flexShrink: 1 },
+  sheetBody: { paddingHorizontal: 12, paddingBottom: 16 },
   content: { flex: 1 },
   scroll: { paddingBottom: installerTheme.layout.bottomNavClearance },
   projectHeader: { padding: 16, gap: 4, borderBottomWidth: 1, borderBottomColor: installerTheme.border, marginBottom: 10 },
