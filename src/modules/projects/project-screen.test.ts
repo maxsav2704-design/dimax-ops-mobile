@@ -274,6 +274,48 @@ describe("project execution screen", () => {
     expect(details()).toContain("A-202");
   });
 
+  it("celebrates a floor the installer just finished, once, and offers the next floor", async () => {
+    workspace.doors.push({ ...workspace.doors[0], id: "door-b", unit_label: "A-301", floor_label: "3", apartment_number: "301" });
+    mocks.install.mockImplementation(async () => {
+      workspace = { ...workspace, doors: workspace.doors.map((door) => door.id === "door-a" ? { ...door, status: "INSTALLED", is_locked: true } : door) };
+    });
+    await mount(); openFirstDoor();
+    expect(text()).not.toContain("Floor 2 complete");
+    await act(async () => button("Installed").props.onPress(event));
+    expect(sheets()).toHaveLength(0);
+    expect(text()).toContain("Floor 2 complete");
+    expect(text()).toContain("1 / 1 doors installed");
+    expect(mocks.haptic).toHaveBeenCalledWith("success");
+    act(() => button("Next floor: 3").props.onPress(event));
+    expect(tabs("Floor 3. Doors: 1")[0].props.accessibilityState.selected).toBe(true);
+    expect(doorRows()[0].props.accessibilityState.selected).toBe(true);
+    expect(text()).not.toContain("Floor 2 complete");
+    mocks.syncVersion += 1;
+    await act(async () => tree.update(React.createElement(ProjectDetailsScreen)));
+    expect(text()).not.toContain("Floor 2 complete");
+  });
+
+  it("celebrates the whole project instead of its last floor and never on a plain visit", async () => {
+    workspace.doors[0] = { ...workspace.doors[0], status: "INSTALLED", is_locked: true };
+    await mount();
+    expect(text()).not.toContain("Project complete");
+    expect(text()).not.toContain("Floor 2 complete");
+    workspace = { ...workspace, doors: [...workspace.doors, { ...workspace.doors[0], id: "door-b", unit_label: "A-301", floor_label: "3", status: "PENDING", is_locked: false }] };
+    mocks.syncVersion += 1;
+    await act(async () => tree.update(React.createElement(ProjectDetailsScreen)));
+    act(() => tabs("Floor 3. Doors: 1")[0].props.onPress(event));
+    openFirstDoor();
+    mocks.install.mockImplementation(async () => {
+      workspace = { ...workspace, doors: workspace.doors.map((door) => ({ ...door, status: "INSTALLED", is_locked: true })) };
+    });
+    await act(async () => button("Installed").props.onPress(event));
+    expect(text()).toContain("Project complete");
+    expect(text()).not.toContain("Floor 3 complete");
+    expect(buttons("Next floor: 2")).toHaveLength(0);
+    act(() => button("Dismiss").props.onPress(event));
+    expect(text()).not.toContain("Project complete");
+  });
+
   it("keeps the compact progress summary expandable without changing door selection", async () => {
     await mount();
     expect(button("Door progress").props.accessibilityState.expanded).toBe(false);

@@ -34,7 +34,9 @@ import {
   type ProjectExternalAction,
 } from "@/modules/projects/external-actions";
 import { buildAddonFactActionState, buildDoorActionState } from "@/modules/projects/door-action-state";
-import { countDoorsOpenForWork, findNextDoor } from "@/modules/projects/door-walkthrough";
+import { CompletionCard } from "@/components/celebration";
+import { detectCompletionEvents, nextOpenFloor, type CompletionEvent } from "@/modules/projects/completion-events";
+import { countDoorsOpenForWork, findNextDoor, isDoorOpenForWork } from "@/modules/projects/door-walkthrough";
 import { DoorDetailCard } from "@/modules/projects/ui/door-detail-card";
 import { DoorExplorer } from "@/modules/projects/ui/door-explorer";
 import { FilterChip } from "@/modules/projects/ui/filter-chip";
@@ -70,6 +72,7 @@ export default function ProjectDetailsScreen() {
   const closeDoorSheet = () => setDoorSheetOpen(false);
   // Parallax: the header drifts at 40% of the scroll so the body appears to slide over it.
   const scrollY = useRef(new Animated.Value(0)).current;
+  const scrollRef = useRef<ScrollView>(null);
   const headerParallax = reducedMotion ? undefined : {
     transform: [{ translateY: scrollY.interpolate({ inputRange: [0, 200], outputRange: [0, 80], extrapolate: "clamp" }) }],
     opacity: scrollY.interpolate({ inputRange: [0, 180], outputRange: [1, 0.25], extrapolate: "clamp" }),
@@ -145,6 +148,10 @@ export default function ProjectDetailsScreen() {
   const [activeAction, setActiveAction] = useState<ProjectActionTarget | null>(null);
   const busy = activeAction !== null;
   const [actionFeedback, setActionFeedback] = useState<ProjectActionFeedback | null>(null);
+  // Completion moments fire only for a floor/project the installer just finished, never on load or sync.
+  const [celebration, setCelebration] = useState<{ event: CompletionEvent } | null>(null);
+  const previousDoors = useRef<InstallerDoor[]>([]);
+  const celebrationArmed = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadLocalProjectDetails = useCallback(async () => {
@@ -468,7 +475,38 @@ export default function ProjectDetailsScreen() {
 
   const handleInstall = async () => {
     if (!selectedDoor || !doorActionState?.canMarkInstalled) return;
+    celebrationArmed.current = true;
     await performAction("door", () => markDoorInstalled(projectId, selectedDoor.id), undefined, selectedDoor.id);
+  };
+
+  useEffect(() => {
+    previousDoors.current = [];
+    celebrationArmed.current = false;
+    setCelebration(null);
+  }, [projectId]);
+  useEffect(() => {
+    const previous = previousDoors.current;
+    previousDoors.current = doors;
+    if (!celebrationArmed.current || previous === doors) return;
+    celebrationArmed.current = false;
+    const [event] = detectCompletionEvents(previous, doors);
+    if (!event) return;
+    setCelebration({ event });
+    setDoorSheetOpen(false);
+    // Bring the moment into view: the card sits at the top of the body.
+    scrollRef.current?.scrollTo({ y: 0, animated: !reducedMotion });
+    void triggerHaptic("success");
+    setTimeout(() => void triggerHaptic("tap"), 160);
+  }, [doors]);
+  const celebrationFloorKey = celebration?.event.kind === "floor"
+    ? celebration.event.floor || lt("No floor", "Без этажа", "ללא קומה") : null;
+  const celebrationNextFloor = celebrationFloorKey !== null ? nextOpenFloor(groupedDoors, celebrationFloorKey) : null;
+  const goToCelebrationNextFloor = () => {
+    if (!celebrationNextFloor) return;
+    setFocusedFloor(celebrationNextFloor);
+    const first = groupedDoors.find(([floor]) => floor === celebrationNextFloor)?.[1].find(isDoorOpenForWork);
+    if (first) setSelectedDoorId(first.id);
+    setCelebration(null);
   };
 
   const handleNotInstalled = async () => {
@@ -538,6 +576,7 @@ export default function ProjectDetailsScreen() {
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       <StatusBar barStyle="light-content" backgroundColor={installerTheme.shell} />
       <Animated.ScrollView
+        ref={scrollRef}
         style={styles.content}
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
@@ -578,6 +617,19 @@ export default function ProjectDetailsScreen() {
             </View>
           ) : null}
           {renderActionFeedback("sync")}
+          {celebration ? (
+            <CompletionCard
+              testID="project-celebration"
+              title={celebration.event.kind === "project"
+                ? lt("Project complete", "Объект завершён", "הפרויקט הושלם")
+                : lt(`Floor ${celebrationFloorKey} complete`, `Этаж ${celebrationFloorKey} завершён`, `קומה ${celebrationFloorKey} הושלמה`)}
+              summary={`${celebration.event.installed} / ${celebration.event.total} ${lt("doors installed", "дверей установлено", "דלתות הותקנו")}`}
+              nextLabel={celebrationNextFloor ? `${lt("Next floor", "К следующему этажу", "לקומה הבאה")}: ${celebrationNextFloor}` : null}
+              onNext={celebrationNextFloor ? goToCelebrationNextFloor : undefined}
+              closeLabel={lt("Dismiss", "Закрыть", "סגירה")}
+              onClose={() => setCelebration(null)}
+            />
+          ) : null}
 
           <SectionCard style={styles.progressCard}>
             <View style={styles.accentStrip} />
