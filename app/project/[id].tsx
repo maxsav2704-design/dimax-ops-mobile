@@ -1016,7 +1016,8 @@ const styles = StyleSheet.create({
     backgroundColor: installerTheme.background,
   },
   sheetGrip: { alignSelf: "center", width: 40, height: 4, borderRadius: installerTheme.radius.pill, backgroundColor: installerTheme.borderStrong, marginBottom: 6 },
-  sheetScroll: { flexShrink: 1 },
+  // ScrollView grows by default; keep the sheet hugging its content up to the max height.
+  sheetScroll: { flexGrow: 0, flexShrink: 1 },
   sheetBody: { paddingHorizontal: 12, paddingBottom: 16 },
   content: { flex: 1 },
   scroll: { paddingBottom: installerTheme.layout.bottomNavClearance },

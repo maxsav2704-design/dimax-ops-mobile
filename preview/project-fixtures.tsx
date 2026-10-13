@@ -15,7 +15,7 @@ const LocaleContext = createContext("ru");
 export const PreviewLocaleProvider = LocaleContext.Provider;
 export const useI18n = () => {
   const locale = useContext(LocaleContext) as MobileLocale;
-  return { locale, t: (key: MobileTranslationKey) => t(locale, key), setLocale: (value: MobileLocale) => window.dispatchEvent(new CustomEvent("preview-locale", { detail: value })) };
+  return { locale, isRTL: locale === "he", t: (key: MobileTranslationKey) => t(locale, key), setLocale: (value: MobileLocale) => window.dispatchEvent(new CustomEvent("preview-locale", { detail: value })) };
 };
 export const useAuth = () => ({ syncVersion: 0, user: { id: "preview-installer", company_id: "preview-company", full_name: "Demo Installer" } });
 export const useLocalSearchParams = () => {

@@ -41,7 +41,7 @@ export function DoorGlyph({
       <View style={[styles.inset, { borderColor: tone.border }]} />
       <View style={[styles.hinge, { start: 3 * k, top: 16 * k, height: 7 * k }]} />
       <View style={[styles.hinge, { start: 3 * k, bottom: 12 * k, height: 7 * k }]} />
-      {icon ? (
+      {icon && !hasIssue ? (
         <View style={[styles.beacon, { top: 4 * k, start: 4 * k, width: beacon, height: beacon, backgroundColor: tone.text }]}>
           <Ionicons name={icon} size={Math.round(10 * k)} color={installerTheme.textOnDark} />
         </View>
