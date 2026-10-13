@@ -16,9 +16,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("react-native", async () => (await vi.importActual<typeof import("@/test/native-ui")>("@/test/native-ui")).createNativeUiMock());
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "icon" }));
 vi.mock("expo-linear-gradient", () => ({ LinearGradient: "gradient" }));
-vi.mock("expo-haptics", () => ({
-  notificationAsync: mocks.haptic, impactAsync: vi.fn(),
-  NotificationFeedbackType: { Success: "success", Warning: "warning", Error: "error" }, ImpactFeedbackStyle: { Light: "light" },
+vi.mock("expo-modules-core", () => ({
+  requireOptionalNativeModule: () => ({ notificationAsync: mocks.haptic, impactAsync: vi.fn() }),
 }));
 vi.mock("react-native-svg", () => ({
   default: "svg", Circle: "circle", Defs: "defs", LinearGradient: "svg-gradient", Path: "path", Stop: "stop",

@@ -2,16 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const native = vi.hoisted(() => ({
   os: "android",
+  present: true,
   notificationAsync: vi.fn(),
   impactAsync: vi.fn(),
 }));
 
 vi.mock("react-native", () => ({ Platform: { get OS() { return native.os; } } }));
-vi.mock("expo-haptics", () => ({
-  notificationAsync: native.notificationAsync,
-  impactAsync: native.impactAsync,
-  NotificationFeedbackType: { Success: "success-type", Warning: "warning-type", Error: "error-type" },
-  ImpactFeedbackStyle: { Light: "light-style" },
+vi.mock("expo-modules-core", () => ({
+  requireOptionalNativeModule: () => (native.present ? { notificationAsync: native.notificationAsync, impactAsync: native.impactAsync } : null),
 }));
 
 import { triggerHaptic } from "./haptics";
@@ -27,9 +25,9 @@ describe("triggerHaptic", () => {
     await expect(triggerHaptic("success")).resolves.toBe(true);
     await expect(triggerHaptic("warning")).resolves.toBe(true);
     await expect(triggerHaptic("error")).resolves.toBe(true);
-    expect(native.notificationAsync.mock.calls).toEqual([["success-type"], ["warning-type"], ["error-type"]]);
+    expect(native.notificationAsync.mock.calls).toEqual([["success"], ["warning"], ["error"]]);
     await expect(triggerHaptic("tap")).resolves.toBe(true);
-    expect(native.impactAsync).toHaveBeenCalledExactlyOnceWith("light-style");
+    expect(native.impactAsync).toHaveBeenCalledExactlyOnceWith("light");
   });
 
   it("stays silent on web without touching the native module", async () => {
