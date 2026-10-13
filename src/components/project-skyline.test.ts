@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("react-native", async () => (await vi.importActual<typeof import("@/test/native-ui")>("@/test/native-ui")).createNativeUiMock());
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "icon" }));
+vi.mock("expo-linear-gradient", () => ({ LinearGradient: "gradient" }));
 
 import { installerTheme } from "@/lib/theme";
 import { DoorGlyph } from "./door-glyph";
@@ -54,8 +55,13 @@ describe("DoorGlyph", () => {
     act(() => {
       tree = create(React.createElement(DoorGlyph, { testID: "door", width: 108, tone, hasIssue: true, icon: "checkmark" }));
     });
-    const leaf = tree.root.findAllByProps({ testID: "door" }).find((node) => typeof node.type === "string")!;
-    expect(flatten(leaf.props.style)).toMatchObject({ width: 108, height: 136, borderColor: "#3f3", backgroundColor: "#111" });
+    const root = tree.root.findAllByProps({ testID: "door" }).find((node) => typeof node.type === "string")!;
+    expect(flatten(root.props.style)).toMatchObject({ width: 114, height: 142 });
+    const edge = tree.root.findAllByProps({ testID: "door-edge" }).find((node) => typeof node.type === "string")!;
+    expect(flatten(edge.props.style)).toMatchObject({ width: 108, height: 136, top: 6, borderColor: "#3f3" });
+    const leaf = root.findAll((node) => typeof node.type === "string" && flatten(node.props.style).backgroundColor === "#111")[0];
+    expect(flatten(leaf.props.style)).toMatchObject({ width: 108, height: 136, borderColor: "#3f3" });
+    expect(leaf.findAllByType("gradient" as never)).toHaveLength(1);
     expect(tree.root.findAllByProps({ testID: "door-issue" }).filter((node) => typeof node.type === "string")).toHaveLength(1);
     act(() => { tree.update(React.createElement(DoorGlyph, { testID: "door", tone, hasIssue: false })); });
     expect(tree.root.findAllByProps({ testID: "door-issue" })).toHaveLength(0);

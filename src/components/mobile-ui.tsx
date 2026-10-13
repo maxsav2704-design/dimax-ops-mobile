@@ -143,6 +143,8 @@ export function SectionCard({
       end={{ x: 0.8, y: 1 }}
       style={[styles.card, style]}
     >
+      <View pointerEvents="none" style={styles.cardBevelTop} />
+      <View pointerEvents="none" style={styles.cardBevelBottom} />
       {children}
     </LinearGradient>
   );
@@ -184,6 +186,7 @@ export function StatusPill({
   const colors = toneColors(tone);
   return (
     <View style={[styles.statusPill, { backgroundColor: colors.background, borderColor: colors.border }]}>
+      <View pointerEvents="none" style={styles.statusPillGloss} />
       {icon ? <Ionicons name={icon} size={12} color={colors.text} /> : null}
       <Text style={[styles.statusPillText, { color: colors.text }]} numberOfLines={1}>
         {label}
@@ -339,6 +342,16 @@ export function ActionButton({
           style={styles.actionGradient}
         />
       ) : null}
+      {variant === "primary" ? (
+        <LinearGradient
+          pointerEvents="none"
+          colors={["rgba(255,255,255,0.30)", "rgba(255,255,255,0)"]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={styles.actionGloss}
+        />
+      ) : <View pointerEvents="none" style={styles.actionEdge} />}
+      <View pointerEvents="none" style={styles.actionRim} />
       {loading ? (
         <ActivityIndicator size="small" color={foreground} />
       ) : (
@@ -702,6 +715,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 12 },
     elevation: 5,
   },
+  cardBevelTop: { position: "absolute", top: 0, start: 0, end: 0, height: 1, borderTopStartRadius: installerTheme.radius.xl, borderTopEndRadius: installerTheme.radius.xl, backgroundColor: "rgba(255,255,255,0.10)" },
+  cardBevelBottom: { position: "absolute", bottom: 0, start: 0, end: 0, height: 2, borderBottomStartRadius: installerTheme.radius.xl, borderBottomEndRadius: installerTheme.radius.xl, backgroundColor: "rgba(0,0,0,0.38)" },
   sectionHeader: {
     minHeight: 28,
     flexDirection: "row",
@@ -744,7 +759,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 3,
+    overflow: "hidden",
   },
+  statusPillGloss: { position: "absolute", top: 0, start: 0, end: 0, height: "50%", backgroundColor: "rgba(255,255,255,0.07)" },
   statusPillText: {
     fontFamily: installerTheme.fontFamilyStrong,
     fontSize: installerTheme.type.caption,
@@ -824,6 +841,10 @@ const styles = StyleSheet.create({
   actionGradient: {
     ...StyleSheet.absoluteFillObject,
   },
+  // Bevel: a gloss on the upper half, a light top edge on flat variants and a dark rim below.
+  actionGloss: { position: "absolute", top: 0, start: 0, end: 0, height: "52%" },
+  actionEdge: { position: "absolute", top: 0, start: 0, end: 0, height: 1, backgroundColor: "rgba(255,255,255,0.14)" },
+  actionRim: { position: "absolute", bottom: 0, start: 0, end: 0, height: 1.5, backgroundColor: "rgba(0,0,0,0.32)" },
   actionSecondary: {
     backgroundColor: installerTheme.shellRaised,
     borderWidth: 1,
@@ -841,6 +862,9 @@ const styles = StyleSheet.create({
   },
   actionPressed: {
     opacity: 0.94,
+    transform: [{ translateY: 1 }],
+    shadowOpacity: 0.08,
+    elevation: 1,
   },
   actionDisabled: {
     opacity: 0.42,

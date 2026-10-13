@@ -35,7 +35,8 @@ vi.mock("react-native", async () => {
     StyleSheet: { create: (value: unknown) => value, flatten, absoluteFillObject: {} },
     Easing: { out: (value: unknown) => value, inOut: (value: unknown) => value, cubic: "cubic", quad: "quad" },
     Animated: {
-      Value, View: "animated-view", createAnimatedComponent: (component: unknown) => component,
+      Value, View: "animated-view", ScrollView: "scroll", createAnimatedComponent: (component: unknown) => component,
+      event: () => vi.fn(),
       timing: (value: Value, options: { toValue: number }) => {
         native.timing(options);
         return { start: (done?: (result: { finished: boolean }) => void) => { value.setValue(options.toValue); done?.({ finished: true }); }, stop: native.stop };

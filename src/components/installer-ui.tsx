@@ -66,6 +66,7 @@ export function InstallerBottomNav() {
     <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 8) }]}>
       <SyncStatusBar />
       <View style={styles.shell}>
+        <View pointerEvents="none" style={styles.shellEdge} />
         {tabs.map((tab) => {
           const active =
             pathname === tab.href ||
@@ -172,13 +173,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: installerTheme.border,
     borderRadius: 24,
-    backgroundColor: "rgba(8,14,21,0.96)",
+    overflow: "hidden",
+    backgroundColor: "rgba(13,20,30,0.92)",
     shadowColor: "#000000",
     shadowOpacity: 0.34,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: -7 },
     elevation: 10,
   },
+  // Glass edge: a light line along the top of the shell gives the bar a lit rim.
+  shellEdge: { position: "absolute", top: 0, start: 12, end: 12, height: 1, backgroundColor: "rgba(255,255,255,0.14)" },
   tabSlot: {
     flex: 1,
     minWidth: 0,

@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { KeyboardAvoidingView, Modal, Platform, ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
+import { Animated, KeyboardAvoidingView, Modal, Platform, ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
@@ -68,6 +68,12 @@ export default function ProjectDetailsScreen() {
   // The door card lives in a bottom sheet; selection (list highlight) and opening are separate.
   const [doorSheetOpen, setDoorSheetOpen] = useState(false);
   const closeDoorSheet = () => setDoorSheetOpen(false);
+  // Parallax: the header drifts at 40% of the scroll so the body appears to slide over it.
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const headerParallax = reducedMotion ? undefined : {
+    transform: [{ translateY: scrollY.interpolate({ inputRange: [0, 200], outputRange: [0, 80], extrapolate: "clamp" }) }],
+    opacity: scrollY.interpolate({ inputRange: [0, 180], outputRange: [1, 0.25], extrapolate: "clamp" }),
+  };
   const { locale } = useI18n();
   const { syncVersion } = useAuth();
   const params = useLocalSearchParams<{
@@ -531,8 +537,15 @@ export default function ProjectDetailsScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       <StatusBar barStyle="light-content" backgroundColor={installerTheme.shell} />
-      <ScrollView style={styles.content} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <View style={styles.projectHeader}>
+      <Animated.ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        scrollEventThrottle={16}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
+      >
+        <Animated.View style={[styles.projectHeader, headerParallax]}>
           <View style={styles.projectHeadingRow}>
             <IconButton icon={locale === "he" ? "arrow-forward" : "arrow-back"} label={lt("Back", "Назад", "חזרה")} tone="dark" onPress={() => router.back()} />
             <View style={styles.projectHeading}>
@@ -550,7 +563,7 @@ export default function ProjectDetailsScreen() {
               icon={pendingEvents.length ? "cloud-upload-outline" : "cloud-done-outline"}
             />
           </View>
-        </View>
+        </Animated.View>
 
         <View style={styles.body}>
           {requestedDoorId && localWorkspace?.projectId === projectId && !doors.some((door) => door.id === requestedDoorId) ? (
@@ -909,7 +922,7 @@ export default function ProjectDetailsScreen() {
             {renderActionFeedback("sync")}
           </SectionCard>
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
       {selectedDoor && doorSheetOpen ? (
         <Modal visible transparent statusBarTranslucent animationType={reducedMotion ? "none" : "slide"} onRequestClose={closeDoorSheet}>
           <SafeAreaView style={[styles.sheetRoot, { direction: locale === "he" ? "rtl" : "ltr" }]} edges={["top", "bottom", "left", "right"]}>
