@@ -35,7 +35,7 @@ vi.mock("react-native", async () => {
     StyleSheet: { create: (value: unknown) => value, flatten, absoluteFillObject: {} },
     Easing: { out: (value: unknown) => value, inOut: (value: unknown) => value, cubic: "cubic", quad: "quad" },
     Animated: {
-      Value, View: "animated-view", ScrollView: "scroll", createAnimatedComponent: (component: unknown) => component,
+      Value, View: "animated-view", Text: "text", ScrollView: "scroll", createAnimatedComponent: (component: unknown) => component,
       event: () => vi.fn(),
       timing: (value: Value, options: { toValue: number }) => {
         native.timing(options);
@@ -84,7 +84,7 @@ vi.mock("@/modules/projects/repository", () => ({
 import { FeedbackPressable } from "./feedback-pressable";
 import { AnimatedNumber } from "./mobile-ui";
 import { AnimatedFill, MotionProvider, Pop, Pulse, Reveal } from "./motion";
-import { ActionButton, BrandText, ConfirmDialog, IconButton, MetricTile, SegmentedControl } from "./mobile-ui";
+import { ActionButton, BrandText, ConfirmDialog, IconButton, MetricTile, SegmentedControl, StatusPill } from "./mobile-ui";
 import JournalScreen from "../../app/journal";
 
 let tree: ReactTestRenderer;
@@ -199,6 +199,21 @@ describe("shared mobile interaction", () => {
     await mount(React.createElement(Reveal, { index: 5, tilt: true }, "Still"));
     expect(native.timing).not.toHaveBeenCalled();
     expect(flatten(tree.root.findByType("animated-view" as never).props.style).opacity.value).toBe(1);
+  });
+
+  it("status pills cross-fade their colours on a tone change and ease a numeric value", async () => {
+    native.reduced = false;
+    await mount(React.createElement(StatusPill, { label: "Queued", tone: "warning" }));
+    expect(native.timing).not.toHaveBeenCalled();
+    expect(tree.root.findByType("text" as never).children.join("")).toBe("Queued");
+    await act(async () => tree.update(React.createElement(MotionProvider, null, React.createElement(StatusPill, { label: "Synced", tone: "success" }))));
+    expect(native.timing).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ toValue: 1, useNativeDriver: false, duration: 420 }));
+    expect(tree.root.findByType("text" as never).children.join("")).toBe("Synced");
+    act(() => tree.unmount());
+    native.timing.mockClear();
+    await mount(React.createElement(StatusPill, { label: "25%", value: 25, format: (current: number) => `${Math.round(current)}%`, tone: "accent" }));
+    expect(tree.root.findByType("text" as never).children.join("")).toBe("25%");
+    expect(native.timing).toHaveBeenCalledWith(expect.objectContaining({ toValue: 25 }));
   });
 
   it("animated numbers ease to their target and snap under reduced motion", async () => {

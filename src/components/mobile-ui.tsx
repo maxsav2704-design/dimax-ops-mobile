@@ -1,8 +1,10 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { type ReactNode } from "react";
+import React, { useEffect, useRef, type ReactNode } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Modal,
   Platform,
   type PressableProps,
@@ -174,24 +176,49 @@ export function SectionHeader({
   );
 }
 
+/** Cross-fades its colours when the tone changes; `value` renders an eased number instead of the label. */
 export function StatusPill({
   label,
   tone = "neutral",
   icon,
+  value,
+  format = (current) => String(Math.round(current)),
 }: {
   label: string;
   tone?: InstallerTone;
   icon?: IconName;
+  value?: number;
+  format?: (current: number) => string;
 }) {
   const colors = toneColors(tone);
+  const reducedMotion = useReducedMotion();
+  const blend = useRef(new Animated.Value(1)).current;
+  const shownTone = useRef(tone);
+  const fromTone = useRef(tone);
+  useEffect(() => {
+    if (shownTone.current === tone) return;
+    fromTone.current = shownTone.current;
+    shownTone.current = tone;
+    if (reducedMotion) { blend.setValue(1); return; }
+    blend.setValue(0);
+    const animation = Animated.timing(blend, { toValue: 1, duration: 420, easing: Easing.out(Easing.cubic), useNativeDriver: false, isInteraction: false });
+    animation.start();
+    return () => animation.stop();
+  }, [blend, tone, reducedMotion]);
+  const previous = toneColors(fromTone.current);
+  const mix = (key: keyof typeof colors) => blend.interpolate({ inputRange: [0, 1], outputRange: [previous[key], colors[key]] });
   return (
-    <View style={[styles.statusPill, { backgroundColor: colors.background, borderColor: colors.border }]}>
+    <Animated.View style={[styles.statusPill, { backgroundColor: mix("background"), borderColor: mix("border") }]}>
       <View pointerEvents="none" style={styles.statusPillGloss} />
       {icon ? <Ionicons name={icon} size={12} color={colors.text} /> : null}
-      <Text style={[styles.statusPillText, { color: colors.text }]} numberOfLines={1}>
-        {label}
-      </Text>
-    </View>
+      {value === undefined ? (
+        <Animated.Text style={[styles.brandText, styles.statusPillText, { color: mix("text") }]} numberOfLines={1}>
+          {label}
+        </Animated.Text>
+      ) : (
+        <AnimatedNumber value={value} format={format} style={[styles.statusPillText, { color: colors.text }]} numberOfLines={1} accessibilityLabel={label} />
+      )}
+    </Animated.View>
   );
 }
 

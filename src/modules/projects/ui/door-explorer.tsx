@@ -4,7 +4,7 @@ import React from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { DirectionalChevron } from "@/components/directional-chevron";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
-import { ActionButton, BrandText as Text, EmptyState, SectionCard, SectionHeader } from "@/components/mobile-ui";
+import { ActionButton, AnimatedNumber, BrandText as Text, EmptyState, SectionCard, SectionHeader } from "@/components/mobile-ui";
 import { Pulse, Reveal } from "@/components/motion";
 import { TickBar } from "@/components/tick-bar";
 import { translateEnum } from "@/lib/i18n";
@@ -103,7 +103,7 @@ export function DoorExplorer({
                       <Text style={styles.floorTitle}>{lt("Floor", "Этаж", "קומה")} {floor}</Text>
                       <Text style={styles.floorMeta}>{`${lt("Doors", "Двери", "דלתות")}: ${floorDoors.length}`}</Text>
                     </View>
-                    <Text style={styles.floorPercent}>{floorPercent}%</Text>
+                    <AnimatedNumber value={floorPercent} format={(current) => `${Math.round(current)}%`} style={styles.floorPercent} />
                   </View>
                   <View style={styles.floorProgressRow}>
                     <TickBar

@@ -21,7 +21,7 @@ export async function createNativeUiMock() {
     RefreshControl: "refresh-control", AppState: { addEventListener: vi.fn(() => ({ remove: vi.fn() })) },
     StyleSheet: { create: (value: unknown) => value, flatten, absoluteFillObject: {} },
     Animated: {
-      Value, View: "animated-view", ScrollView: host("scroll"), createAnimatedComponent: (component: unknown) => component,
+      Value, View: "animated-view", Text: "text", ScrollView: host("scroll"), createAnimatedComponent: (component: unknown) => component,
       event: () => vi.fn(),
       timing: (value: Value, options: { toValue: number }) => ({
         start: (done?: (result: { finished: boolean }) => void) => { value.setValue(options.toValue); done?.({ finished: true }); }, stop: vi.fn(),

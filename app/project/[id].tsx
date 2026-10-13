@@ -645,7 +645,7 @@ export default function ProjectDetailsScreen() {
             >
               <Text style={styles.progressEyebrow}>{lt("Installed", "Установлено", "הותקן")}</Text>
               <Text style={styles.progressValue}><AnimatedNumber value={completion.installed} /> <Text style={styles.progressTotal}>/ {completion.total}</Text></Text>
-              <StatusPill label={`${completion.percent}%`} tone={completion.percent === 100 ? "success" : "accent"} />
+              <StatusPill label={`${completion.percent}%`} value={completion.percent} format={(current) => `${Math.round(current)}%`} tone={completion.percent === 100 ? "success" : "accent"} />
               <Ionicons name={showProgressDetails ? "chevron-up" : "chevron-down"} size={14} color={installerTheme.textMuted} />
             </Pressable>
             <View style={styles.progressTrack}>

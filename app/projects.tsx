@@ -12,6 +12,7 @@ import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { Reveal } from "@/components/motion";
 import {
   ActionButton,
+  AnimatedNumber,
   BrandText as Text,
   BrandMark,
   EmptyState,
@@ -481,7 +482,7 @@ export default function ProjectsScreen() {
                     <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress}%` }]} /></View>
                     <View style={styles.progressLegend}>
                       <Text style={styles.progressText}>{lt(`Installed: ${summary.installed} / ${summary.total}`, `Установлено: ${summary.installed} / ${summary.total}`, `הותקנו: ${summary.installed} מתוך ${summary.total}`)}</Text>
-                      <Text style={styles.progressValue}>{progress}%</Text>
+                      <AnimatedNumber value={progress} format={(current) => `${Math.round(current)}%`} style={styles.progressValue} />
                     </View>
                     <View style={styles.projectStats}>
                       <Text style={styles.projectStatLabel}>{`${lt("Remaining", "Осталось", "נותרו")}: ${summary.remaining}`}</Text>
