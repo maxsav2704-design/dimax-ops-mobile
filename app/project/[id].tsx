@@ -35,6 +35,7 @@ import {
 } from "@/modules/projects/external-actions";
 import { buildAddonFactActionState, buildDoorActionState } from "@/modules/projects/door-action-state";
 import { CompletionCard } from "@/components/celebration";
+import { FloorHeatmap } from "@/components/floor-heatmap";
 import { detectCompletionEvents, nextOpenFloor, type CompletionEvent } from "@/modules/projects/completion-events";
 import { countDoorsOpenForWork, findNextDoor, isDoorOpenForWork } from "@/modules/projects/door-walkthrough";
 import { DoorDetailCard } from "@/modules/projects/ui/door-detail-card";
@@ -822,6 +823,21 @@ export default function ProjectDetailsScreen() {
               />
             ) : null}
           </View>
+
+          {groupedDoors.length ? (
+            <SectionCard>
+              <SectionHeader title={lt("Floor map", "Карта этажей", "מפת קומות")} meta={doors.length} />
+              <FloorHeatmap
+                floors={groupedDoors}
+                selectedDoorId={selectedDoorId}
+                issueDoorIds={issueDoorIds}
+                busy={busy}
+                locale={locale}
+                onOpenDoor={openDoor}
+                testID="project-floor-map"
+              />
+            </SectionCard>
+          ) : null}
 
           <DoorExplorer
             lt={lt}
