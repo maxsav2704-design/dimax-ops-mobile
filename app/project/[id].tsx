@@ -983,7 +983,7 @@ export default function ProjectDetailsScreen() {
             ))}
             <View style={styles.syncActions}>
               <ActionButton
-                label={lt("Sync now", "Синхронизировать", "סנכרון עכשיו")}
+                label={lt("Sync now", "Синхронизация", "סנכרון עכשיו")}
                 icon="sync"
                 loading={activeAction === "sync"}
                 disabled={busy || !pendingEvents.length}

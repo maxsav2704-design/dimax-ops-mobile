@@ -302,7 +302,8 @@ const styles = StyleSheet.create({
   doorHeroGlyph: { position: "absolute", top: 22, end: 22 },
   doorImageContent: {
     paddingHorizontal: 14,
-    paddingTop: 112,
+    // Clears the 104px door glyph (top 22) so long unit labels never run under it.
+    paddingTop: 164,
     paddingBottom: 13,
   },
   doorImageTitleRow: { alignItems: "flex-start", gap: 10, marginTop: 4 },

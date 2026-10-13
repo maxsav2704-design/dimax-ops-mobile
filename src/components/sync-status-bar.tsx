@@ -51,7 +51,8 @@ const styles = StyleSheet.create({
     minHeight: 30,
     paddingHorizontal: 12,
     paddingVertical: 5,
-    marginBottom: 8,
+    // Leave room for the raised centre tab, which overhangs the shell by 36px.
+    marginBottom: 38,
     borderWidth: 1,
     borderRadius: installerTheme.radius.pill,
   },

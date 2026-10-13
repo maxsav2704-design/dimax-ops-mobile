@@ -75,7 +75,8 @@ export const installerTheme = {
     xxl: 24,
   },
   layout: {
-    bottomNavClearance: 112,
+    // Shell (66) + sync strip (30 + 38) + paddings; keeps the last card above the bar.
+    bottomNavClearance: 150,
   },
   // Field-readable type scale: caption is the smallest size allowed in any screen style.
   type: {
