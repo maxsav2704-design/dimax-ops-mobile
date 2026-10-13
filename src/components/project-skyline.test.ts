@@ -5,6 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("react-native", async () => (await vi.importActual<typeof import("@/test/native-ui")>("@/test/native-ui")).createNativeUiMock());
 vi.mock("@expo/vector-icons/Ionicons", () => ({ default: "icon" }));
 vi.mock("expo-linear-gradient", () => ({ LinearGradient: "gradient" }));
+vi.mock("react-native-svg", () => ({
+  default: "svg", Circle: "circle", Defs: "defs", LinearGradient: "svg-gradient", Path: "path", Stop: "stop",
+}));
 
 import { installerTheme } from "@/lib/theme";
 import { DoorGlyph } from "./door-glyph";
@@ -56,12 +59,15 @@ describe("DoorGlyph", () => {
       tree = create(React.createElement(DoorGlyph, { testID: "door", width: 108, tone, hasIssue: true, icon: "checkmark" }));
     });
     const root = tree.root.findAllByProps({ testID: "door" }).find((node) => typeof node.type === "string")!;
-    expect(flatten(root.props.style)).toMatchObject({ width: 114, height: 142 });
-    const edge = tree.root.findAllByProps({ testID: "door-edge" }).find((node) => typeof node.type === "string")!;
-    expect(flatten(edge.props.style)).toMatchObject({ width: 108, height: 136, top: 6, borderColor: "#3f3" });
-    const leaf = root.findAll((node) => typeof node.type === "string" && flatten(node.props.style).backgroundColor === "#111")[0];
-    expect(flatten(leaf.props.style)).toMatchObject({ width: 108, height: 136, borderColor: "#3f3" });
-    expect(leaf.findAllByType("gradient" as never)).toHaveLength(1);
+    expect(flatten(root.props.style)).toMatchObject({ width: 108, height: 136 });
+    const svg = root.findByType("svg" as never);
+    expect(svg.props).toMatchObject({ width: 108, height: 136, viewBox: "0 0 54 68" });
+    const halo = tree.root.findAllByProps({ testID: "door-halo" }).find((node) => typeof node.type === "string")!;
+    expect(halo.props.stroke).toBe("#3f3");
+    const leaf = svg.findAllByType("path" as never).find((node) => node.props.fill === "#111")!;
+    expect(leaf.props.stroke).toBe("#F3D58A");
+    expect(svg.findAllByType("circle" as never)).toHaveLength(1);
+    expect(svg.findAllByType("svg-gradient" as never)).toHaveLength(0);
     expect(tree.root.findAllByProps({ testID: "door-issue" }).filter((node) => typeof node.type === "string")).toHaveLength(1);
     act(() => { tree.update(React.createElement(DoorGlyph, { testID: "door", tone, hasIssue: false })); });
     expect(tree.root.findAllByProps({ testID: "door-issue" })).toHaveLength(0);
