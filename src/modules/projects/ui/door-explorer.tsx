@@ -5,7 +5,7 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import { DirectionalChevron } from "@/components/directional-chevron";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { ActionButton, BrandText as Text, EmptyState, SectionCard, SectionHeader } from "@/components/mobile-ui";
-import { AnimatedFill, Pulse } from "@/components/motion";
+import { AnimatedFill, Pulse, Reveal } from "@/components/motion";
 import { translateEnum } from "@/lib/i18n";
 import { installerTheme, toneColors, type InstallerTone } from "@/lib/theme";
 import { buildDoorPositionLabel, doorStatusColors, doorStatusIcon, formatIssueCount } from "@/modules/projects/ui/door-presentation";
@@ -89,13 +89,14 @@ export function DoorExplorer({
           </View>
 
           <View style={styles.floorList}>
-            {displayedFloorGroups.map(([floor, floorDoors]) => {
+            {displayedFloorGroups.map(([floor, floorDoors], floorIndex) => {
               const floorInstalled = floorDoors.filter((door) => door.status === "INSTALLED").length;
               const floorIssues = floorDoors.filter((door) => issueDoorIds.has(door.id)).length;
               const floorProgress = floorDoors.filter((door) => door.status === "IN_PROGRESS").length;
               const floorPercent = Math.round((floorInstalled / floorDoors.length) * 100);
               return (
-                <SectionCard key={floor} style={styles.floorCard}>
+                <Reveal key={floor} index={floorIndex} tilt>
+                <SectionCard style={styles.floorCard}>
                   <View style={styles.floorHeader}>
                     <View style={styles.floorHeading}>
                       <Text style={styles.floorTitle}>{lt("Floor", "Этаж", "קומה")} {floor}</Text>
@@ -123,9 +124,9 @@ export function DoorExplorer({
                     <FloorSummary tone={floorIssues ? "warning" : "neutral"} value={floorIssues} label={lt("Issues", "Проблемы", "תקלות")} />
                   </View>
                   <View style={styles.doorList}>
-                    {floorDoors.map((door) => (
+                    {floorDoors.map((door, doorIndex) => (
+                      <Reveal key={door.id} index={doorIndex} tilt>
                       <DoorExplorerRow
-                        key={door.id}
                         door={door}
                         typeLabel={doorTypes.find((doorType) => doorType.id === door.door_type_id)?.name || door.door_type_id}
                         positionLabel={buildDoorPositionLabel(door, locale)}
@@ -136,9 +137,11 @@ export function DoorExplorer({
                         locale={locale}
                         onPress={() => onOpenDoor(door.id)}
                       />
+                      </Reveal>
                     ))}
                   </View>
                 </SectionCard>
+                </Reveal>
               );
             })}
           </View>

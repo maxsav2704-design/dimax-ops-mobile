@@ -420,9 +420,10 @@ export default function ProjectsScreen() {
                 icon={primaryAction.kind === "SCHEDULED_PROJECT" ? (locale === "he" ? "arrow-back" : "arrow-forward") : "calendar-outline"}
                 onPress={() => router.push(primaryAction.route as never)}
               /> : null}
-              {todayEvents.length ? todayEvents.slice(0, 4).map((item) => (
+              {todayEvents.length ? todayEvents.slice(0, 4).map((item, index) => (
+                <Reveal key={item.id} index={index} tilt>
                 <Pressable
-                  key={item.id} accessibilityRole="button"
+                  accessibilityRole="button"
                   accessibilityLabel={`${item.title}. ${formatEventTime(item.starts_at)}. ${item.location || item.event_type}`}
                   onPress={() => item.project_id ? router.push(buildProjectRoute(item.project_id) as never) : router.push("/calendar" as never)}
                   style={({ pressed }) => [styles.scheduleRow, pressed && styles.pressed]}
@@ -434,6 +435,7 @@ export default function ProjectsScreen() {
                   </View>
                   <DirectionalChevron size={17} color={installerTheme.textMuted} />
                 </Pressable>
+                </Reveal>
               )) : <EmptyState
                 icon={calendar.snapshot ? "calendar-outline" : "cloud-offline-outline"}
                 title={calendar.snapshot ? lt("No scheduled work today", "Сегодня нет запланированных работ", "אין עבודות מתוכננות להיום") : lt("Open the calendar to check the plan", "Откройте календарь для проверки плана", "פתחו את היומן לבדיקת התכנית")}
@@ -456,12 +458,12 @@ export default function ProjectsScreen() {
                   ))}
                 </ScrollView>
               </> : null}
-              {visibleProjects.map((project) => {
+              {visibleProjects.map((project, index) => {
                 const summary = summaries[project.id] || { total: 0, installed: 0, issues: 0, remaining: 0 };
                 const progress = summary.total ? Math.round((summary.installed / summary.total) * 100) : 0;
                 const tone = projectTone(project.status, summary.issues);
                 const palette = toneColors(tone);
-                return <SectionCard key={project.id} style={styles.projectCard}>
+                return <Reveal key={project.id} index={index} tilt><SectionCard style={styles.projectCard}>
                   <View pointerEvents="none" style={[styles.projectRiskStrip, { backgroundColor: palette.text }]} />
                   <Pressable accessibilityRole="button" accessibilityLabel={project.name} onPress={() => router.push(buildProjectRoute(project.id) as never)} style={styles.projectMain}>
                     <View style={styles.projectTop}>
@@ -494,7 +496,7 @@ export default function ProjectsScreen() {
                     })} /> : null}
                     {summary.issues ? <ActionButton label={lt("Issues", "Проблемы", "תקלות")} icon="alert-circle-outline" variant="secondary" style={styles.flexButton} onPress={() => router.push(`/issues?projectId=${encodeURIComponent(project.id)}` as never)} /> : null}
                   </View> : null}
-                </SectionCard>;
+                </SectionCard></Reveal>;
               })}
               {projects.length && !visibleProjects.length ? <EmptyState icon="search-outline" title={lt("No matching projects", "Объекты не найдены", "לא נמצאו פרויקטים")} action={<ActionButton label={lt("Reset filters", "Сбросить фильтры", "איפוס מסננים")} variant="secondary" icon="close" onPress={() => { setSearch(""); setProjectFilter("ALL"); }} />} /> : null}
               {!projects.length ? <EmptyState

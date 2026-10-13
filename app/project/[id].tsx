@@ -8,6 +8,7 @@ import { InstallerBottomNav } from "@/components/installer-ui";
 import { AnimatedFill, Pop, Reveal, useReducedMotion } from "@/components/motion";
 import {
   ActionButton,
+  AnimatedNumber,
   BrandText as Text,
   IconButton,
   MetricTile,
@@ -575,7 +576,7 @@ export default function ProjectDetailsScreen() {
               style={styles.progressHeader}
             >
               <Text style={styles.progressEyebrow}>{lt("Installed", "Установлено", "הותקן")}</Text>
-              <Text style={styles.progressValue}>{completion.installed} <Text style={styles.progressTotal}>/ {completion.total}</Text></Text>
+              <Text style={styles.progressValue}><AnimatedNumber value={completion.installed} /> <Text style={styles.progressTotal}>/ {completion.total}</Text></Text>
               <StatusPill label={`${completion.percent}%`} tone={completion.percent === 100 ? "success" : "accent"} />
               <Ionicons name={showProgressDetails ? "chevron-up" : "chevron-down"} size={14} color={installerTheme.textMuted} />
             </Pressable>

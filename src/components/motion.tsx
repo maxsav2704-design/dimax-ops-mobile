@@ -86,23 +86,57 @@ export function AnimatedFill({ percent, style, ...props }: ViewProps & { percent
   return <Animated.View {...props} style={[style, { width }]} />;
 }
 
-export function Reveal({ children, style, ...props }: ViewProps) {
+const STAGGER_STEP_MS = 36;
+const STAGGER_MAX_INDEX = 12;
+
+/**
+ * Fades content in. `index` staggers list items; `tilt` lifts the item into place
+ * from a slight perspective tilt so rows read as cards settling, not flat fades.
+ */
+export function Reveal({ children, style, index, tilt = false, ...props }: ViewProps & { index?: number; tilt?: boolean }) {
   const reducedMotion = useReducedMotion();
   const progress = useRef(new Animated.Value(1)).current;
+  const delay = Math.min(Math.max(index ?? 0, 0), STAGGER_MAX_INDEX) * STAGGER_STEP_MS;
   useEffect(() => {
     if (reducedMotion) { progress.setValue(1); return; }
     progress.setValue(0);
     const animation = Animated.timing(progress, {
-      toValue: 1, duration: 220, easing: Easing.out(Easing.cubic),
+      toValue: 1, duration: tilt ? 320 : 220, delay, easing: Easing.out(Easing.cubic),
       useNativeDriver: true, isInteraction: false,
     });
     animation.start();
     return () => animation.stop();
-  }, [progress, reducedMotion]);
+  }, [delay, progress, reducedMotion, tilt]);
+  const transform = tilt
+    ? [
+      { perspective: 640 },
+      { rotateX: progress.interpolate({ inputRange: [0, 1], outputRange: ["14deg", "0deg"] }) },
+      { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) },
+      { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1] }) },
+    ]
+    : [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }];
   return (
-    <Animated.View {...props} style={[style, {
-      opacity: progress,
-      transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }],
-    }]}>{children}</Animated.View>
+    <Animated.View {...props} style={[style, { opacity: progress, transform }]}>{children}</Animated.View>
   );
+}
+
+/** Eases a number towards `target` for counters; snaps immediately with reduced motion. */
+export function useAnimatedNumber(target: number, duration = 650): number {
+  const reducedMotion = useReducedMotion();
+  const value = useRef(new Animated.Value(target)).current;
+  const [displayed, setDisplayed] = useState(target);
+  useEffect(() => {
+    if (reducedMotion || !Number.isFinite(target)) {
+      value.setValue(target);
+      setDisplayed(target);
+      return;
+    }
+    const subscription = value.addListener(({ value: current }) => setDisplayed(current));
+    const animation = Animated.timing(value, {
+      toValue: target, duration, easing: Easing.out(Easing.cubic), useNativeDriver: false, isInteraction: false,
+    });
+    animation.start(({ finished }) => { if (finished) setDisplayed(target); });
+    return () => { value.removeListener(subscription); animation.stop(); };
+  }, [duration, reducedMotion, target, value]);
+  return displayed;
 }

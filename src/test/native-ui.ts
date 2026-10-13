@@ -7,9 +7,12 @@ export async function createNativeUiMock() {
     ? Object.assign({}, ...style.map(flatten)) : style || {};
   const host = (name: string) => React.forwardRef((props: any, ref) => React.createElement(name, { ...props, ref }));
   class Value {
+    listeners = new Map<string, (state: { value: number }) => void>();
     constructor(public value: number) {}
-    setValue(value: number) { this.value = value; }
+    setValue(value: number) { this.value = value; this.listeners.forEach((listener) => listener({ value })); }
     interpolate() { return this; }
+    addListener(listener: (state: { value: number }) => void) { const id = String(this.listeners.size + 1); this.listeners.set(id, listener); return id; }
+    removeListener(id: string) { this.listeners.delete(id); }
   }
   return {
     Pressable: host("pressable"), View: host("view"), ScrollView: host("scroll"),
@@ -19,7 +22,9 @@ export async function createNativeUiMock() {
     StyleSheet: { create: (value: unknown) => value, flatten, absoluteFillObject: {} },
     Animated: {
       Value, View: "animated-view", createAnimatedComponent: (component: unknown) => component,
-      timing: (value: Value, options: { toValue: number }) => ({ start: () => value.setValue(options.toValue), stop: vi.fn() }),
+      timing: (value: Value, options: { toValue: number }) => ({
+        start: (done?: (result: { finished: boolean }) => void) => { value.setValue(options.toValue); done?.({ finished: true }); }, stop: vi.fn(),
+      }),
       spring: (value: Value, options: { toValue: number }) => ({ start: () => value.setValue(options.toValue), stop: vi.fn() }),
       sequence: (animations: Array<{ start: () => void; stop: () => void }>) => ({
         start: () => animations.forEach((animation) => animation.start()), stop: () => animations.forEach((animation) => animation.stop()),

@@ -8,9 +8,10 @@ import { FeedbackPressable as Pressable } from "@/components/feedback-pressable"
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
 import { EarningsDayChart, buildEarningsDayChart } from "@/components/earnings-day-chart";
-import { useReducedMotion } from "@/components/motion";
+import { Reveal, useReducedMotion } from "@/components/motion";
 import {
   ActionButton,
+  AnimatedNumber,
   BrandText as Text,
   EmptyState,
   IconButton,
@@ -260,7 +261,9 @@ export default function EarningsScreen() {
             <IconButton icon={chevronIcon(isRtlLocale(locale), "forward")} label={lt("Next day", "Следующий день", "יום הבא")} tone="dark" disabled={!nextDay || !snapshot} onPress={() => moveDay(nextDay)} />
           </View>
           <Text style={styles.totalLabel}>{lt("EARNINGS IN VIEW", "ЗАРАБОТОК В ВЫБРАННОМ ПЕРИОДЕ", "שכר בתקופה")}</Text>
-          <Text testID="earnings-total" style={[styles.totalValue, totalAmount < 0 && styles.debit]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>{snapshot ? money(totalAmount) : "—"}</Text>
+          {snapshot
+            ? <AnimatedNumber testID="earnings-total" value={totalAmount} format={money} style={[styles.totalValue, totalAmount < 0 && styles.debit]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} />
+            : <Text testID="earnings-total" style={styles.totalValue} numberOfLines={1}>—</Text>}
           <View style={styles.heroStatus}>
             <StatusPill
               label={
@@ -596,7 +599,11 @@ function EarningsRows({ rows, money, onSelect, initialLimit = 30 }: { rows: Inst
   const [limit, setLimit] = useState(initialLimit);
   useEffect(() => setLimit(initialLimit), [rows, initialLimit]);
   return <View>
-    {rows.slice(0, limit).map((row) => <EarningsLine key={row.id} row={row} money={money} onPress={() => onSelect(row.id)} />)}
+    {rows.slice(0, limit).map((row, index) => (
+      <Reveal key={row.id} index={index} tilt>
+        <EarningsLine row={row} money={money} onPress={() => onSelect(row.id)} />
+      </Reveal>
+    ))}
     {rows.length > initialLimit ? <Text style={styles.pageCount}>{Math.min(limit, rows.length)} / {rows.length}</Text> : null}
     {limit < rows.length ? <ActionButton label={locale === "ru" ? "Показать ещё" : locale === "he" ? "הצגת עוד" : "Show more work"} icon="chevron-down" variant="secondary" onPress={() => setLimit((value) => value + initialLimit)} /> : null}
   </View>;

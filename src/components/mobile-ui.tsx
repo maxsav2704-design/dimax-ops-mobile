@@ -23,7 +23,7 @@ import Svg, {
 import { installerTheme, toneColors, type InstallerTone } from "@/lib/theme";
 import { FeedbackPressable as Pressable } from "./feedback-pressable";
 import { DirectionalChevron } from "./directional-chevron";
-import { Reveal, useReducedMotion } from "./motion";
+import { Reveal, useAnimatedNumber, useReducedMotion } from "./motion";
 import { useI18n } from "@/providers/AppProviders";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -206,8 +206,13 @@ export function ProgressRing({
   label?: string;
 }) {
   const normalized = Math.max(0, Math.min(100, value));
-  const radius = (size - stroke) / 2;
+  // The arc sweeps to its value; the track is an engraved groove and the arc carries a lit edge.
+  const shown = useAnimatedNumber(normalized, 900);
+  const radius = (size - stroke) / 2 - 1;
   const circumference = 2 * Math.PI * radius;
+  const dash = `${circumference} ${circumference}`;
+  const offset = circumference - (circumference * shown) / 100;
+  const center = size / 2;
   return (
     <View
       accessible
@@ -216,31 +221,37 @@ export function ProgressRing({
       style={{ width: size, height: size }}
     >
       <Svg width={size} height={size} style={styles.progressRingSvg}>
+        <Circle cx={center} cy={center} r={radius + stroke / 2 + 0.75} stroke="rgba(0,0,0,0.45)" strokeWidth={1.5} fill="none" />
+        <Circle cx={center} cy={center} r={radius} stroke={installerTheme.shellMuted} strokeWidth={stroke} fill="none" />
+        <Circle cx={center} cy={center} r={radius - stroke / 2 - 0.5} stroke="rgba(255,255,255,0.08)" strokeWidth={1} fill="none" />
         <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          stroke={installerTheme.borderStrong}
-          strokeWidth={stroke}
-          fill="none"
+          cx={center} cy={center} r={radius} stroke={tone} strokeOpacity={0.28} strokeWidth={stroke + 4}
+          strokeLinecap="round" strokeDasharray={dash} strokeDashoffset={offset} fill="none"
         />
         <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          stroke={tone}
-          strokeWidth={stroke}
-          strokeLinecap="round"
-          strokeDasharray={`${circumference} ${circumference}`}
-          strokeDashoffset={circumference - (circumference * normalized) / 100}
-          fill="none"
+          cx={center} cy={center} r={radius} stroke={tone} strokeWidth={stroke}
+          strokeLinecap="round" strokeDasharray={dash} strokeDashoffset={offset} fill="none"
+        />
+        <Circle
+          cx={center} cy={center} r={radius + stroke / 4} stroke="rgba(255,255,255,0.35)" strokeWidth={Math.max(1, stroke / 3)}
+          strokeLinecap="round" strokeDasharray={dash} strokeDashoffset={offset} fill="none"
         />
       </Svg>
       <View style={styles.progressRingLabel}>
-        <Text style={styles.progressRingText}>{label ?? `${normalized}%`}</Text>
+        <Text style={styles.progressRingText}>{label ?? `${Math.round(shown)}%`}</Text>
       </View>
     </View>
   );
+}
+
+/** A number that eases to its value; renders the final value at once under reduced motion. */
+export function AnimatedNumber({ value, format = (current) => String(Math.round(current)), duration, ...props }: TextProps & {
+  value: number;
+  format?: (current: number) => string;
+  duration?: number;
+}) {
+  const displayed = useAnimatedNumber(value, duration);
+  return <Text {...props}>{format(displayed)}</Text>;
 }
 
 export function MetricTile({

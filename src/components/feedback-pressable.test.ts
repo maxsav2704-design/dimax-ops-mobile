@@ -21,9 +21,12 @@ vi.mock("react-native", async () => {
   const Pressable = React.forwardRef((props: any, ref) => React.createElement("pressable", { ...props, ref }));
   class Value {
     value: number;
+    listeners = new Map<string, (state: { value: number }) => void>();
     constructor(value: number) { this.value = value; }
-    setValue(value: number) { this.value = value; }
+    setValue(value: number) { this.value = value; this.listeners.forEach((listener) => listener({ value })); }
     interpolate() { return this; }
+    addListener(listener: (state: { value: number }) => void) { const id = String(this.listeners.size + 1); this.listeners.set(id, listener); return id; }
+    removeListener(id: string) { this.listeners.delete(id); }
   }
   return {
     Pressable, View: "view", Text: "text", Modal: "modal", ActivityIndicator: "spinner", Platform: { OS: "android" },
@@ -35,7 +38,7 @@ vi.mock("react-native", async () => {
       Value, View: "animated-view", createAnimatedComponent: (component: unknown) => component,
       timing: (value: Value, options: { toValue: number }) => {
         native.timing(options);
-        return { start: () => value.setValue(options.toValue), stop: native.stop };
+        return { start: (done?: (result: { finished: boolean }) => void) => { value.setValue(options.toValue); done?.({ finished: true }); }, stop: native.stop };
       },
       spring: (value: Value, options: { toValue: number }) => {
         native.spring(options);
@@ -78,6 +81,7 @@ vi.mock("@/modules/projects/repository", () => ({
 }));
 
 import { FeedbackPressable } from "./feedback-pressable";
+import { AnimatedNumber } from "./mobile-ui";
 import { AnimatedFill, MotionProvider, Pop, Pulse, Reveal } from "./motion";
 import { ActionButton, BrandText, ConfirmDialog, IconButton, MetricTile, SegmentedControl } from "./mobile-ui";
 import JournalScreen from "../../app/journal";
@@ -172,6 +176,40 @@ describe("shared mobile interaction", () => {
     await mount(React.createElement(Reveal, null, "Door details"));
     const view = tree.root.findByType("animated-view" as never);
     expect(flatten(view.props.style).opacity.value).toBe(1);
+    expect(native.timing).not.toHaveBeenCalled();
+  });
+
+  it("staggers tilted reveals by index and keeps them flat and immediate with reduced motion", async () => {
+    native.reduced = false;
+    await mount(React.createElement(
+      "view", null,
+      React.createElement(Reveal, { index: 0, tilt: true }, "First"),
+      React.createElement(Reveal, { index: 3, tilt: true }, "Fourth"),
+      React.createElement(Reveal, { index: 40 }, "Capped"),
+    ));
+    const delays = native.timing.mock.calls.map(([options]) => options.delay);
+    expect(delays).toEqual([0, 108, 432]);
+    const views = tree.root.findAllByType("animated-view" as never);
+    expect(flatten(views[0].props.style).transform[0]).toEqual({ perspective: 640 });
+    expect(flatten(views[2].props.style).transform).toHaveLength(1);
+    act(() => tree.unmount());
+    native.reduced = true;
+    native.timing.mockClear();
+    await mount(React.createElement(Reveal, { index: 5, tilt: true }, "Still"));
+    expect(native.timing).not.toHaveBeenCalled();
+    expect(flatten(tree.root.findByType("animated-view" as never).props.style).opacity.value).toBe(1);
+  });
+
+  it("animated numbers ease to their target and snap under reduced motion", async () => {
+    native.reduced = false;
+    await mount(React.createElement(AnimatedNumber, { value: 42, format: (current: number) => `${Math.round(current)} doors` }));
+    expect(tree.root.findByType("text" as never).children.join("")).toBe("42 doors");
+    expect(native.timing).toHaveBeenCalledWith(expect.objectContaining({ toValue: 42, useNativeDriver: false }));
+    act(() => tree.unmount());
+    native.reduced = true;
+    native.timing.mockClear();
+    await mount(React.createElement(AnimatedNumber, { value: 7 }));
+    expect(tree.root.findByType("text" as never).children.join("")).toBe("7");
     expect(native.timing).not.toHaveBeenCalled();
   });
 
