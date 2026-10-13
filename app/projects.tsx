@@ -30,6 +30,7 @@ import { loadInstallerCalendar } from "@/modules/calendar/service";
 import { calendarEventDay, compareCalendarEvents } from "@/modules/calendar/presentation";
 import type { InstallerCalendarViewModel } from "@/modules/calendar/types";
 import { openProjectExternalAction } from "@/modules/projects/external-actions";
+import { buildSyncStatusPresentation } from "@/modules/sync/presentation";
 import {
   buildDashboardPrimaryAction,
   buildProjectRoute,
@@ -289,35 +290,13 @@ export default function ProjectsScreen() {
     const summary = summaries[project.id];
     return matches && (projectFilter === "ALL" || (projectFilter === "REMAINING" ? summary?.remaining > 0 : summary?.issues > 0));
   }), [projects, summaries, search, projectFilter]);
-  const queueTone = !hasData && error ? "danger" : !hasData || loading ? "neutral" : offlineNotice
-    ? "warning"
-    : busy
-      ? "info"
-      : queue?.blocked
-        ? "danger"
-        : queue?.failed
-          ? "warning"
-          : queue?.total
-            ? "accent"
-            : "success";
+  // Shared with the sync strip; only the screen-local "no data yet" states are decided here.
+  const syncStatus = buildSyncStatusPresentation({ queue, lastSyncAt, syncing: busy, offline: Boolean(offlineNotice) }, locale);
+  const queueTone = !hasData && error ? "danger" : !hasData || loading ? "neutral" : syncStatus.tone;
   const queueLabel = !hasData && error ? lt("Data unavailable", "Данные недоступны", "הנתונים אינם זמינים") : !hasData || loading
     ? lt("Checking data", "Проверка данных", "בדיקת נתונים")
-    : offlineNotice
-    ? lt("Offline", "Офлайн", "לא מקוון")
-    : busy
-      ? lt("Synchronizing", "Синхронизация", "מסתנכרן")
-      : queue?.blocked
-        ? lt(`${queue.blocked} blocked`, `${queue.blocked} заблокировано`, `${queue.blocked} חסומים`)
-        : queue?.total
-          ? lt(`${queue.total} queued`, `${queue.total} в очереди`, `${queue.total} בתור`)
-          : !lastSyncAt ? lt("Not synced yet", "Ещё не синхронизировано", "טרם סונכרן") : lt("Synced", "Синхронизировано", "מסונכרן");
-  const queueIcon = !hasData || loading ? "time-outline" : offlineNotice
-    ? "cloud-offline-outline"
-    : busy
-      ? "sync"
-      : queue?.total
-        ? "cloud-upload-outline"
-        : "checkmark-circle-outline";
+    : syncStatus.label;
+  const queueIcon = (!hasData || loading ? "time-outline" : syncStatus.icon) as React.ComponentProps<typeof Ionicons>["name"];
 
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
