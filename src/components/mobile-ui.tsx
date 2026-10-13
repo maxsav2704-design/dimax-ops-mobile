@@ -264,6 +264,7 @@ export function MetricTile({
   tone = "accent",
   style,
   onPress,
+  children,
 }: {
   label: string;
   value: string | number;
@@ -271,6 +272,7 @@ export function MetricTile({
   tone?: InstallerTone;
   style?: ViewStyle | ViewStyle[];
   onPress?: () => void;
+  children?: ReactNode;
 }) {
   const colors = toneColors(tone);
   const content = (
@@ -278,6 +280,7 @@ export function MetricTile({
       <Text style={styles.metricLabel}>{label}</Text>
       <Text style={styles.metricValue} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.85}>{value}</Text>
       {meta ? <Text style={styles.metricMeta} numberOfLines={2}>{meta}</Text> : null}
+      {children}
       {onPress ? <DirectionalChevron size={14} color={colors.text} style={styles.metricChevron} /> : null}
     </>
   );

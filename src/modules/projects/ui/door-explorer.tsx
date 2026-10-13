@@ -5,7 +5,8 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import { DirectionalChevron } from "@/components/directional-chevron";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { ActionButton, BrandText as Text, EmptyState, SectionCard, SectionHeader } from "@/components/mobile-ui";
-import { AnimatedFill, Pulse, Reveal } from "@/components/motion";
+import { Pulse, Reveal } from "@/components/motion";
+import { TickBar } from "@/components/tick-bar";
 import { translateEnum } from "@/lib/i18n";
 import { installerTheme, toneColors, type InstallerTone } from "@/lib/theme";
 import { buildDoorPositionLabel, doorStatusColors, doorStatusIcon, formatIssueCount } from "@/modules/projects/ui/door-presentation";
@@ -105,15 +106,12 @@ export function DoorExplorer({
                     <Text style={styles.floorPercent}>{floorPercent}%</Text>
                   </View>
                   <View style={styles.floorProgressRow}>
-                    <View style={styles.floorProgressTrack}>
-                      <AnimatedFill
-                        percent={floorPercent}
-                        style={[
-                          styles.floorProgressFill,
-                          { backgroundColor: floorIssues ? installerTheme.warning : installerTheme.success },
-                        ]}
-                      />
-                    </View>
+                    <TickBar
+                      total={floorDoors.length}
+                      filled={floorInstalled}
+                      color={floorIssues ? installerTheme.warning : installerTheme.success}
+                      testID={`floor-progress-${floor}`}
+                    />
                     <Text style={styles.floorProgressText}>
                       {floorInstalled}/{floorDoors.length}
                     </Text>
@@ -425,8 +423,6 @@ const styles = StyleSheet.create({
   doorExplorerState: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8 },
   doorExplorerStateIcon: { width: 18, height: 18, alignItems: "center", justifyContent: "center", borderRadius: installerTheme.radius.pill },
   doorExplorerStatus: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 17, fontWeight: "700" },
-  floorProgressTrack: { flex: 1, minWidth: 0, height: 5, overflow: "hidden", borderRadius: installerTheme.radius.pill, backgroundColor: installerTheme.border },
-  floorProgressFill: { height: "100%", borderRadius: installerTheme.radius.pill },
   floorProgressText: { color: installerTheme.textMuted, fontFamily: installerTheme.fontFamilyMono, fontSize: installerTheme.type.caption },
   doorTilePressed: { opacity: 0.94 },
 });

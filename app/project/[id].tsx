@@ -36,6 +36,8 @@ import {
 import { buildAddonFactActionState, buildDoorActionState } from "@/modules/projects/door-action-state";
 import { CompletionCard } from "@/components/celebration";
 import { FloorHeatmap } from "@/components/floor-heatmap";
+import { Sparkline } from "@/components/sparkline";
+import { buildRecentDailyTotals } from "@/modules/earnings/daily-series";
 import { detectCompletionEvents, nextOpenFloor, type CompletionEvent } from "@/modules/projects/completion-events";
 import { countDoorsOpenForWork, findNextDoor, isDoorOpenForWork } from "@/modules/projects/door-walkthrough";
 import { DoorDetailCard } from "@/modules/projects/ui/door-detail-card";
@@ -945,7 +947,16 @@ export default function ProjectDetailsScreen() {
               value={projectEarnings ? `${projectEarnings.monthTotal} ${projectEarnings.currency}` : "—"}
               meta={`${projectEarnings?.rows.length || 0} ${lt("work rows", "строк работ", "שורות עבודה")}`}
               tone="accent"
-            />
+            >
+              {projectEarnings ? (
+                <Sparkline
+                  points={buildRecentDailyTotals(projectEarnings.rows, currentLocalDateKey(), 7)}
+                  color={installerTheme.accent}
+                  style={styles.paySparkline}
+                  testID="project-pay-sparkline"
+                />
+              ) : null}
+            </MetricTile>
           </View>
           <ActionButton
             label={lt("Open full earnings", "Открыть полный заработок", "פתיחת פירוט שכר")}
@@ -1084,6 +1095,7 @@ function QuickAction({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: installerTheme.background },
+  paySparkline: { marginTop: 8, alignSelf: "flex-start" },
   sheetRoot: { flex: 1, justifyContent: "flex-end" },
   sheetBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.66)" },
   sheetPanelWrap: { maxHeight: "92%" },
