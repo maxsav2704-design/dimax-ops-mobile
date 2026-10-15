@@ -2,7 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { Link, usePathname } from "expo-router";
 import React from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandText as Text } from "@/components/mobile-ui";
@@ -12,10 +12,16 @@ import { useI18n } from "@/providers/AppProviders";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
+// Below this width five tabs share ~56 dp each, too narrow for "Заработок" at the caption size.
+// Such screens show a compact label; the full label stays in the accessibility name.
+export const NAV_COMPACT_MAX_WIDTH = 360;
+
 export function InstallerBottomNav() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const { locale } = useI18n();
+  const { width } = useWindowDimensions();
+  const compact = width < NAV_COMPACT_MAX_WIDTH;
   const label = (en: string, ru: string, he: string) => {
     if (locale === "ru") return ru;
     if (locale === "he") return he;
@@ -25,6 +31,7 @@ export function InstallerBottomNav() {
   const tabs: Array<{
     href: string;
     label: string;
+    compactLabel?: string;
     icon: IconName;
     activeIcon: IconName;
     center?: boolean;
@@ -51,6 +58,7 @@ export function InstallerBottomNav() {
     {
       href: "/earnings",
       label: label("Earnings", "Заработок", "שכר"),
+      compactLabel: label("Earnings", "Доход", "שכר"),
       icon: "wallet-outline",
       activeIcon: "wallet",
     },
@@ -135,7 +143,7 @@ export function InstallerBottomNav() {
                       style={[styles.label, active && styles.labelActive]}
                       numberOfLines={1}
                     >
-                      {tab.label}
+                      {compact && tab.compactLabel ? tab.compactLabel : tab.label}
                     </Text>
                   </View>
                   {!tab.center ? (

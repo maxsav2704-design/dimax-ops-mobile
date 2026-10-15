@@ -1,7 +1,10 @@
 import { vi } from "vitest";
 
 // Native host primitives for screen tests; application components remain real.
-export async function createNativeUiMock() {
+// `window` lets a test emulate a narrow or wide device for width-aware components.
+export async function createNativeUiMock({ window = { width: 393, height: 852 } }: {
+  window?: { width: number; height: number };
+} = {}) {
   const React = await vi.importActual<typeof import("react")>("react");
   const flatten = (style: any): any => Array.isArray(style)
     ? Object.assign({}, ...style.map(flatten)) : style || {};
@@ -33,5 +36,7 @@ export async function createNativeUiMock() {
       loop: (animation: { start: () => void; stop: () => void }) => animation,
     },
     Easing: { out: (value: unknown) => value, inOut: (value: unknown) => value, cubic: "cubic", quad: "quad" },
+    useWindowDimensions: () => ({ ...window, scale: 2.75, fontScale: 1 }),
+    Dimensions: { get: () => ({ ...window, scale: 2.75, fontScale: 1 }), addEventListener: vi.fn(() => ({ remove: vi.fn() })) },
   };
 }
