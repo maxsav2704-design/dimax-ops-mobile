@@ -77,8 +77,9 @@ const doorRows = () => tree.root.findAllByType("pressable" as never)
   .filter((node) => node.props.accessibilityRole === "button" && node.props.accessibilityState?.selected !== undefined);
 const sheets = () => tree.root.findAllByType("modal" as never);
 const openFirstDoor = () => act(() => doorRows()[0].props.onPress(event));
+// Visible text only: unit labels carry zero-width breaks (see breakableUnitLabel) that readers never see.
 const text = (node: ReactTestInstance = tree.root) => node.findAllByType("text" as never)
-  .flatMap((node) => node.children.filter((child) => typeof child === "string")).join(" ");
+  .flatMap((node) => node.children.filter((child) => typeof child === "string")).join(" ").replace(/​/g, "");
 const deferred = () => {
   let resolve!: () => void;
   let reject!: (error: Error) => void;

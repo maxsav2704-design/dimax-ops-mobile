@@ -15,7 +15,7 @@ import type { DoorActionState } from "@/modules/projects/door-action-state";
 import type { LocalProjectWorkspace } from "@/modules/projects/local-workspace";
 import type { DoorTypeOption, InstallerDoor, ProjectIssue } from "@/modules/projects/types";
 import { FilterChip } from "@/modules/projects/ui/filter-chip";
-import { doorStatusColors, doorStatusIcon, doorStatusTone, formatIssueCount } from "@/modules/projects/ui/door-presentation";
+import { breakableUnitLabel, doorStatusColors, doorStatusIcon, doorStatusTone, formatIssueCount } from "@/modules/projects/ui/door-presentation";
 import type { PendingSyncEvent } from "@/modules/sync/types";
 
 type Locale = "en" | "ru" | "he";
@@ -90,7 +90,7 @@ export function DoorDetailCard({
           <View style={styles.doorImageTitleRow}>
             <View style={styles.doorHeroBody}>
               <Text style={styles.doorNumber}>
-                {door.unit_label}
+                {breakableUnitLabel(door.unit_label)}
               </Text>
               <Text style={styles.doorType}>
                 {doorType?.name || doorType?.code || door.door_type_id}

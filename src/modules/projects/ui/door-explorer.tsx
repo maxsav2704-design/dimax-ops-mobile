@@ -9,7 +9,7 @@ import { Pulse, Reveal } from "@/components/motion";
 import { TickBar } from "@/components/tick-bar";
 import { translateEnum } from "@/lib/i18n";
 import { installerTheme, toneColors, type InstallerTone } from "@/lib/theme";
-import { buildDoorPositionLabel, doorStatusColors, doorStatusIcon, formatIssueCount } from "@/modules/projects/ui/door-presentation";
+import { breakableUnitLabel, buildDoorPositionLabel, doorStatusColors, doorStatusIcon, formatIssueCount } from "@/modules/projects/ui/door-presentation";
 import type { DoorTypeOption, InstallerDoor } from "@/modules/projects/types";
 
 type Locale = "en" | "ru" | "he";
@@ -227,7 +227,7 @@ function DoorExplorerRow({
         <View style={[styles.doorThumbStatus, { backgroundColor: colors.text }]} />
       </View>
       <View style={styles.doorExplorerBody}>
-        <Text style={styles.doorExplorerNumber}>{door.unit_label}</Text>
+        <Text style={styles.doorExplorerNumber}>{breakableUnitLabel(door.unit_label)}</Text>
         <Text style={styles.doorExplorerType}>{typeLabel}</Text>
         <View style={styles.doorExplorerMetaRow}>
           <Ionicons

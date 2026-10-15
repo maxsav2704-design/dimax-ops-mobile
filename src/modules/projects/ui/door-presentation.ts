@@ -53,3 +53,12 @@ export function doorStatusTone(door: InstallerDoor, hasIssue: boolean): Installe
 export function doorStatusColors(door: InstallerDoor, hasIssue: boolean) {
   return toneColors(doorStatusTone(door, hasIssue));
 }
+
+// Unit labels such as "B-2-201-dira-EN-201" have no spaces, so narrow screens broke them
+// mid-token ("B-2-201-dira-E / N-201"). A zero-width space after each hyphen or slash lets the
+// text wrap at token boundaries instead. Use for display only; keep raw labels for accessibility.
+const TOKEN_BREAK = "\u200B";
+
+export function breakableUnitLabel(label: string): string {
+  return label.replace(/([-/])(?=[^\s\u200B])/g, `$1${TOKEN_BREAK}`);
+}
