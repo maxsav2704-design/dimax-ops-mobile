@@ -79,7 +79,7 @@ const sheets = () => tree.root.findAllByType("modal" as never);
 const openFirstDoor = () => act(() => doorRows()[0].props.onPress(event));
 // Visible text only: unit labels carry zero-width breaks (see breakableUnitLabel) that readers never see.
 const text = (node: ReactTestInstance = tree.root) => node.findAllByType("text" as never)
-  .flatMap((node) => node.children.filter((child) => typeof child === "string")).join(" ").replace(/​/g, "");
+  .flatMap((node) => node.children.filter((child) => typeof child === "string")).join(" ").replace(/\u200B/g, "");
 const deferred = () => {
   let resolve!: () => void;
   let reject!: (error: Error) => void;
@@ -129,6 +129,18 @@ describe("project execution screen", () => {
     } };
   }
   const priceText = (id: string) => text(tree.root.findByProps({ testID: id }));
+
+  it("shows a loading skeleton instead of 'no matching doors' until the local workspace answers", async () => {
+    const pending = deferred();
+    mocks.load.mockImplementation(async () => { await pending.promise; return workspace; });
+    await mount();
+    expect(tree.root.findAllByProps({ testID: "project-doors-loading" }).length).toBeGreaterThan(0);
+    expect(text()).not.toContain("No matching doors");
+    expect(doorRows()).toHaveLength(0);
+    await act(async () => { pending.resolve(); await pending.promise; });
+    expect(tree.root.findAllByProps({ testID: "project-doors-loading" })).toHaveLength(0);
+    expect(doorRows()).toHaveLength(1);
+  });
 
   it("shows read-only confirmed rates and estimates without passing money into work commands", async () => {
     confirmedPrices();

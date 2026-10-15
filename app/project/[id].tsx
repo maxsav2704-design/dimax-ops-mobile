@@ -846,6 +846,7 @@ export default function ProjectDetailsScreen() {
             locale={locale}
             filteredCount={filteredDoors.length}
             totalCount={doors.length}
+            loading={localWorkspace === null}
             groupedDoors={groupedDoors}
             displayedFloorGroups={displayedFloorGroups}
             focusedFloor={focusedFloor}

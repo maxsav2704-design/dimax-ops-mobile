@@ -6,6 +6,7 @@ import { DirectionalChevron } from "@/components/directional-chevron";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { ActionButton, AnimatedNumber, BrandText as Text, EmptyState, SectionCard, SectionHeader } from "@/components/mobile-ui";
 import { Pulse, Reveal } from "@/components/motion";
+import { SkeletonList } from "@/components/skeleton";
 import { TickBar } from "@/components/tick-bar";
 import { translateEnum } from "@/lib/i18n";
 import { installerTheme, toneColors, type InstallerTone } from "@/lib/theme";
@@ -18,9 +19,11 @@ type FloorGroup = [string, InstallerDoor[]];
 /** Floor navigator plus per-floor door lists; selection and filters stay in the screen. */
 export function DoorExplorer({
   lt, locale, filteredCount, totalCount, groupedDoors, displayedFloorGroups, focusedFloor, onFocusFloor,
-  selectedDoorId, celebrateDoorId, busy, issueDoorIds, doorTypes, onOpenDoor, onResetFilters,
+  selectedDoorId, celebrateDoorId, busy, issueDoorIds, doorTypes, onOpenDoor, onResetFilters, loading = false,
 }: {
   lt: (en: string, ru: string, he: string) => string;
+  // True until the local workspace has answered once; shows a skeleton instead of "no matching doors".
+  loading?: boolean;
   locale: Locale;
   filteredCount: number;
   totalCount: number;
@@ -144,6 +147,8 @@ export function DoorExplorer({
             })}
           </View>
         </View>
+      ) : loading ? (
+        <SkeletonList variant="rows" rows={3} label={lt("Loading doors", "Загрузка дверей", "טעינת דלתות")} testID="project-doors-loading" />
       ) : (
         <SectionCard>
           <EmptyState
