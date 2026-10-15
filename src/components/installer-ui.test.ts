@@ -15,7 +15,7 @@ vi.mock("expo-router", () => ({ Link: ({ children }: { children: React.ReactNode
 vi.mock("@/providers/AppProviders", () => ({ useI18n: () => ({ locale: mocks.locale, isRTL: mocks.locale === "he" }) }));
 vi.mock("@/components/sync-status-bar", () => ({ SyncStatusBar: () => null }));
 
-import { InstallerBottomNav, NAV_COMPACT_MAX_WIDTH } from "./installer-ui";
+import { InstallerBottomNav, NAV_COMPACT_MAX_WIDTH, NAV_SCROLL_FADE_HEIGHT } from "./installer-ui";
 
 let tree: ReactTestRenderer;
 afterEach(() => { act(() => tree?.unmount()); mocks.window.width = 393; });
@@ -57,6 +57,18 @@ describe("InstallerBottomNav", () => {
       expect(new Set(labels).size).toBe(5);
       act(() => tree.unmount());
     }
+  });
+
+  it("draws a touch-transparent fade over the scroll edge above the bar", () => {
+    mocks.locale = "ru";
+    act(() => { tree = create(React.createElement(InstallerBottomNav)); });
+    const fade = tree.root.findByProps({ testID: "nav-scroll-fade" });
+    expect(fade.props.pointerEvents).toBe("none");
+    const style = Array.isArray(fade.props.style) ? Object.assign({}, ...fade.props.style) : fade.props.style;
+    expect(style.position).toBe("absolute");
+    expect(style.top).toBe(-NAV_SCROLL_FADE_HEIGHT);
+    expect(style.height).toBe(NAV_SCROLL_FADE_HEIGHT);
+    expect(fade.props.colors[0]).toMatch(/^rgba\(.*,0\)$/);
   });
 
   it("names the plan tab distinctly from the work journal in Hebrew", () => {

@@ -16,6 +16,10 @@ type IconName = React.ComponentProps<typeof Ionicons>["name"];
 // Such screens show a compact label; the full label stays in the accessibility name.
 export const NAV_COMPACT_MAX_WIDTH = 360;
 
+// Soft fade over the last rows of any screen's scroll view so content cut at the
+// navigation edge reads as "more below" instead of a hard crop. Touches pass through.
+export const NAV_SCROLL_FADE_HEIGHT = 28;
+
 export function InstallerBottomNav() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
@@ -72,6 +76,12 @@ export function InstallerBottomNav() {
 
   return (
     <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+      <LinearGradient
+        pointerEvents="none"
+        testID="nav-scroll-fade"
+        colors={["rgba(8,14,21,0)", installerTheme.background]}
+        style={styles.scrollFade}
+      />
       <SyncStatusBar />
       <View style={styles.shell}>
         <View pointerEvents="none" style={styles.shellEdge} />
@@ -170,6 +180,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 28,
     backgroundColor: "transparent",
+  },
+  scrollFade: {
+    position: "absolute",
+    top: -NAV_SCROLL_FADE_HEIGHT,
+    left: 0,
+    right: 0,
+    height: NAV_SCROLL_FADE_HEIGHT,
   },
   shell: {
     flexDirection: "row",
