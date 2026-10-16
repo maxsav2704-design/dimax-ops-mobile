@@ -18,6 +18,8 @@ react {
     // works correctly with Expo projects.
     cliFile = new File(["node", "--print", "require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })"].execute(null, rootDir).text.trim())
     bundleCommand = "export:embed"
+    debuggableVariants = ["debug"]
+    extraPackagerArgs = ["--max-workers", "1"]
 
     /* Folders */
      //   The root of your project, i.e. where "package.json" lives. Default is '../..'
@@ -92,9 +94,15 @@ def releaseSigningConfigured = releaseSigning.values().every {
 def releaseTaskRequested = gradle.startParameter.taskNames.any {
     it.toLowerCase().contains('release')
 }
-def releaseApiBaseUrl = System.getenv('EXPO_PUBLIC_API_BASE_URL')?.trim()
+def validateBundledInputs = { variant ->
+    exec {
+        commandLine 'node', new File(projectRoot, 'scripts/android-build-environment.mjs'), variant
+    }
+}
 
-if (releaseTaskRequested) {
+def validateReleaseBuild = {
+    validateBundledInputs('release')
+    def releaseApiBaseUrl = System.getenv('EXPO_PUBLIC_API_BASE_URL')?.trim()
     if (!releaseApiBaseUrl) {
         throw new GradleException(
             'EXPO_PUBLIC_API_BASE_URL is required for Android release builds.'
@@ -127,16 +135,32 @@ if (releaseTaskRequested) {
             'EXPO_PUBLIC_API_BASE_URL contains credentials, query/fragment, or a placeholder value.'
         )
     }
+    if (!releaseSigningConfigured) {
+        throw new GradleException(
+            'Android release signing is not configured. Set DIMAX_ANDROID_KEYSTORE_FILE, ' +
+            'DIMAX_ANDROID_KEYSTORE_PASSWORD, DIMAX_ANDROID_KEY_ALIAS, and DIMAX_ANDROID_KEY_PASSWORD.'
+        )
+    }
+    if (!file(releaseSigning.storeFile).isFile()) {
+        throw new GradleException('DIMAX_ANDROID_KEYSTORE_FILE does not point to a readable keystore file.')
+    }
+}
+if (releaseTaskRequested) validateReleaseBuild()
+
+// Public bundle inputs must invalidate Gradle's up-to-date check when changed.
+tasks.configureEach { task ->
+    if (task.name in ['createBundleReleaseJsAndAssets', 'createBundleAcceptanceJsAndAssets']) {
+        ['EXPO_PUBLIC_API_BASE_URL', 'EXPO_PUBLIC_BUILD_PROFILE', 'NODE_ENV', 'EXPO_NO_DOTENV'].each { key ->
+            task.inputs.property(key, System.getenv(key) ?: '')
+        }
+    }
 }
 
-if (releaseTaskRequested && !releaseSigningConfigured) {
-    throw new GradleException(
-        'Android release signing is not configured. Set DIMAX_ANDROID_KEYSTORE_FILE, ' +
-        'DIMAX_ANDROID_KEYSTORE_PASSWORD, DIMAX_ANDROID_KEY_ALIAS, and DIMAX_ANDROID_KEY_PASSWORD.'
-    )
-}
-if (releaseTaskRequested && !file(releaseSigning.storeFile).isFile()) {
-    throw new GradleException('DIMAX_ANDROID_KEYSTORE_FILE does not point to a readable keystore file.')
+// Aggregate tasks (for example assemble) must not bypass the release guards.
+gradle.taskGraph.whenReady { graph ->
+    def appTasks = graph.allTasks.findAll { it.project == project }*.name
+    if (!releaseTaskRequested && appTasks.any { it.contains('Release') }) validateReleaseBuild()
+    if (appTasks.any { it.contains('Acceptance') }) validateBundledInputs('acceptance')
 }
 
 android {
@@ -152,6 +176,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "0.1.0"
+        manifestPlaceholders = [dimaxScheme: 'dimax-installer']
     }
     signingConfigs {
         debug {
@@ -179,6 +204,16 @@ android {
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
             crunchPngs (findProperty('android.enablePngCrunchInReleaseBuilds')?.toBoolean() ?: true)
+        }
+        acceptance {
+            initWith release
+            applicationIdSuffix '.acceptance'
+            versionNameSuffix '-acceptance'
+            signingConfig signingConfigs.debug
+            debuggable false
+            matchingFallbacks = ['release']
+            manifestPlaceholders = [dimaxScheme: 'dimax-installer-acceptance']
+            ndk { abiFilters 'arm64-v8a' }
         }
     }
     packagingOptions {

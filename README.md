@@ -226,10 +226,56 @@ created from `mobile/android` after the variables are present:
 
 ```powershell
 $env:NODE_ENV = 'production'
+$env:EXPO_NO_DOTENV = '1'
+$env:EXPO_PUBLIC_BUILD_PROFILE = 'production'
 $env:EXPO_PUBLIC_API_BASE_URL = 'https://api.your-domain.com'
 npm.cmd run production-config-check
 .\gradlew.bat --no-daemon bundleRelease
 ```
+
+Both bundled variants reject embedded E2E identities/passwords and automatic
+test login. Remove these variables from the build process, not just local files.
+Gradle also validates aggregate tasks so `assemble` cannot bypass release guards.
+
+## Standalone USB acceptance APK
+
+This is a non-production, ARM64-only build for the isolated API on port 8001.
+It bundles production JavaScript/Hermes and runs without Metro, but uses the
+local debug signing key. Never distribute it as the production application.
+Production still requires its own keystore and a real HTTPS API.
+
+The package `com.dimax.operations.installer.acceptance`, label `DIMAX Test`, and
+scheme `dimax-installer-acceptance` are separate from the existing installer app.
+Installing it does not replace that app or share its tokens, SQLite or outbox.
+Its network policy permits HTTP only to `127.0.0.1`; the build and runtime require
+exactly `http://127.0.0.1:8001`. Do not point it at the ordinary database on 8000.
+
+Use the project's Node 20, JDK 17 and Android SDK. From `mobile`:
+
+```powershell
+$env:NODE_ENV = 'production'
+$env:EXPO_NO_DOTENV = '1'
+$env:EXPO_PUBLIC_BUILD_PROFILE = 'acceptance'
+$env:EXPO_PUBLIC_API_BASE_URL = 'http://127.0.0.1:8001'
+'EXPO_PUBLIC_E2E_AUTO_LOGIN','EXPO_PUBLIC_E2E_COMPANY_ID','EXPO_PUBLIC_E2E_EMAIL','EXPO_PUBLIC_E2E_PASSWORD' |
+  ForEach-Object { Remove-Item -LiteralPath "Env:$_" -ErrorAction SilentlyContinue }
+npm.cmd run test:android-build-contract
+Set-Location android
+.\gradlew.bat :app:assembleAcceptance --no-daemon --max-workers=1 '-PreactNativeArchitectures=arm64-v8a'
+```
+
+The APK is `android/app/build/outputs/apk/acceptance/app-acceptance.apk`.
+Use `--offline` only after both release React Native and Hermes dependencies
+are cached. Check the package, non-debuggable manifest, embedded bundle and APK
+signature before installing. Do not commit APKs, build output or signing files.
+Start the isolated backend, add `adb reverse tcp:8001 tcp:8001`, then sign in
+normally with a synthetic installer. Never write tokens into the app's storage.
+
+Acceptance must include a cold launch with no Metro listener, authenticated
+sync/earnings against that backend, and a second cold launch after removing
+the API reverse mapping. Merely reaching the login screen is not proof of the
+complete offline workflow. Preserve queues and restore the prior device/server
+state when finished. Test contracts with `npm.cmd run test:android-build-contract`.
 
 5. Run first device/emulator smoke with real navigation
 6. Add deeper SQLite migrations if local schema expands beyond sync queue
@@ -247,9 +293,14 @@ Development example:
 EXPO_PUBLIC_API_BASE_URL=http://localhost:8000
 ```
 
-Production values belong in `.env.production.local`; start from
-`.env.production.example` and validate before building:
+Production values can be prepared in the ignored `.env.production.local`; start
+from `.env.production.example` and validate before building:
 
 ```powershell
 npm.cmd run production-config-check -- --env-file .env.production.local
 ```
+
+That command validates the file; it does not export it into Gradle's environment.
+Supply the reviewed values through the build process or trusted CI environment.
+Bundled builds require `EXPO_NO_DOTENV=1` so Expo cannot silently load another
+local environment file. Keystore secrets must not use `EXPO_PUBLIC_*` names.

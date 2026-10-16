@@ -24,7 +24,8 @@
     "audit:high": "npm audit --audit-level=high",
     "test:coverage-contract": "node scripts/validate-test-discovery.mjs",
     "test:e2e-launcher": "node --test scripts/e2e-launcher.test.mjs",
-    "quality-gate": "npm run security:verify-image-size && npm run security:verify-fast-uri && npm run test:coverage-contract && npm run test && npm run production-config-contract && npm run config-check && npm run typecheck"
+    "test:android-build-contract": "node --test scripts/android-build-environment.test.mjs",
+    "quality-gate": "npm run security:verify-image-size && npm run security:verify-fast-uri && npm run test:coverage-contract && npm run test:android-build-contract && npm run test && npm run production-config-contract && npm run config-check && npm run typecheck"
   },
   "dependencies": {
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",

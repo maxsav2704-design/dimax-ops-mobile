@@ -2,7 +2,13 @@ const DEFAULT_DEV_API_BASE_URL = "http://127.0.0.1:8000";
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"]);
 const PLACEHOLDER_PATTERN = /example\.com|replace|placeholder|changeme|change-me|todo/i;
 
-export function resolveApiBaseUrl(value: string | undefined, isDev: boolean): string {
+export function resolveApiBaseUrl(value: string | undefined, isDev: boolean, profile?: string): string {
+  if (profile === "acceptance") {
+    // This profile is bound by Gradle to the separate, non-production package.
+    if (value !== "http://127.0.0.1:8001") throw new Error("Acceptance requires the isolated USB API");
+    return value;
+  }
+  if (profile && profile !== "production") throw new Error("Unknown mobile build profile");
   const candidate = value?.trim();
   if (!candidate) {
     if (isDev) return DEFAULT_DEV_API_BASE_URL;

@@ -149,8 +149,9 @@ function validateAndroidManifest(projectRoot = process.cwd()) {
   if (!/android:allowBackup="false"/u.test(main)) {
     errors.push("Android release manifest must disable backup for the offline work database");
   }
-  const schemeMatches = main.match(/android:scheme="dimax-installer"/gu) || [];
-  if (schemeMatches.length !== 1) {
+  const schemeMatches = main.match(/android:scheme="\$\{dimaxScheme\}"/gu) || [];
+  const gradle = fs.readFileSync(path.join(projectRoot, "android", "app", "build.gradle"), "utf8");
+  if (schemeMatches.length !== 1 || !gradle.includes("manifestPlaceholders = [dimaxScheme: 'dimax-installer']")) {
     errors.push("Android release manifest must declare the DIMAX deep-link scheme exactly once");
   }
 
@@ -228,6 +229,8 @@ function runSelfTest() {
       path.join(process.cwd(), "android", "app", "src", "debug", "AndroidManifest.xml"),
       path.join(sandboxDebug, "AndroidManifest.xml"),
     );
+    fs.copyFileSync(path.join(process.cwd(), "android", "app", "build.gradle"),
+      path.join(sandbox, "android", "app", "build.gradle"));
     const strippedErrors = validateAndroidManifest(sandbox);
     if (!strippedErrors.some((error) => error.includes("keep inherited VIBRATE"))) {
       throw new Error("Android manifest self-test failed: stripping VIBRATE must be rejected");
@@ -257,6 +260,8 @@ function main() {
   }
 
   const errors = [
+    ...(values.EXPO_PUBLIC_BUILD_PROFILE && values.EXPO_PUBLIC_BUILD_PROFILE !== "production"
+      ? ["Production config cannot use a test build profile"] : []),
     ...validateApiBaseUrl(values.EXPO_PUBLIC_API_BASE_URL),
     ...validateAndroidNetworkSecurity(),
     ...validateAndroidManifest(),

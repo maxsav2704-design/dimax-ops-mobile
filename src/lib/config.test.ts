@@ -22,6 +22,7 @@ describe("mobile automatic test login", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.stubGlobal("__DEV__", true);
+    vi.stubEnv("EXPO_PUBLIC_BUILD_PROFILE", undefined);
     for (const key of Object.keys(e2eEnvironment)) {
       vi.stubEnv(key, undefined);
     }
@@ -81,5 +82,14 @@ describe("mobile automatic test login", () => {
     vi.stubGlobal("__DEV__", false);
     vi.stubEnv("EXPO_PUBLIC_API_BASE_URL", "https://api.dimax.co.il");
     expect((await readConfig()).DEV_AUTO_LOGIN.enabled).toBe(false);
+  });
+
+  it("never enables automatic login in a bundled acceptance build", async () => {
+    configureE2E();
+    vi.stubGlobal("__DEV__", false);
+    vi.stubEnv("EXPO_PUBLIC_BUILD_PROFILE", "acceptance");
+    const config = await readConfig();
+    expect(config.API_BASE_URL).toBe("http://127.0.0.1:8001");
+    expect(config.DEV_AUTO_LOGIN.enabled).toBe(false);
   });
 });
