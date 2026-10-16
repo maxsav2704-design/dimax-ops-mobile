@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { validateBundledInputs } from "./android-build-environment.mjs";
@@ -87,5 +88,17 @@ test("Expo metadata matches the isolated native package and keeps production unc
   } finally {
     if (previous === undefined) delete process.env.EXPO_PUBLIC_BUILD_PROFILE;
     else process.env.EXPO_PUBLIC_BUILD_PROFILE = previous;
+  }
+});
+
+test("Metro excludes generated output without hiding app sources or brand assets", () => {
+  const require = createRequire(import.meta.url);
+  const config = require("../metro.config.js");
+  const excluded = (relative) => config.resolver.blockList.some((pattern) => pattern.test(path.resolve(config.projectRoot, relative)));
+  for (const file of [".tmp/private.json", "artifacts/device.json", "android/.gradle/cache", "android/build/generated/code.js", "android/app/build/assets/index.android.bundle", "android/app/.cxx/cache"]) {
+    assert.ok(excluded(file), file);
+  }
+  for (const file of ["app/projects.tsx", "src/lib/config.ts", "assets/brand/icon.png", "node_modules/react/index.js", "android/app/src/main/res/values/strings.xml"]) {
+    assert.equal(excluded(file), false, file);
   }
 });
