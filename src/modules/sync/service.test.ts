@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError, NetworkError } from "@/lib/errors";
 
 const {
   apiFetchMock,
@@ -18,6 +19,7 @@ const {
 
 vi.mock("@/lib/api", () => ({
   apiFetch: apiFetchMock,
+  getAuthSessionGeneration: () => 0,
 }));
 
 vi.mock("@/lib/device-id", () => ({
@@ -26,6 +28,8 @@ vi.mock("@/lib/device-id", () => ({
 
 vi.mock("@/lib/db", () => ({
   getDb: async () => dbRef.current,
+  getDatabaseContext: () => dbRef.current,
+  withDatabaseContext: async (_context: unknown, operation: () => Promise<unknown>) => operation(),
   getState: getStateMock,
   initDb: initDbMock,
   setState: setStateMock,
@@ -40,12 +44,15 @@ import {
   bootstrapOnlineData,
   dropPendingEvent,
   forceColdResync,
+  getSyncQueueSummary,
   queueAddonFactEvent,
   queueDoorStatusEvent,
   queueIssueCreateEvent,
   retryPendingEventNow,
   runSync,
 } from "@/modules/sync/service";
+import { MAX_AUTO_RETRY_ATTEMPTS } from "@/modules/sync/policy";
+import { commandPayload } from "./command-payload";
 
 function makeDb() {
   return {
@@ -60,7 +67,7 @@ describe("mobile sync service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dbRef.current = makeDb();
-    getStateMock.mockResolvedValue("0");
+    getStateMock.mockImplementation(async (key: string) => key === "factory_prices_v1" ? null : "0");
     getOrCreateDeviceIdMock.mockResolvedValue("test-device-id");
     initDbMock.mockResolvedValue(undefined);
     setStateMock.mockResolvedValue(undefined);
@@ -71,6 +78,120 @@ describe("mobile sync service", () => {
       snapshot: null,
       acks: [],
       changes: [],
+    });
+  });
+
+  const prices = {
+    price_list_id: "00000000-0000-0000-0000-000000000001", version: 1, currency: "ILS",
+    effective_from: "2026-10-01T08:00:00Z", items: [],
+  };
+
+  it.each([false, true])("checks a blocked price decision without replaying work; resolved=%s", async (resolved) => {
+    const original = { client_event_id: "price-event-1", type: "ADDON_FACT_CREATE", project_id: "project-1",
+      happened_at: "2026-10-01T08:00:00Z", payload_json: JSON.stringify({ addon_type_id: "addon-1", qty_done: "1.50" }),
+      status: "BLOCKED", error: "CONFLICT_FACTORY_PRICE" };
+    dbRef.current.getAllAsync.mockImplementation(async (sql: string) => sql.includes("error = 'CONFLICT_FACTORY_PRICE'")
+      ? [{ client_event_id: original.client_event_id }] : []);
+    dbRef.current.getFirstAsync.mockResolvedValue(original);
+    apiFetchMock.mockResolvedValue({ server_time: "2026-10-04T08:00:00Z", next_cursor: 1, changes: [],
+      acks: resolved ? [{ client_event_id: original.client_event_id, ok: true, applied: false, error: null }] : [] });
+    await runSync();
+    const request = JSON.parse(apiFetchMock.mock.calls[0][1].body);
+    expect(request.events).toEqual([]);
+    expect(request.price_resolution_checks).toEqual([original.client_event_id]);
+    const commands = dbRef.current.runAsync.mock.calls;
+    expect(commands.some(([sql]: [string]) => sql.includes("DELETE FROM pending_events"))).toBe(resolved);
+    expect(commands.some(([sql]: [string]) => sql.includes("UPDATE pending_events"))).toBe(false);
+    expect(commands.some(([sql]: [string]) => sql.includes("SET payload_json"))).toBe(false);
+  });
+
+  it("retains a blocked price decision on network failure without retrying or dropping the work", async () => {
+    dbRef.current.getAllAsync.mockImplementation(async (sql: string) => sql.includes("error = 'CONFLICT_FACTORY_PRICE'")
+      ? [{ client_event_id: "price-event-1" }] : []);
+    apiFetchMock.mockRejectedValueOnce(new NetworkError("Offline"));
+    await expect(runSync()).rejects.toThrow();
+    expect(dbRef.current.runAsync).not.toHaveBeenCalled();
+    expect(setStateMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["DOOR", "ADDON"])("captures the cached version once for %s and never reprices a retry", async (kind) => {
+    getStateMock.mockImplementation(async (key: string) => key === "factory_prices_v1" ? JSON.stringify(prices) : "0");
+    if (kind === "DOOR") {
+      dbRef.current.getFirstAsync.mockResolvedValueOnce({
+        project_id: "project-1", status: "IN_PROGRESS", is_locked: 0, version: 3,
+      });
+      await queueDoorStatusEvent({ projectId: "project-1", doorId: "door-1", status: "INSTALLED" });
+    } else {
+      dbRef.current.getFirstAsync.mockResolvedValueOnce({ total: 1 }).mockResolvedValueOnce({ total: 1 });
+      await queueAddonFactEvent({ projectId: "project-1", addonTypeId: "addon-1", qtyDone: "1,50" });
+    }
+    const insert = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("INSERT INTO pending_events"));
+    const [id, project, at, json] = insert![1];
+    const payload = JSON.parse(json);
+    expect(payload.price_list_id).toBe(prices.price_list_id);
+    expect(payload).not.toHaveProperty("rate");
+    expect(payload).not.toHaveProperty("amount");
+    const type = kind === "DOOR" ? "DOOR_SET_STATUS" : "ADDON_FACT_CREATE";
+    dbRef.current.getAllAsync.mockResolvedValue([{
+      client_event_id: id, project_id: project, happened_at: at, created_at: at, type,
+      payload_json: json, status: "PENDING", attempts: 0, error: null,
+    }]);
+    getStateMock.mockImplementation(async (key: string) => key === "factory_prices_v1"
+      ? JSON.stringify({ ...prices, version: 2, price_list_id: "00000000-0000-0000-0000-000000000002" }) : "0");
+    await runSync();
+    await runSync({ forceRetry: true });
+    const requests = apiFetchMock.mock.calls.map(([, request]) => JSON.parse(request.body).events);
+    expect(requests[1]).toEqual(requests[0]);
+    expect(requests[0][0]).toEqual({ client_event_id: id, project_id: project, happened_at: at, type,
+      payload: commandPayload({ type, payload }) });
+    expect(requests[0][0].payload.price_list_id).toBe(prices.price_list_id);
+    expect(dbRef.current.runAsync.mock.calls.some(([sql]: [string]) => sql.includes("SET payload_json"))).toBe(false);
+  });
+
+  it.each([undefined, null, prices])("handles missing, inactive and active price contracts: %j", async (factory_prices) => {
+    apiFetchMock.mockResolvedValue({ server_time: "2026-10-03T08:00:00Z", next_cursor: 2,
+      reset_required: false, snapshot: null, acks: [], changes: [], factory_prices });
+    await runSync();
+    if (factory_prices === undefined) {
+      expect(setStateMock.mock.calls.some(([key]) => key === "factory_prices_v1")).toBe(false);
+    } else {
+      expect(setStateMock).toHaveBeenCalledWith("factory_prices_v1", factory_prices === null ? null : JSON.stringify(prices));
+    }
+  });
+
+  it("rejects a malformed price response before consuming acknowledgements or the cursor", async () => {
+    apiFetchMock.mockResolvedValue({ server_time: "2026-10-03T08:00:00Z", next_cursor: 9,
+      reset_required: false, changes: [], factory_prices: { ...prices, version: -1 },
+      acks: [{ client_event_id: "event", ok: true, applied: true, error: null }] });
+    await expect(runSync()).rejects.toThrow("Invalid confirmed price snapshot");
+    expect(dbRef.current.runAsync).not.toHaveBeenCalled();
+    expect(setStateMock).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, "project-1"])("excludes exhausted attempts from next retry for %s", async (projectId) => {
+    const counts = { total: 1, pending: 0, failed: 1, blocked: 0, ready_to_send: 0 };
+    dbRef.current.getFirstAsync.mockResolvedValueOnce(counts).mockResolvedValueOnce(null);
+
+    const summary = await getSyncQueueSummary(projectId);
+    const [sql, parameters] = dbRef.current.getFirstAsync.mock.calls[1];
+
+    expect(sql).toContain("status = 'FAILED'");
+    expect(sql).toContain("AND attempts < ?");
+    expect(sql).toContain("AND next_retry_at IS NOT NULL");
+    expect(sql).toContain("ORDER BY next_retry_at ASC");
+    expect(parameters).toEqual(projectId ? [projectId, MAX_AUTO_RETRY_ATTEMPTS] : [MAX_AUTO_RETRY_ATTEMPTS]);
+    if (projectId) expect(sql).toContain("WHERE project_id = ?");
+    else expect(sql).not.toContain("project_id = ?");
+    expect(summary).toEqual({ ...counts, next_retry_at: null });
+  });
+
+  it("preserves the next retry timestamp for eligible work", async () => {
+    const nextRetry = "2026-09-11T12:00:00.000Z";
+    dbRef.current.getFirstAsync
+      .mockResolvedValueOnce({ total: 1, failed: 1 })
+      .mockResolvedValueOnce({ next_retry_at: nextRetry });
+    expect(await getSyncQueueSummary()).toEqual({
+      total: 1, pending: 0, failed: 1, blocked: 0, ready_to_send: 0, next_retry_at: nextRetry,
     });
   });
 
@@ -210,7 +331,13 @@ describe("mobile sync service", () => {
     await forceColdResync();
 
     expect(setStateMock).toHaveBeenNthCalledWith(1, "sync_cursor", "0");
-    expect(dbRef.current.getAllAsync).not.toHaveBeenCalled();
+    expect(dbRef.current.getAllAsync).toHaveBeenCalledTimes(2);
+    expect(dbRef.current.getAllAsync).toHaveBeenCalledWith(
+      expect.stringContaining("error = 'CONFLICT_FACTORY_PRICE'"),
+    );
+    expect(dbRef.current.getAllAsync).toHaveBeenCalledWith(
+      expect.stringContaining("ORDER BY created_at DESC"),
+    );
     expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/sync", expect.objectContaining({
       method: "POST",
     }));
@@ -315,7 +442,7 @@ describe("mobile sync service", () => {
       is_locked: 0,
       attempts: 1,
     });
-    dbRef.current.getAllAsync.mockResolvedValueOnce([
+    dbRef.current.getAllAsync.mockResolvedValue([
       {
         client_event_id: "door-event-1",
         type: "DOOR_SET_STATUS",
@@ -446,7 +573,7 @@ describe("mobile sync service", () => {
   });
 
   it("does not reapply a pending door status after cold resync when the door is locked", async () => {
-    dbRef.current.getAllAsync.mockResolvedValueOnce([
+    dbRef.current.getAllAsync.mockResolvedValue([
       {
         client_event_id: "door-event-1",
         type: "DOOR_SET_STATUS",
@@ -589,7 +716,91 @@ describe("mobile sync service", () => {
     expect(failedCall?.[1]?.[0]).toBe("Sync response missed event acknowledgement");
   });
 
-  it("reverts optimistic door status when backend rejects the sync event", async () => {
+  it.each(["network", "server", "missing-ack"])(
+    "retries the identical event after %s response loss and accepts a duplicate acknowledgement",
+    async (failure) => {
+      const event = {
+        client_event_id: "persisted-installation", type: "DOOR_SET_STATUS", project_id: "project-1",
+        happened_at: "2026-09-11T10:00:00Z", created_at: "2026-09-11T10:00:00Z",
+        payload_json: JSON.stringify({
+          door_id: "door-1", status: "INSTALLED", previous_status: "IN_PROGRESS", previous_version: 0,
+        }),
+        status: "PENDING", error: null, attempts: 0, next_retry_at: null, last_attempt_at: null,
+      };
+      const original = structuredClone(event);
+      getStateMock.mockResolvedValue("7");
+      dbRef.current.getAllAsync.mockResolvedValue([event]);
+      dbRef.current.getFirstAsync.mockImplementation(async (sql: string) => (
+        sql.includes("SELECT attempts") ? { attempts: 1 } : event
+      ));
+      if (failure === "network") {
+        apiFetchMock.mockRejectedValueOnce(new NetworkError("Response connection lost"));
+      } else if (failure === "server") {
+        apiFetchMock.mockRejectedValueOnce(new ApiError("Gateway unavailable", 503, ""));
+      }
+
+      if (failure === "missing-ack") {
+        await runSync();
+      } else {
+        await expect(runSync()).rejects.toThrow();
+        expect(setStateMock).not.toHaveBeenCalled();
+      }
+      expect(event).toEqual(original);
+      expect(dbRef.current.runAsync.mock.calls.some(([sql]: [string]) => sql.includes("SET status = 'FAILED'"))).toBe(true);
+      expect(dbRef.current.runAsync.mock.calls.some(([sql]: [string]) => sql.includes("DELETE FROM pending_events"))).toBe(false);
+      expect(dbRef.current.runAsync.mock.calls.some(([sql]: [string]) => sql.includes("UPDATE doors"))).toBe(false);
+      const firstRequest = JSON.parse(apiFetchMock.mock.calls[0][1].body);
+
+      apiFetchMock.mockResolvedValueOnce({
+        server_time: "2026-09-11T10:01:00Z", next_cursor: 8, reset_required: false,
+        snapshot: null, changes: [],
+        acks: [{ client_event_id: event.client_event_id, ok: true, applied: false, error: null }],
+      });
+      await runSync({ forceRetry: true });
+
+      const retryRequest = JSON.parse(apiFetchMock.mock.calls[1][1].body);
+      expect(retryRequest.events).toEqual(firstRequest.events);
+      expect(retryRequest.events).toEqual([{
+        client_event_id: original.client_event_id, type: original.type, project_id: original.project_id,
+        happened_at: original.happened_at, payload: commandPayload({ type: "DOOR_SET_STATUS", payload: JSON.parse(original.payload_json) }),
+      }]);
+      expect(dbRef.current.runAsync.mock.calls.filter(([sql]: [string]) => sql.includes("DELETE FROM pending_events")))
+        .toEqual([["DELETE FROM pending_events WHERE client_event_id = ?", [event.client_event_id]]]);
+      expect(setStateMock).toHaveBeenCalledWith("sync_cursor", "8");
+      expect(setStateMock).toHaveBeenCalledWith("last_sync_at", "2026-09-11T10:01:00Z");
+    },
+  );
+
+  it.each([
+    { failure: new NetworkError("Offline"), attempts: 1, status: "FAILED", message: "Offline" },
+    { failure: new NetworkError("Offline"), attempts: MAX_AUTO_RETRY_ATTEMPTS, status: "BLOCKED", message: "Offline (auto retry limit reached)" },
+    { failure: new ApiError("Forbidden", 403, ""), attempts: 1, status: "BLOCKED", message: "Forbidden" },
+  ])("preserves the original $failure and records $status after deferred failure handling", async ({ failure, attempts, status, message }) => {
+    const event = {
+      client_event_id: "retained-work", type: "DOOR_SET_STATUS", project_id: "project-1",
+      happened_at: "2026-09-11T10:00:00Z", created_at: "2026-09-11T10:00:00Z",
+      payload_json: JSON.stringify({ door_id: "door-1", status: "INSTALLED" }),
+      status: "PENDING", error: null, attempts: attempts - 1, next_retry_at: null, last_attempt_at: null,
+    };
+    dbRef.current.getAllAsync.mockResolvedValue([event]);
+    dbRef.current.getFirstAsync.mockImplementation(async () => {
+      await Promise.resolve();
+      return { attempts };
+    });
+    apiFetchMock.mockRejectedValueOnce(failure);
+
+    await expect(runSync()).rejects.toBe(failure);
+
+    const updates = dbRef.current.runAsync.mock.calls;
+    const failureUpdate = updates.find(([sql]: [string]) => sql.includes(`SET status = '${status}'`));
+    expect(failureUpdate?.[1][0]).toBe(message);
+    expect(updates.some(([sql]: [string]) => sql.includes("DELETE FROM pending_events"))).toBe(false);
+    expect(updates.some(([sql]: [string]) => sql.includes("UPDATE doors"))).toBe(false);
+    expect(setStateMock).not.toHaveBeenCalled();
+  });
+
+  it.each(["CONFLICT_ASSIGNMENT_CHANGED", "CONFLICT_INVALID_TRANSITION", "CONFLICT_FACTORY_PRICE"])(
+    "retains the queued payload when backend rejects the door event with %s", async (errorCode) => {
     dbRef.current.getAllAsync.mockResolvedValueOnce([
       {
         client_event_id: "event-1",
@@ -634,7 +845,7 @@ describe("mobile sync service", () => {
           client_event_id: "event-1",
           ok: false,
           applied: false,
-          error: "CONFLICT_ASSIGNMENT_CHANGED",
+          error: errorCode,
         },
       ],
       changes: [],
@@ -658,7 +869,8 @@ describe("mobile sync service", () => {
     const blockedCall = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) =>
       sql.includes("SET status = 'BLOCKED'")
     );
-    expect(blockedCall?.[1]).toEqual(["CONFLICT_ASSIGNMENT_CHANGED", "event-1"]);
+    expect(blockedCall?.[1]).toEqual([errorCode, "event-1"]);
+    expect(dbRef.current.runAsync.mock.calls.some(([sql]: [string]) => sql.includes("DELETE FROM pending_events"))).toBe(false);
   });
 
   it("applies door sync changes with reason and lock metadata", async () => {
@@ -712,6 +924,28 @@ describe("mobile sync service", () => {
     ]);
   });
 
+  it.each(["OPEN", "CLOSED"])("applies incremental %s issues without dropping queued work", async (status) => {
+    apiFetchMock.mockResolvedValue({
+      server_time: "2026-10-01T19:00:00Z", next_cursor: 10,
+      reset_required: false, snapshot: null, acks: [], changes: [{
+        cursor_id: 10, change_type: "ISSUE", payload: {
+          id: "issue-1", door_id: "door-1", project_id: "project-1",
+          status, title: "Access", details: "Office update",
+        },
+      }],
+    });
+    await runSync();
+    const write = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("INSERT INTO issues"));
+    expect(write?.[1]).toEqual(["issue-1", "door-1", "project-1", status, "Access", "Office update"]);
+    expect(write?.[0]).toContain("ON CONFLICT(id) DO UPDATE SET");
+    const cleanup = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("id LIKE 'local:%'"));
+    expect(cleanup?.[0]).toContain("NOT EXISTS");
+    expect(cleanup?.[0]).toContain("'local:' || client_event_id = issues.id");
+    expect(cleanup?.[1]).toEqual(["door-1"]);
+    expect(dbRef.current.runAsync).not.toHaveBeenCalledWith("DELETE FROM pending_events");
+    expect(dbRef.current.runAsync).not.toHaveBeenCalledWith("DELETE FROM issues");
+  });
+
   it("removes a project shell when assignment removal leaves no local doors", async () => {
     dbRef.current.getFirstAsync.mockResolvedValueOnce({ total: 0 });
     apiFetchMock.mockResolvedValue({
@@ -749,6 +983,7 @@ describe("mobile sync service", () => {
 
   it("blocks queued project events when assignment removal removes the project", async () => {
     dbRef.current.getAllAsync
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
@@ -799,6 +1034,7 @@ describe("mobile sync service", () => {
 
   it("blocks only affected door events when assignment removal keeps the project", async () => {
     dbRef.current.getAllAsync
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
@@ -1354,6 +1590,31 @@ describe("mobile sync service", () => {
       expect.stringContaining("SET status = 'BLOCKED'"),
       ["CONFLICT_ASSIGNMENT_CHANGED", "event-1"]
     );
+  });
+
+  it("removes only the acknowledged local issue and retains its server replacement", async () => {
+    const event = {
+      client_event_id: "event-issue", type: "ISSUE_CREATE", project_id: "project-1",
+      payload_json: JSON.stringify({ door_id: "door-1", title: "Access blocked" }),
+      status: "PENDING", attempts: 0,
+    };
+    dbRef.current.getAllAsync.mockResolvedValueOnce([event]);
+    dbRef.current.getFirstAsync.mockResolvedValueOnce(event);
+    apiFetchMock.mockResolvedValue({
+      server_time: "2026-10-01T19:00:00Z", next_cursor: 11,
+      reset_required: false, snapshot: null,
+      acks: [{ client_event_id: "event-issue", ok: true, applied: true, error: null }],
+      changes: [{ cursor_id: 11, change_type: "ISSUE", payload: {
+        id: "server-issue", door_id: "door-1", project_id: "project-1",
+        status: "OPEN", title: "Access blocked", details: null,
+      } }],
+    });
+    await runSync();
+    expect(dbRef.current.runAsync).toHaveBeenCalledWith("DELETE FROM issues WHERE id = ?", ["local:event-issue"]);
+    expect(dbRef.current.runAsync).toHaveBeenCalledWith("DELETE FROM pending_events WHERE client_event_id = ?", ["event-issue"]);
+    expect(dbRef.current.runAsync).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO issues"),
+      ["server-issue", "door-1", "project-1", "OPEN", "Access blocked", null]);
+    expect(dbRef.current.runAsync).not.toHaveBeenCalledWith("DELETE FROM pending_events");
   });
 
   it("removes the optimistic add-on fact when backend acknowledges the event", async () => {

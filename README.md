@@ -43,6 +43,36 @@ Implemented in this step:
 
 ## Important contract assumption
 
+### Confirmed Installer Prices
+
+Sync may include `factory_prices`: a receipt-validated active company version
+with read-only installer rates, or `null` while factory pricing is inactive.
+It is separate from project addon plans; those plans remain price-free locally.
+`src/modules/prices` validates and stores this snapshot in the account-owned
+SQLite `sync_state`. A missing field from an older server does not clear it.
+
+New completed-work commands capture only `price_list_id`, never an amount or an
+approval flag. Execution time and this reference survive retries/cold resync.
+Existing versionless outbox rows are not backfilled from the current cache.
+Server `CONFLICT_FACTORY_PRICE` keeps the work for administrator review rather
+than silently repricing it. The queue explains this in all three languages and
+disables retry/deletion for that conflict. Technical details retain the original
+execution time and seen price-list ID; legacy records are explicitly unversioned.
+
+Door and addon work cards show only this confirmed, saved rate. Addon totals are
+quantity previews, not earnings; decimal HALF_UP matches the server's quote rules.
+Completed doors link to project earnings instead of using today's rate, and
+queued completions link to their work queue without repricing. Missing/damaged
+price caches never appear as zero rates. The project snapshot and price read use
+one account guard; a failed price read alone does not discard local door data.
+Price editing, authorized conflict resolution and physical-device rollout
+validation are not part of this installer-facing presentation.
+
+No SQLite schema bump is required for this additive JSON contract. Deployment
+does not activate factory prices; the activation route is not enabled yet.
+
+### Cold Snapshot
+
 Cold snapshot must include `projects` with:
 
 - `id`
@@ -118,10 +148,46 @@ Preflight Android toolchain first:
 
 For the local installer E2E session on an attached Android device:
 
+Keep the device on the same API and company as the admin under verification.
+The acceptance admin on port 4173 uses API port 8001; the normal workspace API
+on port 8000 is a different database. Installer visibility remains assignment-based,
+not a copy of the administrator's access. A local `.env.local` may pin
+`EXPO_PUBLIC_API_BASE_URL` and disable `EXPO_PUBLIC_E2E_AUTO_LOGIN`. Local environment
+files are ignored by Git; only example files belong in source control.
+Before changing environments, sign out on the device while preserving its outbox.
+Never erase SQLite or replay an old environment's events into the new server.
+Verify the built bundle URL and USB reverse port, then sign in to the matching
+company and compare assigned project/door IDs with the admin. After a temporary
+automated test login, restart Metro with the test credentials removed and automatic
+login disabled. An old offline cache is not evidence of a successful connection.
+
+Manual login is the default, including development builds. Automated test login
+requires explicit opt-in and a complete set of synthetic credentials. Configure
+these environment variables in the launching shell before using the E2E launcher:
+
+- `EXPO_PUBLIC_API_BASE_URL`: the isolated test API, for example
+  `http://127.0.0.1:8001` for the workspace acceptance stack;
+- `EXPO_PUBLIC_E2E_COMPANY_ID`: the synthetic company UUID;
+- `EXPO_PUBLIC_E2E_EMAIL`: the synthetic installer account;
+- `EXPO_PUBLIC_E2E_PASSWORD`: its test-only password.
+
+The launcher enables `EXPO_PUBLIC_E2E_AUTO_LOGIN=1` for that session. When starting
+Metro directly, set this flag explicitly only for an automated test session.
+These `EXPO_PUBLIC_*` values are embedded in the development bundle: never use
+real credentials, distribute a test-login bundle, or put them in release builds.
+The launcher accepts only loopback HTTP(S) targets routed through ADB reverse;
+it no longer selects the ordinary API or a seeded company automatically.
+
 ```powershell
 cd mobile
+.\start-expo-e2e.cmd -ValidateOnly
 .\start-expo-e2e.cmd
 ```
+
+`-ValidateOnly` checks configuration without starting Metro, changing ADB routing
+or contacting a device. It prints only API/Metro connection details, not account
+credentials. Test the launcher with `npm.cmd run test:e2e-launcher` (PowerShell
+required; use `pwsh` on non-Windows hosts).
 
 The E2E launcher uses one Metro worker by default so it remains reliable on
 low-memory development machines. Set `DIMAX_METRO_MAX_WORKERS` to a positive
@@ -160,10 +226,56 @@ created from `mobile/android` after the variables are present:
 
 ```powershell
 $env:NODE_ENV = 'production'
+$env:EXPO_NO_DOTENV = '1'
+$env:EXPO_PUBLIC_BUILD_PROFILE = 'production'
 $env:EXPO_PUBLIC_API_BASE_URL = 'https://api.your-domain.com'
 npm.cmd run production-config-check
 .\gradlew.bat --no-daemon bundleRelease
 ```
+
+Both bundled variants reject embedded E2E identities/passwords and automatic
+test login. Remove these variables from the build process, not just local files.
+Gradle also validates aggregate tasks so `assemble` cannot bypass release guards.
+
+## Standalone USB acceptance APK
+
+This is a non-production, ARM64-only build for the isolated API on port 8001.
+It bundles production JavaScript/Hermes and runs without Metro, but uses the
+local debug signing key. Never distribute it as the production application.
+Production still requires its own keystore and a real HTTPS API.
+
+The package `com.dimax.operations.installer.acceptance`, label `DIMAX Test`, and
+scheme `dimax-installer-acceptance` are separate from the existing installer app.
+Installing it does not replace that app or share its tokens, SQLite or outbox.
+Its network policy permits HTTP only to `127.0.0.1`; the build and runtime require
+exactly `http://127.0.0.1:8001`. Do not point it at the ordinary database on 8000.
+
+Use the project's Node 20, JDK 17 and Android SDK. From `mobile`:
+
+```powershell
+$env:NODE_ENV = 'production'
+$env:EXPO_NO_DOTENV = '1'
+$env:EXPO_PUBLIC_BUILD_PROFILE = 'acceptance'
+$env:EXPO_PUBLIC_API_BASE_URL = 'http://127.0.0.1:8001'
+'EXPO_PUBLIC_E2E_AUTO_LOGIN','EXPO_PUBLIC_E2E_COMPANY_ID','EXPO_PUBLIC_E2E_EMAIL','EXPO_PUBLIC_E2E_PASSWORD' |
+  ForEach-Object { Remove-Item -LiteralPath "Env:$_" -ErrorAction SilentlyContinue }
+npm.cmd run test:android-build-contract
+Set-Location android
+.\gradlew.bat :app:assembleAcceptance --no-daemon --max-workers=1 '-PreactNativeArchitectures=arm64-v8a'
+```
+
+The APK is `android/app/build/outputs/apk/acceptance/app-acceptance.apk`.
+Use `--offline` only after both release React Native and Hermes dependencies
+are cached. Check the package, non-debuggable manifest, embedded bundle and APK
+signature before installing. Do not commit APKs, build output or signing files.
+Start the isolated backend, add `adb reverse tcp:8001 tcp:8001`, then sign in
+normally with a synthetic installer. Never write tokens into the app's storage.
+
+Acceptance must include a cold launch with no Metro listener, authenticated
+sync/earnings against that backend, and a second cold launch after removing
+the API reverse mapping. Merely reaching the login screen is not proof of the
+complete offline workflow. Preserve queues and restore the prior device/server
+state when finished. Test contracts with `npm.cmd run test:android-build-contract`.
 
 5. Run first device/emulator smoke with real navigation
 6. Add deeper SQLite migrations if local schema expands beyond sync queue
@@ -181,9 +293,14 @@ Development example:
 EXPO_PUBLIC_API_BASE_URL=http://localhost:8000
 ```
 
-Production values belong in `.env.production.local`; start from
-`.env.production.example` and validate before building:
+Production values can be prepared in the ignored `.env.production.local`; start
+from `.env.production.example` and validate before building:
 
 ```powershell
 npm.cmd run production-config-check -- --env-file .env.production.local
 ```
+
+That command validates the file; it does not export it into Gradle's environment.
+Supply the reviewed values through the build process or trusted CI environment.
+Bundled builds require `EXPO_NO_DOTENV=1` so Expo cannot silently load another
+local environment file. Keystore secrets must not use `EXPO_PUBLIC_*` names.

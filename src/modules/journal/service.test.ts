@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { NetworkError } from "@/lib/errors";
+import { ApiError, NetworkError } from "@/lib/errors";
 import {
   loadInstallerJournal,
   loadInstallerJournals,
@@ -8,6 +8,7 @@ import {
   openJournalUrl,
   openSignedJournalPdf,
   prepareInstallerJournal,
+  refreshInstallerJournal,
 } from "@/modules/journal/service";
 import type { InstallerJournalDetails } from "@/modules/journal/types";
 
@@ -17,10 +18,20 @@ const getJournalSnapshotMock = vi.fn();
 const listJournalSnapshotsMock = vi.fn();
 const saveJournalSnapshotMock = vi.fn();
 const saveJournalSnapshotsMock = vi.fn();
+const removeJournalSnapshotMock = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+  getAuthSessionGeneration: () => 0,
 }));
+
+vi.mock("@/lib/db", () => {
+  const context = { ownerKey: "company:installer" };
+  return {
+    getDatabaseContext: () => context,
+    withDatabaseContext: async (_context: unknown, operation: () => Promise<unknown>) => operation(),
+  };
+});
 
 vi.mock("expo-linking", () => ({
   openURL: (...args: unknown[]) => openUrlMock(...args),
@@ -33,6 +44,7 @@ vi.mock("@/modules/journal/repository", () => ({
   saveJournalSnapshot: (...args: unknown[]) => saveJournalSnapshotMock(...args),
   saveJournalSnapshots: (...args: unknown[]) =>
     saveJournalSnapshotsMock(...args),
+  removeJournalSnapshot: (...args: unknown[]) => removeJournalSnapshotMock(...args),
 }));
 
 const journal: InstallerJournalDetails = {
@@ -62,8 +74,9 @@ describe("installer journal service", () => {
   beforeEach(() => {
     apiFetchMock.mockReset();
     openUrlMock.mockReset();
-    getJournalSnapshotMock.mockReset();
-    listJournalSnapshotsMock.mockReset();
+    getJournalSnapshotMock.mockReset().mockResolvedValue(null);
+    listJournalSnapshotsMock.mockReset().mockResolvedValue([]);
+    removeJournalSnapshotMock.mockReset().mockResolvedValue(undefined);
     saveJournalSnapshotMock.mockReset().mockResolvedValue(undefined);
     saveJournalSnapshotsMock.mockReset().mockResolvedValue(undefined);
   });
@@ -123,8 +136,19 @@ describe("installer journal service", () => {
     expect(response.signing_url).toContain("/acceptance/");
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/v1/installer/journals/journal-1/mark-ready",
-      { method: "POST" },
+      { method: "POST", expectedAuthGeneration: 0 },
     );
+  });
+
+  it.each(["en", "ru", "he"] as const)("prepares the PDF in %s without changing the workspace guard", async (locale) => {
+    const localized = { ...journal, pdf_locale: locale };
+    apiFetchMock.mockResolvedValue(localized);
+    await prepareInstallerJournal("project-1", locale);
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/v1/installer/journals/prepare",
+      { method: "POST", body: JSON.stringify({ project_id: "project-1", pdf_locale: locale }), expectedAuthGeneration: 0 },
+    );
+    expect(saveJournalSnapshotMock).toHaveBeenCalledWith(localized);
   });
 
   it("opens only HTTP(S) journal links", async () => {
@@ -147,10 +171,109 @@ describe("installer journal service", () => {
 
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/v1/installer/journals/journal-1/pdf-link",
-      { method: "POST" },
+      { method: "POST", expectedAuthGeneration: 0 },
     );
     expect(openUrlMock).toHaveBeenCalledWith(
       "https://api.dimax.test/api/v1/public/files/token",
     );
+  });
+
+  it.each([401, 403, 404])("does not reveal a cached act after HTTP %s", async (status) => {
+    const error = new ApiError("denied", status, "");
+    apiFetchMock.mockRejectedValue(error);
+    getJournalSnapshotMock.mockResolvedValue(journal);
+    await expect(loadInstallerJournal(journal.id)).rejects.toBe(error);
+    expect(getJournalSnapshotMock).not.toHaveBeenCalled();
+    expect(removeJournalSnapshotMock).toHaveBeenCalledTimes(status === 401 ? 0 : 1);
+  });
+
+  it("does not fall back to an authorized list after permission denial", async () => {
+    apiFetchMock.mockRejectedValue(new ApiError("forbidden", 403, ""));
+    listJournalSnapshotsMock.mockResolvedValue([journal]);
+    await expect(loadInstallerJournals()).rejects.toThrow("forbidden");
+    expect(listJournalSnapshotsMock).not.toHaveBeenCalled();
+    expect(saveJournalSnapshotsMock).toHaveBeenCalledWith([]);
+  });
+
+  it("does not store malformed nested rows or a different journal", async () => {
+    apiFetchMock.mockResolvedValueOnce({ ...journal, doors: [{}] }).mockResolvedValueOnce({ ...journal, id: "other" });
+    await expect(loadInstallerJournal(journal.id)).rejects.toThrow("contract");
+    await expect(loadInstallerJournal(journal.id)).rejects.toThrow("contract");
+    expect(saveJournalSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("does not store a duplicate list or a mismatched prepared project", async () => {
+    apiFetchMock.mockResolvedValueOnce({ items: [journal, journal] }).mockResolvedValueOnce(journal);
+    await expect(loadInstallerJournals()).rejects.toThrow("contract");
+    await expect(prepareInstallerJournal("other-project")).rejects.toThrow("requested project");
+    expect(saveJournalSnapshotsMock).not.toHaveBeenCalled();
+    expect(saveJournalSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a summary-only or wrong-ID cache as document details", async () => {
+    apiFetchMock.mockRejectedValue(new NetworkError("offline"));
+    getJournalSnapshotMock.mockResolvedValueOnce({ ...journal, doors: undefined }).mockResolvedValueOnce({ ...journal, id: "other" });
+    await expect(loadInstallerJournal(journal.id)).rejects.toThrow("offline");
+    await expect(loadInstallerJournal(journal.id)).rejects.toThrow("offline");
+  });
+
+  it("does not let an old detail response resurrect an act removed by a newer list", async () => {
+    let resolve!: (value: unknown) => void;
+    apiFetchMock.mockReturnValueOnce(new Promise((done) => { resolve = done; })).mockResolvedValueOnce({ items: [] });
+    const old = loadInstallerJournal(journal.id);
+    await loadInstallerJournals();
+    resolve(journal); await old;
+    expect(saveJournalSnapshotsMock).toHaveBeenCalledWith([]);
+    expect(saveJournalSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("does not let an old list regress a newer refreshed snapshot", async () => {
+    let resolve!: (value: unknown) => void;
+    apiFetchMock.mockReturnValueOnce(new Promise((done) => { resolve = done; })).mockResolvedValueOnce({ ...journal, snapshot_version: 5 });
+    const old = loadInstallerJournals();
+    await refreshInstallerJournal(journal.id);
+    resolve({ items: [journal] }); await old;
+    expect(saveJournalSnapshotsMock).not.toHaveBeenCalled();
+    expect(saveJournalSnapshotMock).toHaveBeenCalledWith(expect.objectContaining({ snapshot_version: 5 }));
+  });
+
+  it("stores the confirmed ACTIVE transition without re-fetching a stale draft", async () => {
+    const link = { signing_url: "https://app.dimax.test/acceptance/token", public_token_expires_at: "2027-09-01T12:00:00Z" };
+    apiFetchMock.mockResolvedValue(link); getJournalSnapshotMock.mockResolvedValue(journal);
+    await markInstallerJournalReady(journal.id);
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    expect(saveJournalSnapshotMock).toHaveBeenCalledWith({ ...journal, ...link, status: "ACTIVE", can_submit: false });
+  });
+
+  it("reconciles signing and delivery after offline returns without issuing any mutation", async () => {
+    const active: InstallerJournalDetails = { ...journal, status: "ACTIVE", can_submit: false };
+    const signed: InstallerJournalDetails = {
+      ...active, status: "ARCHIVED", signer_name: "QA signer",
+      signed_at: "2026-09-27T12:00:00Z", email_delivery_status: "PENDING",
+    };
+    let cached: InstallerJournalDetails | null = null;
+    saveJournalSnapshotMock.mockImplementation(async (value: InstallerJournalDetails) => { cached = value; });
+    getJournalSnapshotMock.mockImplementation(async () => cached);
+    apiFetchMock.mockResolvedValueOnce(active)
+      .mockRejectedValueOnce(new NetworkError("offline on browser return"))
+      .mockResolvedValueOnce(signed)
+      .mockRejectedValueOnce(new NetworkError("offline before email confirmation"))
+      .mockResolvedValueOnce({ ...signed, email_delivery_status: "DELIVERED" });
+
+    expect((await loadInstallerJournal(journal.id)).data.status).toBe("ACTIVE");
+    const offlineReturn = await loadInstallerJournal(journal.id);
+    expect(offlineReturn.source).toBe("cache"); expect(offlineReturn.data.status).toBe("ACTIVE");
+    const onlineReturn = await loadInstallerJournal(journal.id);
+    expect(onlineReturn.source).toBe("online"); expect(onlineReturn.data.status).toBe("ARCHIVED");
+    const offlineDelivery = await loadInstallerJournal(journal.id);
+    expect(offlineDelivery.source).toBe("cache"); expect(offlineDelivery.data.email_delivery_status).toBe("PENDING");
+    const delivered = await loadInstallerJournal(journal.id);
+    expect(delivered.source).toBe("online"); expect(delivered.data.email_delivery_status).toBe("DELIVERED");
+    expect(cached).toEqual(delivered.data); expect(saveJournalSnapshotMock).toHaveBeenCalledTimes(3);
+    for (const [path, options] of apiFetchMock.mock.calls) {
+      expect(path).toBe("/api/v1/installer/journals/journal-1");
+      expect(options).toEqual({ expectedAuthGeneration: 0 });
+    }
+    expect(openUrlMock).not.toHaveBeenCalled();
   });
 });

@@ -17,6 +17,10 @@ import type {
 } from "@/modules/projects/types";
 import { getSyncQueueSummary, listPendingEvents } from "@/modules/sync/service";
 import type { PendingSyncEvent, SyncQueueSummary } from "@/modules/sync/types";
+import { assertWorkspaceContext, captureWorkspaceContext, withWorkspaceDatabase } from "@/lib/workspace-context";
+import { SessionChangedError } from "@/lib/errors";
+import { readFactoryPrices } from "@/modules/prices/repository";
+import type { FactoryPriceReadState } from "@/modules/prices/contract";
 
 export type LocalProjectWorkspace = {
   projectId: string;
@@ -29,6 +33,7 @@ export type LocalProjectWorkspace = {
   addonFacts: ProjectAddonFact[];
   pendingEvents: PendingSyncEvent[];
   queueSummary: SyncQueueSummary | null;
+  factoryPrices: FactoryPriceReadState;
 };
 
 export function createEmptyLocalProjectWorkspace(projectId = ""): LocalProjectWorkspace {
@@ -43,10 +48,20 @@ export function createEmptyLocalProjectWorkspace(projectId = ""): LocalProjectWo
     addonFacts: [],
     pendingEvents: [],
     queueSummary: null,
+    factoryPrices: { status: "loading", snapshot: null },
   };
 }
 
 export async function loadLocalProjectWorkspace(projectId: string): Promise<LocalProjectWorkspace> {
+  const context = captureWorkspaceContext();
+  return withWorkspaceDatabase(context, async () => {
+    const workspace = await readLocalProjectWorkspace(projectId);
+    assertWorkspaceContext(context);
+    return workspace;
+  });
+}
+
+async function readLocalProjectWorkspace(projectId: string): Promise<LocalProjectWorkspace> {
   const [
     project,
     doors,
@@ -57,6 +72,7 @@ export async function loadLocalProjectWorkspace(projectId: string): Promise<Loca
     addonFacts,
     pendingEvents,
     queueSummary,
+    factoryPrices,
   ] = await Promise.all([
     getProject(projectId),
     listProjectDoors(projectId),
@@ -67,6 +83,13 @@ export async function loadLocalProjectWorkspace(projectId: string): Promise<Loca
     listProjectAddonFacts(projectId),
     listPendingEvents(projectId),
     getSyncQueueSummary(projectId),
+    readFactoryPrices().then(
+      (snapshot): FactoryPriceReadState => ({ status: "ready", snapshot }),
+      (error): FactoryPriceReadState => {
+        if (error instanceof SessionChangedError) throw error;
+        return { status: "unavailable", snapshot: null };
+      },
+    ),
   ]);
 
   return {
@@ -80,5 +103,6 @@ export async function loadLocalProjectWorkspace(projectId: string): Promise<Loca
     addonFacts,
     pendingEvents,
     queueSummary,
+    factoryPrices,
   };
 }

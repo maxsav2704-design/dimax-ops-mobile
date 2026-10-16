@@ -1,12 +1,17 @@
 import { apiFetch } from "@/lib/api";
-import { addLocalDays } from "@/lib/date-key";
-import { ApiError, NetworkError } from "@/lib/errors";
+import { addLocalDays, dateKeyToLocalDate } from "@/lib/date-key";
+import { ApiError, NetworkError, SessionChangedError } from "@/lib/errors";
+import { assertWorkspaceContext, captureWorkspaceContext, withWorkspaceDatabase } from "@/lib/workspace-context";
 import { getCalendarSnapshot, saveCalendarSnapshot } from "@/modules/calendar/repository";
 import type { InstallerCalendarSnapshot, InstallerCalendarViewModel } from "@/modules/calendar/types";
+import { calendarDayParam } from "@/modules/calendar/presentation";
 
 type CalendarEventsResponse = {
   items: InstallerCalendarSnapshot["items"];
 };
+
+let requestSequence = 0;
+const savedRequests = new WeakMap<object, Map<string, number>>();
 
 function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === "string";
@@ -28,6 +33,9 @@ function isCalendarEventsResponse(payload: unknown): payload is CalendarEventsRe
       typeof event.event_type === "string" &&
       typeof event.starts_at === "string" &&
       typeof event.ends_at === "string" &&
+      Number.isFinite(Date.parse(event.starts_at)) &&
+      Number.isFinite(Date.parse(event.ends_at)) &&
+      Date.parse(event.ends_at) > Date.parse(event.starts_at) &&
       isNullableString(event.location) &&
       isNullableString(event.waze_url) &&
       isNullableString(event.description) &&
@@ -52,8 +60,8 @@ function isCalendarSnapshot(payload: unknown): payload is InstallerCalendarSnaps
   );
 }
 
-function buildRange(days: number) {
-  const starts = new Date();
+function buildRange(days: number, anchorDay: string | null) {
+  const starts = anchorDay ? dateKeyToLocalDate(anchorDay) : new Date();
   starts.setHours(0, 0, 0, 0);
   const ends = addLocalDays(starts, days);
   return {
@@ -62,28 +70,44 @@ function buildRange(days: number) {
   };
 }
 
-export async function loadInstallerCalendar(rangeKey = "7d"): Promise<InstallerCalendarViewModel> {
+export async function loadInstallerCalendar(rangeKey = "7d", anchorDay?: string | null): Promise<InstallerCalendarViewModel> {
+  const context = captureWorkspaceContext();
+  assertWorkspaceContext(context);
   const days = rangeKey === "today" ? 1 : rangeKey === "30d" ? 30 : 7;
-  const range = buildRange(days);
+  const anchor = calendarDayParam(anchorDay);
+  const cacheKey = anchor ? `${rangeKey}:${anchor}` : rangeKey;
+  const requestNumber = ++requestSequence;
+  const range = buildRange(days, anchor);
   const path =
     `/api/v1/installer/calendar/events?starts_at=${encodeURIComponent(range.starts_at)}` +
     `&ends_at=${encodeURIComponent(range.ends_at)}`;
 
   try {
-    const response = await apiFetch<unknown>(path);
+    const response = await apiFetch<unknown>(path, { expectedAuthGeneration: context.authGeneration });
+    assertWorkspaceContext(context);
     if (!isCalendarEventsResponse(response)) {
       throw new Error("Calendar response does not match the mobile contract.");
     }
     const snapshot: InstallerCalendarSnapshot = {
-      range_key: rangeKey,
+      range_key: cacheKey,
       starts_at: range.starts_at,
       ends_at: range.ends_at,
       items: response.items,
       generated_at: new Date().toISOString(),
     };
     try {
-      await saveCalendarSnapshot(snapshot);
-    } catch {
+      await withWorkspaceDatabase(context, async () => {
+        // Focus and background refresh can finish out of order; protect the offline copy too.
+        const saved = savedRequests.get(context.database!) || new Map<string, number>();
+        if ((saved.get(cacheKey) || 0) > requestNumber) return;
+        await saveCalendarSnapshot(snapshot);
+        saved.set(cacheKey, requestNumber);
+        savedRequests.set(context.database!, saved);
+      });
+      assertWorkspaceContext(context);
+    } catch (error) {
+      assertWorkspaceContext(context);
+      if (error instanceof SessionChangedError) throw error;
       return {
         snapshot,
         source: "online",
@@ -96,10 +120,15 @@ export async function loadInstallerCalendar(rangeKey = "7d"): Promise<InstallerC
       message: null,
     };
   } catch (error) {
+    assertWorkspaceContext(context);
+    if (error instanceof SessionChangedError) throw error;
     let cached: InstallerCalendarSnapshot | null = null;
     try {
-      cached = await getCalendarSnapshot(rangeKey);
-    } catch {
+      cached = await withWorkspaceDatabase(context, () => getCalendarSnapshot(cacheKey));
+      assertWorkspaceContext(context);
+    } catch (cacheError) {
+      assertWorkspaceContext(context);
+      if (cacheError instanceof SessionChangedError) throw cacheError;
       return {
         snapshot: null,
         source: "unavailable",

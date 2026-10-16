@@ -1,14 +1,36 @@
 import * as SQLite from "expo-sqlite";
+import { SessionChangedError } from "@/lib/errors";
 
 const LEGACY_DB_NAME = "dimax_mobile.db";
 const DB_OWNER_STATE_KEY = "database_owner";
-const DB_SCHEMA_VERSION = 10;
+const DB_SCHEMA_VERSION = 11;
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 let activeOwnerKey: string | null = null;
 let activeDbName: string | null = null;
 let legacyOwnerKey: string | null | undefined;
 let activationTail: Promise<void> = Promise.resolve();
+export type DatabaseContext = Readonly<{ ownerKey: string }>;
+let activeDatabaseContext: DatabaseContext | null = null;
+
+export function getDatabaseContext(): DatabaseContext | null {
+  return activeDatabaseContext;
+}
+
+// Keep short local operations on one connection; never hold this queue during network I/O.
+export function withDatabaseContext<T>(
+  context: DatabaseContext | null,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const task = activationTail.then(() => {
+    if (!context || context !== activeDatabaseContext) {
+      throw new SessionChangedError();
+    }
+    return operation();
+  });
+  activationTail = task.then(() => undefined, () => undefined);
+  return task;
+}
 
 export async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (!dbPromise || !activeOwnerKey || !activeDbName) {
@@ -120,6 +142,7 @@ async function createBaseSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       attempts INTEGER NOT NULL DEFAULT 0,
       next_retry_at TEXT,
       last_attempt_at TEXT,
+      server_state_received INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
 
@@ -296,6 +319,15 @@ async function migrateDb(db: SQLite.SQLiteDatabase): Promise<void> {
     `);
   }
 
+  if (currentVersion < 11) {
+    await ensureColumn(
+      db,
+      "pending_events",
+      "server_state_received",
+      "server_state_received INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+
   if (currentVersion !== DB_SCHEMA_VERSION) {
     await db.execAsync(`PRAGMA user_version = ${DB_SCHEMA_VERSION};`);
   }
@@ -357,6 +389,7 @@ async function closeActiveDatabase(): Promise<void> {
   dbPromise = null;
   activeOwnerKey = null;
   activeDbName = null;
+  activeDatabaseContext = null;
   if (current) {
     const db = await current;
     await db.closeAsync();
@@ -426,6 +459,7 @@ async function activateDatabase(
   activeOwnerKey = ownerKey;
   activeDbName = selected.dbName;
   dbPromise = Promise.resolve(selected.db);
+  activeDatabaseContext = { ownerKey };
 }
 
 export function activateDbForIdentity(

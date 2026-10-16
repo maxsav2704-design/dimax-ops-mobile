@@ -56,11 +56,33 @@ vi.mock("expo-sqlite", () => ({
   openDatabaseAsync: openDatabaseAsyncMock,
 }));
 
+const auth = vi.hoisted(() => ({ generation: 0 }));
+vi.mock("@/lib/api", () => ({ getAuthSessionGeneration: () => auth.generation }));
+
 describe("mobile SQLite schema and account isolation", () => {
+  it("isolates confirmed prices by company and installer across sign-ins", async () => {
+    const { activateDbForIdentity } = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    const { storeFactoryPrices, readFactoryPrices, capturePriceVersion } =
+      await vi.importActual<typeof import("@/modules/prices/repository")>("@/modules/prices/repository");
+    const prices = { price_list_id: "00000000-0000-0000-0000-000000000001", version: 1,
+      currency: "ILS" as const, effective_from: "2026-10-03T08:00:00Z", items: [] };
+    await activateDbForIdentity("company-a", "installer-a");
+    await storeFactoryPrices(prices);
+    expect(await capturePriceVersion()).toEqual({ price_list_id: prices.price_list_id });
+    await activateDbForIdentity("company-b", "installer-b");
+    expect(await readFactoryPrices()).toBeNull();
+    expect(await capturePriceVersion()).toEqual({});
+    await activateDbForIdentity("company-a", "installer-b");
+    expect(await readFactoryPrices()).toBeNull();
+    await activateDbForIdentity("company-a", "installer-a");
+    expect(await readFactoryPrices()).toEqual(prices);
+  });
+
   beforeEach(() => {
     vi.resetModules();
     databases.clear();
     openDatabaseAsyncMock.mockClear();
+    auth.generation = 0;
   });
 
   it("keeps add-on plans price-free and binds the legacy database to its first owner", async () => {
@@ -80,7 +102,8 @@ describe("mobile SQLite schema and account isolation", () => {
     expect(executedSql).toContain(
       "CREATE TABLE IF NOT EXISTS installer_journal_snapshots",
     );
-    expect(executedSql).toContain("PRAGMA user_version = 10");
+    expect(executedSql).toContain("PRAGMA user_version = 11");
+    expect(executedSql).toContain("server_state_received INTEGER NOT NULL DEFAULT 0");
     expect(executedSql).toContain("lifecycle_status TEXT NOT NULL");
     expect(executedSql).toContain("health_status TEXT NOT NULL");
     expect(executedSql).not.toContain("client_price");
@@ -96,6 +119,26 @@ describe("mobile SQLite schema and account isolation", () => {
     await expect(getDb()).rejects.toThrow(
       "Local database is not activated for an authenticated user",
     );
+  });
+
+  it("upgrades version 10 without rewriting queued work and does not repeat the migration", async () => {
+    const database = await openDatabaseAsyncMock("dimax_mobile.db");
+    database.userVersion = 10;
+    database.pendingEvents.add("retained-offline-work");
+    const { activateDbForIdentity, initDb } =
+      await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+
+    await activateDbForIdentity("company-a", "user-a");
+    await initDb();
+
+    const statements = database.execAsync.mock.calls.map(([sql]: [string]) => sql);
+    expect(statements.filter((sql: string) => sql.includes("ALTER TABLE pending_events"))).toEqual([
+      "ALTER TABLE pending_events ADD COLUMN server_state_received INTEGER NOT NULL DEFAULT 0;",
+    ]);
+    expect(database.userVersion).toBe(11);
+    expect(database.pendingEvents).toEqual(new Set(["retained-offline-work"]));
+    expect(statements.join("\n")).not.toMatch(/(?:DELETE FROM|DROP TABLE) pending_events/);
+    expect(database.runAsync.mock.calls.some(([sql]: [string]) => /UPDATE pending_events/.test(sql))).toBe(false);
   });
 
   it("uses separate files per account and preserves each account outbox", async () => {
@@ -157,5 +200,120 @@ describe("mobile SQLite schema and account isolation", () => {
         .get("dimax_mobile_company-a_user-b.db")
         .state.get("database_owner"),
     ).toBe("company-a:user-b");
+  });
+
+  it("refuses a database operation without an active identity", async () => {
+    const db = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    const operation = vi.fn();
+    await expect(db.withDatabaseContext(db.getDatabaseContext(), operation)).rejects.toThrow("session changed");
+    expect(operation).not.toHaveBeenCalled();
+  });
+
+  it("keeps a context valid when refreshing the same active identity", async () => {
+    const db = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    await db.activateDbForIdentity("company-a", "user-a");
+    const context = db.getDatabaseContext();
+    await db.activateDbForIdentity("company-a", "user-a");
+    await expect(db.withDatabaseContext(context, async () => "same identity")).resolves.toBe("same identity");
+    expect(db.getDatabaseContext()).toBe(context);
+  });
+
+  it.each(["user", "company", "logout", "return"])("invalidates the old context after a %s change", async (change) => {
+    const db = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    await db.activateDbForIdentity("company-a", "user-a");
+    const oldContext = db.getDatabaseContext();
+    const oldDatabase = await db.getDb() as any;
+    oldDatabase.pendingEvents.add("unsent-work");
+    if (change === "logout") {
+      await db.deactivateDb();
+    } else {
+      await db.activateDbForIdentity(change === "company" ? "company-b" : "company-a", "user-b");
+      if (change === "return") await db.activateDbForIdentity("company-a", "user-a");
+    }
+    const operation = vi.fn();
+    await expect(db.withDatabaseContext(oldContext, operation)).rejects.toThrow("session changed");
+    expect(operation).not.toHaveBeenCalled();
+    expect(oldDatabase.pendingEvents).toEqual(new Set(["unsent-work"]));
+  });
+
+  it("finishes the local phase before closing its connection and rejects old work queued after a switch", async () => {
+    const db = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    await db.activateDbForIdentity("company-a", "user-a");
+    const context = db.getDatabaseContext();
+    const databaseA = await db.getDb() as any;
+    let release!: () => void;
+    let started!: () => void;
+    const pause = new Promise<void>((resolve) => { release = resolve; });
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const phase = db.withDatabaseContext(context, async () => {
+      started();
+      await pause;
+      await db.setState("sync_cursor", "33");
+    });
+    await entered;
+    const switching = db.activateDbForIdentity("company-a", "user-b");
+    const lateOperation = vi.fn();
+    const late = db.withDatabaseContext(context, lateOperation).catch((error: unknown) => error);
+    expect(databaseA.closeAsync).not.toHaveBeenCalled();
+    release();
+    await phase;
+    await switching;
+
+    expect(await late).toBeInstanceOf(Error);
+    expect(lateOperation).not.toHaveBeenCalled();
+    expect(databaseA.state.get("sync_cursor")).toBe("33");
+    expect(await db.getState("sync_cursor")).toBeNull();
+    expect(databaseA.closeAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows a later account activation after a failed local operation", async () => {
+    const db = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    await db.activateDbForIdentity("company-a", "user-a");
+    await expect(db.withDatabaseContext(db.getDatabaseContext(), async () => {
+      throw new Error("Simulated database failure");
+    })).rejects.toThrow("Simulated database failure");
+    await db.activateDbForIdentity("company-a", "user-b");
+    await expect(db.withDatabaseContext(db.getDatabaseContext(), async () => "ready")).resolves.toBe("ready");
+  });
+
+  it("rejects a workspace cache write queued behind another account activation", async () => {
+    const db = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    const workspace = await vi.importActual<typeof import("@/lib/workspace-context")>("@/lib/workspace-context");
+    await db.activateDbForIdentity("company-a", "user-a");
+    const context = workspace.captureWorkspaceContext();
+    const databaseA = await db.getDb() as any;
+    databaseA.pendingEvents.add("unsent-work-a");
+
+    const switching = db.activateDbForIdentity("company-a", "user-b");
+    const write = vi.fn(async () => db.setState("cached-document", "account-a-document"));
+    const result = workspace.withWorkspaceDatabase(context, write).catch((error: unknown) => error);
+    await switching;
+
+    expect(await result).toBeInstanceOf(Error);
+    expect(write).not.toHaveBeenCalled();
+    expect(await db.getState("cached-document")).toBeNull();
+    expect(databaseA.pendingEvents).toEqual(new Set(["unsent-work-a"]));
+  });
+
+  it("checks login generation when a queued local phase starts, not just when it is scheduled", async () => {
+    const db = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
+    const workspace = await vi.importActual<typeof import("@/lib/workspace-context")>("@/lib/workspace-context");
+    await db.activateDbForIdentity("company-a", "user-a");
+    const context = workspace.captureWorkspaceContext();
+    let release!: () => void;
+    let started!: () => void;
+    const pause = new Promise<void>((resolve) => { release = resolve; });
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const first = workspace.withWorkspaceDatabase(context, async () => { started(); await pause; });
+    await entered;
+    const write = vi.fn(async () => db.setState("cached-document", "account-a-document"));
+    const queued = workspace.withWorkspaceDatabase(context, write).catch((error: unknown) => error);
+    auth.generation += 1;
+    release();
+    await first;
+
+    expect(await queued).toBeInstanceOf(Error);
+    expect(write).not.toHaveBeenCalled();
+    expect(await db.getState("cached-document")).toBeNull();
   });
 });

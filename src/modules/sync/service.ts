@@ -2,7 +2,18 @@ import { apiFetch } from "@/lib/api";
 import { MOBILE_APP_VERSION } from "@/lib/config";
 import { getOrCreateDeviceId } from "@/lib/device-id";
 import { getDb, getState, initDb, setState } from "@/lib/db";
+import { SessionChangedError } from "@/lib/errors";
+import {
+  assertWorkspaceContext,
+  captureWorkspaceContext as captureSyncContext,
+  withWorkspaceDatabase as withSyncDatabase,
+  type WorkspaceContext as SyncContext,
+} from "@/lib/workspace-context";
 import { normalizeAddonQuantity } from "@/modules/addons/quantity";
+import { capturePriceVersion, storeFactoryPrices } from "@/modules/prices/repository";
+import { parseFactoryPrices } from "@/modules/prices/contract";
+import { commandPayload } from "@/modules/sync/command-payload";
+import { markSyncFinished, markSyncStarted, notifySyncQueueChanged } from "@/modules/sync/status";
 import {
   MAX_AUTO_RETRY_ATTEMPTS,
   computeRetryDelayMinutes,
@@ -14,7 +25,7 @@ import type { PendingSyncEvent, SyncChange, SyncQueueSummary, SyncResponse, Sync
 const CURSOR_KEY = "sync_cursor";
 const LAST_SYNC_AT_KEY = "last_sync_at";
 let syncExecutionTail: Promise<void> = Promise.resolve();
-let automaticSyncInFlight: Promise<SyncResponse> | null = null;
+let automaticSyncInFlight: (SyncContext & { operation: Promise<SyncResponse> }) | null = null;
 
 type PendingSyncEventRow = Omit<PendingSyncEvent, "payload"> & {
   payload_json: string;
@@ -29,7 +40,12 @@ function mapPendingEventRow(row: PendingSyncEventRow): PendingSyncEvent {
 }
 
 function enqueueSync<T>(operation: () => Promise<T>): Promise<T> {
-  const result = syncExecutionTail.then(operation);
+  const result = syncExecutionTail.then(() => {
+    markSyncStarted();
+    return operation();
+  });
+  // Status reporting observes the run; it never alters the sync result.
+  result.then(() => markSyncFinished(null), (error) => markSyncFinished(error));
   syncExecutionTail = result.then(
     () => undefined,
     () => undefined,
@@ -94,6 +110,14 @@ function isLocalOptimisticDoorLock(row: LocalDoorSyncState, payload: Record<stri
 
 function canApplyPendingDoorStatus(row: LocalDoorSyncState, payload: Record<string, unknown>): boolean {
   return !isLocalDoorLocked(row) || isLocalOptimisticDoorLock(row, payload);
+}
+
+function isPendingDoorVersionCompatible(row: LocalDoorSyncState, payload: Record<string, unknown>): boolean {
+  const previousVersion = payload.previous_version == null ? null : toNullableNumber(payload.previous_version);
+  const currentVersion = toNullableNumber(row.version);
+  return previousVersion === null || currentVersion === previousVersion || (
+    currentVersion === previousVersion + 1 && row.status === payload.status
+  );
 }
 
 async function getLocalDoorSyncState(
@@ -184,10 +208,11 @@ export async function getSyncQueueSummary(projectId?: string): Promise<SyncQueue
      FROM pending_events
      ${where ? `${where} AND` : "WHERE"}
        status = 'FAILED'
+       AND attempts < ?
        AND next_retry_at IS NOT NULL
      ORDER BY next_retry_at ASC
      LIMIT 1`,
-    params
+    [...params, MAX_AUTO_RETRY_ATTEMPTS]
   );
 
   return {
@@ -200,12 +225,26 @@ export async function getSyncQueueSummary(projectId?: string): Promise<SyncQueue
   };
 }
 
+export async function getSyncStatusSnapshot(): Promise<{
+  queue: SyncQueueSummary;
+  lastSyncAt: string | null;
+}> {
+  const context = captureSyncContext();
+  const snapshot = await withSyncDatabase(context, async () => ({
+    queue: await getSyncQueueSummary(),
+    lastSyncAt: await getLastSyncAt(),
+  }));
+  assertWorkspaceContext(context);
+  return snapshot;
+}
+
 async function getPendingEventRow(clientEventId: string): Promise<{
   client_event_id: string;
   type: string;
   project_id: string;
   happened_at: string | null;
   payload_json: string;
+  server_state_received: number;
 } | null> {
   const db = await getDb();
   return (await db.getFirstAsync<{
@@ -214,21 +253,29 @@ async function getPendingEventRow(clientEventId: string): Promise<{
     project_id: string;
     happened_at: string | null;
     payload_json: string;
+    server_state_received: number;
   }>(
-    `SELECT client_event_id, type, project_id, happened_at, payload_json
+    `SELECT client_event_id, type, project_id, happened_at, payload_json, server_state_received
      FROM pending_events
      WHERE client_event_id = ?`,
     [clientEventId]
   )) ?? null;
 }
 
-async function markAckResult(clientEventId: string, ok: boolean, error: string | null): Promise<void> {
+async function markAckResult(
+  clientEventId: string,
+  ok: boolean,
+  error: string | null,
+  options?: { preserveServerDoorState: boolean },
+): Promise<void> {
   const db = await getDb();
   const eventRow = await getPendingEventRow(clientEventId);
   if (ok) {
     await db.withTransactionAsync(async () => {
       if (eventRow?.type === "ADDON_FACT_CREATE") {
         await deleteLocalAddonFact(db, clientEventId);
+      } else if (eventRow?.type === "ISSUE_CREATE") {
+        await deleteLocalIssue(db, clientEventId);
       }
       await db.runAsync("DELETE FROM pending_events WHERE client_event_id = ?", [clientEventId]);
     });
@@ -237,7 +284,7 @@ async function markAckResult(clientEventId: string, ok: boolean, error: string |
 
   const payload = eventRow ? parsePendingPayload(eventRow.payload_json) : {};
   await db.withTransactionAsync(async () => {
-    if (eventRow?.type === "DOOR_SET_STATUS") {
+    if (eventRow?.type === "DOOR_SET_STATUS" && !options?.preserveServerDoorState && !eventRow.server_state_received) {
       await revertDoorStatus(db, payload);
     } else if (eventRow?.type === "ADDON_FACT_CREATE") {
       await deleteLocalAddonFact(db, clientEventId);
@@ -355,7 +402,9 @@ async function revertDoorStatus(
   }
 
   const currentDoor = await getLocalDoorSyncState(db, doorId);
-  if (currentDoor && !canApplyPendingDoorStatus(currentDoor, payload)) {
+  if (currentDoor && (
+    !canApplyPendingDoorStatus(currentDoor, payload) || !isPendingDoorVersionCompatible(currentDoor, payload)
+  )) {
     return;
   }
 
@@ -579,6 +628,31 @@ async function deleteLocalIssue(
   await db.runAsync("DELETE FROM issues WHERE id = ?", [getLocalIssueId(clientEventId)]);
 }
 
+async function upsertServerIssue(
+  db: Awaited<ReturnType<typeof getDb>>,
+  issue: NonNullable<SyncSnapshot["issues"]>[number],
+): Promise<void> {
+  await db.runAsync(
+    `INSERT INTO issues(id, door_id, project_id, status, title, details)
+     VALUES(?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       door_id = excluded.door_id,
+       project_id = excluded.project_id,
+       status = excluded.status,
+       title = excluded.title,
+       details = excluded.details`,
+    [issue.id, issue.door_id, issue.project_id, issue.status, issue.title ?? null, issue.details ?? null],
+  );
+  // Remove copies left by older clients only after the server issue is stored.
+  await db.runAsync(
+    `DELETE FROM issues WHERE door_id = ? AND id LIKE 'local:%'
+     AND NOT EXISTS (
+       SELECT 1 FROM pending_events WHERE 'local:' || client_event_id = issues.id
+     )`,
+    [issue.door_id],
+  );
+}
+
 function normalizeStringSet(values: unknown): Set<string> {
   if (!Array.isArray(values)) {
     return new Set();
@@ -640,18 +714,21 @@ async function blockPendingEventsForRemovedAssignment(
   );
 }
 
-async function isPendingEventScopeStillLocal(
+async function getPendingEventRetryError(
   db: Awaited<ReturnType<typeof getDb>>,
   eventRow: NonNullable<Awaited<ReturnType<typeof getPendingEventRow>>>,
   payload: Record<string, unknown>
-): Promise<boolean> {
+): Promise<string | null> {
   if (eventRow.type === "DOOR_SET_STATUS") {
     const doorId = typeof payload.door_id === "string" ? payload.door_id : null;
     if (!doorId) {
-      return true;
+      return null;
     }
     const row = await getLocalDoorSyncState(db, doorId);
-    return Boolean(row && canApplyPendingDoorStatus(row, payload));
+    if (!row || !canApplyPendingDoorStatus(row, payload)) {
+      return ASSIGNMENT_CHANGED_ERROR;
+    }
+    return isPendingDoorVersionCompatible(row, payload) ? null : "CONFLICT_INVALID_TRANSITION";
   }
 
   if (eventRow.type === "ADDON_FACT_CREATE") {
@@ -659,22 +736,22 @@ async function isPendingEventScopeStillLocal(
       "SELECT COUNT(*) as total FROM projects WHERE id = ?",
       [eventRow.project_id]
     );
-    return Number(row?.total || 0) > 0;
+    return Number(row?.total || 0) > 0 ? null : ASSIGNMENT_CHANGED_ERROR;
   }
 
   if (eventRow.type === "ISSUE_CREATE") {
     const doorId = typeof payload.door_id === "string" ? payload.door_id : null;
     if (!doorId) {
-      return false;
+      return ASSIGNMENT_CHANGED_ERROR;
     }
     const row = await db.getFirstAsync<{ total: number }>(
       "SELECT COUNT(*) as total FROM doors WHERE id = ? AND project_id = ?",
       [doorId, eventRow.project_id]
     );
-    return Number(row?.total || 0) > 0;
+    return Number(row?.total || 0) > 0 ? null : ASSIGNMENT_CHANGED_ERROR;
   }
 
-  return true;
+  return null;
 }
 
 export async function retryPendingEventNow(clientEventId: string): Promise<void> {
@@ -685,20 +762,21 @@ export async function retryPendingEventNow(clientEventId: string): Promise<void>
 
   const db = await getDb();
   const payload = parsePendingPayload(eventRow.payload_json);
-  if (!(await isPendingEventScopeStillLocal(db, eventRow, payload))) {
+  const retryError = await getPendingEventRetryError(db, eventRow, payload);
+  if (retryError) {
     await db.runAsync(
       `UPDATE pending_events
        SET status = 'BLOCKED',
            error = ?,
            next_retry_at = NULL
        WHERE client_event_id = ?`,
-      [ASSIGNMENT_CHANGED_ERROR, clientEventId]
+      [retryError, clientEventId]
     );
     return;
   }
 
   await db.withTransactionAsync(async () => {
-    if (eventRow.type === "DOOR_SET_STATUS") {
+    if (eventRow.type === "DOOR_SET_STATUS" && !eventRow.server_state_received) {
       await applyLocalDoorStatus(db, payload);
     } else if (eventRow.type === "ADDON_FACT_CREATE") {
       await restoreLocalAddonFactFromEvent(db, eventRow);
@@ -720,6 +798,7 @@ export async function retryPendingEventNow(clientEventId: string): Promise<void>
       [clientEventId]
     );
   });
+  notifySyncQueueChanged();
 }
 
 export async function dropPendingEvent(clientEventId: string): Promise<void> {
@@ -731,7 +810,7 @@ export async function dropPendingEvent(clientEventId: string): Promise<void> {
   const payload = parsePendingPayload(eventRow.payload_json);
   const db = await getDb();
   await db.withTransactionAsync(async () => {
-    if (eventRow.type === "DOOR_SET_STATUS") {
+    if (eventRow.type === "DOOR_SET_STATUS" && !eventRow.server_state_received) {
       await revertDoorStatus(db, payload);
     } else if (eventRow.type === "ADDON_FACT_CREATE") {
       await deleteLocalAddonFact(db, clientEventId);
@@ -740,26 +819,49 @@ export async function dropPendingEvent(clientEventId: string): Promise<void> {
     }
     await db.runAsync("DELETE FROM pending_events WHERE client_event_id = ?", [clientEventId]);
   });
+  notifySyncQueueChanged();
 }
 
-async function reapplyPendingOptimisticChanges(events: PendingSyncEvent[]): Promise<void> {
+async function reapplyPendingOptimisticChanges(snapshot: SyncSnapshot): Promise<void> {
+  // Read the remaining outbox after acknowledgements, including deferred and newly queued work.
+  const events = (await listPendingEvents())
+    .filter((event) => event.status === "PENDING" || event.status === "FAILED")
+    .reverse();
   if (!events.length) {
     return;
   }
 
+  const projectIds = new Set(snapshot.projects.map((project) => project.id));
+  const doors = new Map(snapshot.doors.map((door) => [door.id, door]));
   const db = await getDb();
   await db.withTransactionAsync(async () => {
     for (const event of events) {
+      const doorId = typeof event.payload.door_id === "string" ? event.payload.door_id : null;
+      const door = doorId ? doors.get(doorId) : undefined;
+      const doorScoped = event.type === "DOOR_SET_STATUS" || event.type === "ISSUE_CREATE";
+      if (!projectIds.has(event.project_id) || (doorScoped && door?.project_id !== event.project_id)) {
+        await markEventsBlocked([event.client_event_id], ASSIGNMENT_CHANGED_ERROR);
+        continue;
+      }
       if (event.type === "DOOR_SET_STATUS") {
-        const doorId = typeof event.payload.door_id === "string" ? event.payload.door_id : null;
         if (!doorId) {
           continue;
         }
         const row = await getLocalDoorSyncState(db, doorId);
-        if (!row || isLocalDoorLocked(row)) {
+        const previousVersion = event.payload.previous_version == null
+          ? null
+          : toNullableNumber(event.payload.previous_version);
+        if (
+          !row || isLocalDoorLocked(row) ||
+          (previousVersion !== null && previousVersion !== Number(row.version ?? 0))
+        ) {
           continue;
         }
         await applyLocalDoorStatus(db, event.payload);
+        await db.runAsync(
+          "UPDATE pending_events SET server_state_received = 0 WHERE client_event_id = ?",
+          [event.client_event_id],
+        );
       } else if (event.type === "ADDON_FACT_CREATE") {
         await restoreLocalAddonFactFromPayload(db, {
           clientEventId: event.client_event_id,
@@ -781,6 +883,10 @@ async function reapplyPendingOptimisticChanges(events: PendingSyncEvent[]): Prom
 async function upsertSnapshot(snapshot: SyncSnapshot): Promise<void> {
   const db = await getDb();
   await db.withTransactionAsync(async () => {
+    // A server version can equal an optimistic version; persist its authority across restarts.
+    await db.runAsync(
+      "UPDATE pending_events SET server_state_received = 1 WHERE type = 'DOOR_SET_STATUS'",
+    );
     await db.runAsync("DELETE FROM projects");
     await db.runAsync("DELETE FROM doors");
     await db.runAsync("DELETE FROM reasons");
@@ -867,24 +973,7 @@ async function upsertSnapshot(snapshot: SyncSnapshot): Promise<void> {
     }
 
     for (const issue of snapshot.issues || []) {
-      await db.runAsync(
-        `INSERT INTO issues(id, door_id, project_id, status, title, details)
-         VALUES(?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           door_id = excluded.door_id,
-           project_id = excluded.project_id,
-           status = excluded.status,
-           title = excluded.title,
-           details = excluded.details`,
-        [
-          issue.id,
-          issue.door_id,
-          issue.project_id,
-          issue.status,
-          issue.title,
-          issue.details,
-        ]
-      );
+      await upsertServerIssue(db, issue);
     }
 
     for (const door of snapshot.doors) {
@@ -935,45 +1024,60 @@ async function applyChange(change: SyncChange): Promise<void> {
   const payload = change.payload;
 
   switch (change.change_type) {
+    case "ISSUE":
+      await upsertServerIssue(db, {
+        id: payload.id, door_id: payload.door_id, project_id: payload.project_id,
+        status: payload.status, title: payload.title, details: payload.details,
+      });
+      break;
     case "DOOR":
-      await db.runAsync(
-        `INSERT INTO doors(id, project_id, door_type_id, unit_label, order_number, house_number, floor_label, apartment_number, location_code, door_marking, status, reason_id, comment, is_locked, version, updated_at)
-         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           project_id = excluded.project_id,
-           door_type_id = excluded.door_type_id,
-           unit_label = excluded.unit_label,
-           status = excluded.status,
-           reason_id = excluded.reason_id,
-           comment = excluded.comment,
-           is_locked = excluded.is_locked,
-           order_number = excluded.order_number,
-           house_number = excluded.house_number,
-           floor_label = excluded.floor_label,
-           apartment_number = excluded.apartment_number,
-           location_code = excluded.location_code,
-           door_marking = excluded.door_marking,
-           version = excluded.version,
-           updated_at = excluded.updated_at`,
-        [
-          payload.id,
-          payload.project_id,
-          payload.door_type_id,
-          payload.unit_label,
-          payload.order_number,
-          payload.house_number,
-          payload.floor_label,
-          payload.apartment_number,
-          payload.location_code,
-          payload.door_marking,
-          payload.status,
-          payload.reason_id ?? null,
-          payload.comment,
-          payload.is_locked ? 1 : 0,
-          Number(payload.version ?? 0),
-          payload.updated_at,
-        ]
-      );
+      await db.withTransactionAsync(async () => {
+        await db.runAsync(
+          `UPDATE pending_events SET server_state_received = 1
+           WHERE type = 'DOOR_SET_STATUS'
+             AND json_valid(payload_json)
+             AND json_extract(payload_json, '$.door_id') = ?`,
+          [payload.id],
+        );
+        await db.runAsync(
+          `INSERT INTO doors(id, project_id, door_type_id, unit_label, order_number, house_number, floor_label, apartment_number, location_code, door_marking, status, reason_id, comment, is_locked, version, updated_at)
+           VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             project_id = excluded.project_id,
+             door_type_id = excluded.door_type_id,
+             unit_label = excluded.unit_label,
+             status = excluded.status,
+             reason_id = excluded.reason_id,
+             comment = excluded.comment,
+             is_locked = excluded.is_locked,
+             order_number = excluded.order_number,
+             house_number = excluded.house_number,
+             floor_label = excluded.floor_label,
+             apartment_number = excluded.apartment_number,
+             location_code = excluded.location_code,
+             door_marking = excluded.door_marking,
+             version = excluded.version,
+             updated_at = excluded.updated_at`,
+          [
+            payload.id,
+            payload.project_id,
+            payload.door_type_id,
+            payload.unit_label,
+            payload.order_number,
+            payload.house_number,
+            payload.floor_label,
+            payload.apartment_number,
+            payload.location_code,
+            payload.door_marking,
+            payload.status,
+            payload.reason_id ?? null,
+            payload.comment,
+            payload.is_locked ? 1 : 0,
+            Number(payload.version ?? 0),
+            payload.updated_at,
+          ]
+        );
+      });
       break;
     case "ADDON_FACT":
       await db.runAsync(
@@ -1081,14 +1185,17 @@ export async function bootstrapOnlineData(): Promise<void> {
 }
 
 export function forceColdResync(): Promise<SyncResponse> {
+  const context = captureSyncContext();
   return enqueueSync(async () => {
-    await initDb();
-    const unresolvedEventCount = await countPendingEvents();
-    if (unresolvedEventCount > 0) {
-      throw new Error("Cold resync is blocked while unsynced work remains on this device.");
-    }
-    await setState(CURSOR_KEY, "0");
-    return executeSync({ sinceCursor: 0, includeEvents: false });
+    await withSyncDatabase(context, async () => {
+      await initDb();
+      const unresolvedEventCount = await countPendingEvents();
+      if (unresolvedEventCount > 0) {
+        throw new Error("Cold resync is blocked while unsynced work remains on this device.");
+      }
+      await setState(CURSOR_KEY, "0");
+    });
+    return executeSync(context, { sinceCursor: 0, includeEvents: false });
   });
 }
 
@@ -1097,21 +1204,25 @@ export function runSync(options?: {
   sinceCursor?: number;
   includeEvents?: boolean;
 }): Promise<SyncResponse> {
+  const context = captureSyncContext();
   const isAutomaticSync =
     !options?.forceRetry &&
     options?.sinceCursor === undefined &&
     options?.includeEvents === undefined;
   if (!isAutomaticSync) {
-    return enqueueSync(() => executeSync(options));
+    return enqueueSync(() => executeSync(context, options));
   }
-  if (automaticSyncInFlight) {
-    return automaticSyncInFlight;
+  if (
+    automaticSyncInFlight?.database === context.database &&
+    automaticSyncInFlight?.authGeneration === context.authGeneration
+  ) {
+    return automaticSyncInFlight.operation;
   }
 
-  const operation = enqueueSync(() => executeSync(options));
-  automaticSyncInFlight = operation;
+  const operation = enqueueSync(() => executeSync(context, options));
+  automaticSyncInFlight = { ...context, operation };
   const clearAutomaticSync = () => {
-    if (automaticSyncInFlight === operation) {
+    if (automaticSyncInFlight?.operation === operation) {
       automaticSyncInFlight = null;
     }
   };
@@ -1119,83 +1230,105 @@ export function runSync(options?: {
   return operation;
 }
 
-async function executeSync(options?: {
+async function executeSync(context: SyncContext, options?: {
   forceRetry?: boolean;
   sinceCursor?: number;
   includeEvents?: boolean;
 }): Promise<SyncResponse> {
-  await initDb();
-  const sinceCursor = options?.sinceCursor ?? Number((await getState(CURSOR_KEY)) || "0");
-  const pendingEvents =
-    options?.includeEvents === false
+  const { sinceCursor, pendingEvents, pendingEventIds, priceResolutionChecks } = await withSyncDatabase(context, async () => {
+    await initDb();
+    const sinceCursor = options?.sinceCursor ?? Number((await getState(CURSOR_KEY)) || "0");
+    const pendingEvents = options?.includeEvents === false
       ? []
       : await getPendingEvents(500, Boolean(options?.forceRetry));
-  const pendingEventIds = pendingEvents.map((event) => event.client_event_id);
-  const deviceId = await getOrCreateDeviceId();
-
-  if (pendingEventIds.length) {
-    await markEventsAttempted(pendingEventIds);
-  }
+    const pendingEventIds = pendingEvents.map((event) => event.client_event_id);
+    if (pendingEventIds.length) {
+      await markEventsAttempted(pendingEventIds);
+    }
+    const db = await getDb();
+    const blockedPrices = await db.getAllAsync<{ client_event_id: string }>(
+      `SELECT client_event_id FROM pending_events
+       WHERE status = 'BLOCKED' AND error = 'CONFLICT_FACTORY_PRICE'
+       ORDER BY created_at ASC LIMIT 500`
+    );
+    return { sinceCursor, pendingEvents, pendingEventIds,
+      priceResolutionChecks: blockedPrices.map((event) => event.client_event_id) };
+  });
 
   let response: SyncResponse;
   try {
+    const deviceId = await getOrCreateDeviceId();
     response = await apiFetch<SyncResponse>("/api/v1/installer/sync", {
       method: "POST",
       timeoutMs: 30000,
+      expectedAuthGeneration: context.authGeneration,
       body: JSON.stringify({
         since_cursor: sinceCursor,
         ack_cursor: sinceCursor,
         app_version: `mobile-${MOBILE_APP_VERSION}`,
         device_id: deviceId,
+        price_resolution_checks: priceResolutionChecks,
         events: pendingEvents.map((event) => ({
           client_event_id: event.client_event_id,
           type: event.type,
           project_id: event.project_id,
           happened_at: event.happened_at,
-          payload: event.payload,
+          payload: commandPayload(event),
         })),
       }),
     });
   } catch (error) {
-    if (pendingEventIds.length) {
-      if (isRetryableSyncError(error)) {
-        await scheduleRetry(pendingEventIds, getSyncErrorMessage(error));
-      } else {
-        await markEventsBlocked(pendingEventIds, getSyncErrorMessage(error));
-      }
+    // Keep catch bindings out of deferred native async/generator callbacks.
+    const failure = error;
+    if (pendingEventIds.length && !(failure instanceof SessionChangedError)) {
+      const retryable = isRetryableSyncError(failure);
+      const message = getSyncErrorMessage(failure);
+      await withSyncDatabase(context, () => retryable
+        ? scheduleRetry(pendingEventIds, message)
+        : markEventsBlocked(pendingEventIds, message));
     }
-    throw error;
+    throw failure;
   }
 
-  if (response.reset_required) {
-    if (!response.snapshot) {
-      const error = "Sync reset requested without snapshot";
-      if (pendingEventIds.length) {
-        await scheduleRetry(pendingEventIds, error);
+  return withSyncDatabase(context, async () => {
+    // Reject malformed prices before changing the cursor, queue or snapshot.
+    const prices = response.factory_prices === undefined ? undefined : parseFactoryPrices(response.factory_prices);
+    if (response.reset_required) {
+      if (!response.snapshot) {
+        const error = "Sync reset requested without snapshot";
+        if (pendingEventIds.length) {
+          await scheduleRetry(pendingEventIds, error);
+        }
+        throw new Error(error);
       }
-      throw new Error(error);
+      await upsertSnapshot(response.snapshot);
     }
-    await upsertSnapshot(response.snapshot);
-    await reapplyPendingOptimisticChanges(pendingEvents);
-  }
 
-  for (const change of response.changes) {
-    await applyChange(change);
-  }
+    for (const change of response.changes) {
+      await applyChange(change);
+    }
 
-  for (const ack of response.acks) {
-    await markAckResult(ack.client_event_id, ack.ok, ack.error);
-  }
+    for (const ack of response.acks) {
+      await markAckResult(ack.client_event_id, ack.ok, ack.error, {
+        preserveServerDoorState: response.reset_required,
+      });
+    }
 
-  const ackedEventIds = new Set(response.acks.map((ack) => ack.client_event_id));
-  const missingAckEventIds = pendingEventIds.filter((clientEventId) => !ackedEventIds.has(clientEventId));
-  if (missingAckEventIds.length) {
-    await scheduleRetry(missingAckEventIds, "Sync response missed event acknowledgement");
-  }
+    const ackedEventIds = new Set(response.acks.map((ack) => ack.client_event_id));
+    const missingAckEventIds = pendingEventIds.filter((clientEventId) => !ackedEventIds.has(clientEventId));
+    if (missingAckEventIds.length) {
+      await scheduleRetry(missingAckEventIds, "Sync response missed event acknowledgement");
+    }
 
-  await setState(CURSOR_KEY, String(response.next_cursor));
-  await setState(LAST_SYNC_AT_KEY, response.server_time);
-  return response;
+    if (response.reset_required && response.snapshot) {
+      await reapplyPendingOptimisticChanges(response.snapshot);
+    }
+
+    if (prices !== undefined) await storeFactoryPrices(prices);
+    await setState(CURSOR_KEY, String(response.next_cursor));
+    await setState(LAST_SYNC_AT_KEY, response.server_time);
+    return response;
+  });
 }
 
 export async function queueDoorStatusEvent(input: {
@@ -1233,6 +1366,7 @@ export async function queueDoorStatusEvent(input: {
 
   const payload = {
     door_id: input.doorId,
+    ...(input.status === "INSTALLED" ? await capturePriceVersion() : {}),
     status: input.status,
     reason_id: reasonId,
     comment: input.comment || null,
@@ -1263,6 +1397,7 @@ export async function queueDoorStatusEvent(input: {
 
     await applyLocalDoorStatus(db, payload);
   });
+  notifySyncQueueChanged();
 }
 
 export async function queueAddonFactEvent(input: {
@@ -1299,6 +1434,7 @@ export async function queueAddonFactEvent(input: {
 
   const payload = {
     addon_type_id: addonTypeId,
+    ...await capturePriceVersion(),
     qty_done: qtyDone,
     comment: input.comment || null,
   };
@@ -1319,6 +1455,7 @@ export async function queueAddonFactEvent(input: {
       comment: input.comment || null,
     });
   });
+  notifySyncQueueChanged();
 }
 
 export async function queueIssueCreateEvent(input: {
@@ -1370,6 +1507,7 @@ export async function queueIssueCreateEvent(input: {
       details,
     });
   });
+  notifySyncQueueChanged();
 }
 
 export async function getLastSyncAt(): Promise<string | null> {

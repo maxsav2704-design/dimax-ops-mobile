@@ -4,6 +4,7 @@ import type {
   InstallerJournalSummary,
 } from "@/modules/journal/types";
 import { mergeJournalSnapshot } from "@/modules/journal/snapshot";
+import { isJournalDetails, isJournalSummary } from "./contract";
 
 type JournalSnapshotRow = {
   id: string;
@@ -13,12 +14,13 @@ type JournalSnapshotRow = {
   updated_at: string;
 };
 
-function parseSnapshot<T extends InstallerJournalSummary>(
+function parseSnapshot(
   row: JournalSnapshotRow | null,
-): T | null {
+): InstallerJournalSummary | InstallerJournalDetails | null {
   if (!row) return null;
   try {
-    return JSON.parse(row.payload_json) as T;
+    const value: unknown = JSON.parse(row.payload_json);
+    return isJournalSummary(value) && value.id === row.id && value.project_id === row.project_id ? value : null;
   } catch {
     return null;
   }
@@ -45,6 +47,12 @@ export async function saveJournalSnapshots(
 ): Promise<void> {
   const db = await getDb();
   await db.withTransactionAsync(async () => {
+    // The API returns the complete authorized list, not a page. Remove revoked entries.
+    const allowed = new Set(items.map((item) => item.id));
+    const saved = await db.getAllAsync<{ id: string }>("SELECT id FROM installer_journal_snapshots");
+    for (const row of saved) {
+      if (!allowed.has(row.id)) await db.runAsync("DELETE FROM installer_journal_snapshots WHERE id = ?", [row.id]);
+    }
     for (const item of items) {
       const existingRow =
         (await db.getFirstAsync<JournalSnapshotRow>(
@@ -52,13 +60,8 @@ export async function saveJournalSnapshots(
            FROM installer_journal_snapshots WHERE id = ? LIMIT 1`,
           [item.id],
         )) ?? null;
-      const parsed = parseSnapshot<InstallerJournalDetails>(existingRow);
-      const existingDetails =
-        parsed &&
-        Array.isArray(parsed.doors) &&
-        Array.isArray(parsed.addon_items)
-          ? parsed
-          : null;
+      const parsed = parseSnapshot(existingRow);
+      const existingDetails = isJournalDetails(parsed) ? parsed : null;
       const payload = mergeJournalSnapshot(item, existingDetails);
       await db.runAsync(
         `INSERT INTO installer_journal_snapshots(id, project_id, status, payload_json, updated_at)
@@ -84,7 +87,7 @@ export async function listJournalSnapshots(): Promise<
      ORDER BY updated_at DESC`,
   );
   return rows
-    .map((row) => parseSnapshot<InstallerJournalSummary>(row))
+    .map((row) => parseSnapshot(row))
     .filter((item): item is InstallerJournalSummary => item !== null);
 }
 
@@ -98,10 +101,11 @@ export async function getJournalSnapshot(
        FROM installer_journal_snapshots WHERE id = ? LIMIT 1`,
       [journalId],
     )) ?? null;
-  const parsed = parseSnapshot<InstallerJournalDetails>(row);
-  return parsed &&
-    Array.isArray(parsed.doors) &&
-    Array.isArray(parsed.addon_items)
-    ? parsed
-    : null;
+  const parsed = parseSnapshot(row);
+  return isJournalDetails(parsed) ? parsed : null;
+}
+
+export async function removeJournalSnapshot(journalId: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync("DELETE FROM installer_journal_snapshots WHERE id = ?", [journalId]);
 }

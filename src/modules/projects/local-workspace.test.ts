@@ -10,6 +10,9 @@ const {
   listProjectAddonFactsMock,
   listPendingEventsMock,
   getSyncQueueSummaryMock,
+  readPricesMock,
+  assertContextMock,
+  guardMock,
 } = vi.hoisted(() => ({
   getProjectMock: vi.fn(),
   listProjectDoorsMock: vi.fn(),
@@ -20,6 +23,16 @@ const {
   listProjectAddonFactsMock: vi.fn(),
   listPendingEventsMock: vi.fn(),
   getSyncQueueSummaryMock: vi.fn(),
+  readPricesMock: vi.fn(),
+  assertContextMock: vi.fn(),
+  guardMock: vi.fn(),
+}));
+
+vi.mock("@/modules/prices/repository", () => ({ readFactoryPrices: readPricesMock }));
+vi.mock("@/lib/workspace-context", () => ({
+  captureWorkspaceContext: () => "account-a",
+  assertWorkspaceContext: assertContextMock,
+  withWorkspaceDatabase: guardMock,
 }));
 
 vi.mock("@/modules/projects/repository", () => ({
@@ -41,10 +54,13 @@ import {
   createEmptyLocalProjectWorkspace,
   loadLocalProjectWorkspace,
 } from "@/modules/projects/local-workspace";
+import { SessionChangedError } from "@/lib/errors";
 
 describe("local project workspace", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    guardMock.mockImplementation((_context, operation) => operation());
+    readPricesMock.mockResolvedValue(null);
     getProjectMock.mockResolvedValue({ id: "project-1", name: "Tower A" });
     listProjectDoorsMock.mockResolvedValue([
       { id: "door-1", project_id: "project-1" },
@@ -72,10 +88,38 @@ describe("local project workspace", () => {
     expect(workspace.project?.name).toBe("Tower A");
     expect(workspace.doors).toHaveLength(2);
     expect(workspace.queueSummary?.total).toBe(0);
+    expect(workspace.factoryPrices).toEqual({ status: "ready", snapshot: null });
+    expect(guardMock).toHaveBeenCalledWith("account-a", expect.any(Function));
+    expect(assertContextMock).toHaveBeenCalledWith("account-a");
     expect(getProjectMock).toHaveBeenCalledWith("project-1");
     expect(listProjectDoorsMock).toHaveBeenCalledWith("project-1");
     expect(listProjectIssuesMock).toHaveBeenCalledWith("project-1");
     expect(listPendingEventsMock).toHaveBeenCalledWith("project-1");
+  });
+
+  it("loads the confirmed price cache under the same account guard", async () => {
+    const snapshot = { price_list_id: "list-a", version: 1, currency: "ILS", items: [] };
+    readPricesMock.mockResolvedValue(snapshot);
+    await expect(loadLocalProjectWorkspace("project-1")).resolves.toMatchObject({
+      factoryPrices: { status: "ready", snapshot },
+    });
+  });
+
+  it("keeps the door workspace usable if only the price cache is damaged", async () => {
+    readPricesMock.mockRejectedValue(new Error("Invalid snapshot"));
+    await expect(loadLocalProjectWorkspace("project-1")).resolves.toMatchObject({
+      project: { id: "project-1" }, factoryPrices: { status: "unavailable", snapshot: null },
+    });
+  });
+
+  it("never publishes a snapshot after the active account changes", async () => {
+    assertContextMock.mockImplementation(() => { throw new SessionChangedError(); });
+    await expect(loadLocalProjectWorkspace("project-1")).rejects.toBeInstanceOf(SessionChangedError);
+  });
+
+  it("does not swallow a session change as a missing price", async () => {
+    readPricesMock.mockRejectedValue(new SessionChangedError());
+    await expect(loadLocalProjectWorkspace("project-1")).rejects.toBeInstanceOf(SessionChangedError);
   });
 
   it("does not publish a partial snapshot while one local query is pending", async () => {
@@ -118,6 +162,7 @@ describe("local project workspace", () => {
       addonFacts: [],
       pendingEvents: [],
       queueSummary: null,
+      factoryPrices: { status: "loading", snapshot: null },
     });
   });
 });

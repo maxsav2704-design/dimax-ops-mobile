@@ -19,6 +19,7 @@ import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useState } from "react";
 import { isFontBootstrapReady } from "@/lib/startup";
 import { installerTheme } from "@/lib/theme";
+import { MotionProvider, useReducedMotion } from "@/components/motion";
 import { resolveAuthRedirect } from "@/modules/auth/navigation";
 import { AppProviders, useAuth } from "@/providers/AppProviders";
 
@@ -26,6 +27,7 @@ SplashScreen.preventAutoHideAsync().catch(() => undefined);
 const FONT_LOAD_TIMEOUT_MS = 8000;
 
 function AppStack() {
+  const reducedMotion = useReducedMotion();
   const { loading, user } = useAuth();
   const router = useRouter();
   const rootNavigationState = useRootNavigationState();
@@ -51,7 +53,7 @@ function AppStack() {
       screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: installerTheme.background },
-        animation: "slide_from_right",
+        animation: reducedMotion ? "none" : "fade",
       }}
     >
       <Stack.Screen name="index" />
@@ -112,7 +114,7 @@ export default function RootLayout() {
 
   return (
     <AppProviders>
-      <AppStack />
+      <MotionProvider><AppStack /></MotionProvider>
     </AppProviders>
   );
 }

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, NetworkError } from "@/lib/errors";
 import { loadInstallerEarnings } from "@/modules/earnings/service";
 
@@ -8,7 +8,16 @@ const saveEarningsSnapshotMock = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+  getAuthSessionGeneration: () => 0,
 }));
+
+vi.mock("@/lib/db", () => {
+  const context = { ownerKey: "company:installer" };
+  return {
+    getDatabaseContext: () => context,
+    withDatabaseContext: async (_context: unknown, operation: () => Promise<unknown>) => operation(),
+  };
+});
 
 vi.mock("@/modules/earnings/repository", () => ({
   getEarningsSnapshot: (...args: unknown[]) => getEarningsSnapshotMock(...args),
@@ -17,10 +26,13 @@ vi.mock("@/modules/earnings/repository", () => ({
 
 describe("loadInstallerEarnings", () => {
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 2, 11, 12));
     apiFetchMock.mockReset();
     getEarningsSnapshotMock.mockReset();
     saveEarningsSnapshotMock.mockReset();
   });
+  afterEach(() => vi.useRealTimers());
 
   it("returns online snapshot when backend contract exists", async () => {
     const payload = {
@@ -37,7 +49,7 @@ describe("loadInstallerEarnings", () => {
 
     const result = await loadInstallerEarnings("month");
 
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/earnings/summary?period=month");
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/earnings/summary?period=month", { expectedAuthGeneration: 0 });
     expect(saveEarningsSnapshotMock).toHaveBeenCalledWith(payload);
     expect(result).toEqual({
       snapshot: payload,
@@ -76,6 +88,46 @@ describe("loadInstallerEarnings", () => {
     expect(result.snapshot?.install_types[0].quantity).toBe(1);
     expect(result.snapshot?.rows[0].quantity).toBe(1);
     expect(saveEarningsSnapshotMock).toHaveBeenCalledWith(result.snapshot);
+  });
+
+  it("preserves a cancellation debit and zero month total online and from cache", async () => {
+    const payload = {
+      period_key: "2026-09",
+      currency: "ILS",
+      today_total: "-300.00",
+      month_total: "0.00",
+      days: [
+        { date: "2026-09-10", amount: "300.00", jobs_count: 1 },
+        { date: "2026-09-11", amount: "-300.00", jobs_count: 1 },
+      ],
+      install_types: [],
+      rows: [{
+        id: "cancellation-row",
+        work_date: "2026-09-11",
+        project_id: "project-1",
+        project_name: "Project 1",
+        door_label: "A-101",
+        install_type_code: "DOOR",
+        install_type_label: "Entrance",
+        quantity: "1.00",
+        rate: "-300.00",
+        amount: "-300.00",
+      }],
+      generated_at: "2026-09-11T10:00:00Z",
+    };
+    apiFetchMock.mockResolvedValueOnce(payload);
+    const online = await loadInstallerEarnings("month", "2026-09-11");
+    expect(online.source).toBe("online");
+    expect(online.snapshot?.month_total).toBe("0.00");
+    expect(online.snapshot?.rows[0].amount).toBe("-300.00");
+    expect(saveEarningsSnapshotMock).toHaveBeenCalledWith(online.snapshot);
+
+    apiFetchMock.mockRejectedValueOnce(new NetworkError("Offline"));
+    getEarningsSnapshotMock.mockResolvedValueOnce(online.snapshot);
+    const offline = await loadInstallerEarnings("month", "2026-09-11");
+    expect(offline.source).toBe("cache");
+    expect(offline.snapshot).toEqual(online.snapshot);
+    expect(getEarningsSnapshotMock).toHaveBeenCalledWith("2026-09");
   });
 
   it("keeps fresh earnings when the offline snapshot cannot be saved", async () => {
@@ -117,7 +169,8 @@ describe("loadInstallerEarnings", () => {
     const result = await loadInstallerEarnings("month", "2026-03-11");
 
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/v1/installer/earnings/summary?period=month&date=2026-03-11"
+      "/api/v1/installer/earnings/summary?period=month&date=2026-03-11",
+      { expectedAuthGeneration: 0 },
     );
     expect(getEarningsSnapshotMock).toHaveBeenCalledWith("2026-03");
     expect(result.source).toBe("cache");
@@ -167,7 +220,8 @@ describe("loadInstallerEarnings", () => {
     const result = await loadInstallerEarnings("month", "2026-05-03");
 
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/v1/installer/earnings/summary?period=month&date=2026-05-03"
+      "/api/v1/installer/earnings/summary?period=month&date=2026-05-03",
+      { expectedAuthGeneration: 0 },
     );
     expect(result.source).toBe("online");
   });
@@ -179,7 +233,8 @@ describe("loadInstallerEarnings", () => {
     const result = await loadInstallerEarnings("month", "2026-05-03");
 
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/v1/installer/earnings/summary?period=month&date=2026-05-03"
+      "/api/v1/installer/earnings/summary?period=month&date=2026-05-03",
+      { expectedAuthGeneration: 0 },
     );
     expect(getEarningsSnapshotMock).toHaveBeenCalledWith("2026-05");
     expect(result).toEqual({
@@ -215,7 +270,7 @@ describe("loadInstallerEarnings", () => {
 
     const result = await loadInstallerEarnings();
 
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/earnings/summary?period=month");
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/earnings/summary?period=month", { expectedAuthGeneration: 0 });
     expect(result).toEqual({
       snapshot: null,
       source: "unavailable",
@@ -235,12 +290,48 @@ describe("loadInstallerEarnings", () => {
 
     const result = await loadInstallerEarnings();
 
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/earnings/summary?period=month");
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/earnings/summary?period=month", { expectedAuthGeneration: 0 });
     expect(saveEarningsSnapshotMock).not.toHaveBeenCalled();
     expect(result).toEqual({
       snapshot: null,
       source: "unavailable",
       message: "Mobile earnings view is waiting for the canonical backend summary shape.",
     });
+  });
+
+  const valid = () => ({ period_key: "2026-03", currency: "ILS", today_total: "0.00", month_total: "0.00", days: [], install_types: [], rows: [], generated_at: null });
+
+  it.each([
+    { period_key: "2026-02" }, { currency: "bad currency" }, { month_total: "10junk" },
+    { rows: [null] }, { days: [{ date: "2026-02-30", amount: "1.00", jobs_count: 1 }] },
+    { install_types: [{ code: "DOOR", label: "Door", amount: "NaN", quantity: 1 }] },
+  ])("rejects malformed calculations and keeps a valid cache: %j", async (change) => {
+    apiFetchMock.mockResolvedValue({ ...valid(), ...change });
+    getEarningsSnapshotMock.mockResolvedValue(valid());
+    const result = await loadInstallerEarnings();
+    expect(result.source).toBe("cache");
+    expect(saveEarningsSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a cache belonging to a different month", async () => {
+    apiFetchMock.mockRejectedValue(new NetworkError("offline"));
+    getEarningsSnapshotMock.mockResolvedValue({ ...valid(), period_key: "2026-02" });
+    expect((await loadInstallerEarnings()).snapshot).toBeNull();
+  });
+
+  it("does not forward impossible dates to the backend", async () => {
+    apiFetchMock.mockResolvedValue(valid());
+    await loadInstallerEarnings("month", "2026-02-30");
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/v1/installer/earnings/summary?period=month", { expectedAuthGeneration: 0 });
+  });
+
+  it("does not replace a fresh offline calculation with a late response", async () => {
+    let resolveOld!: (value: unknown) => void;
+    apiFetchMock.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve; }));
+    const old = loadInstallerEarnings();
+    apiFetchMock.mockResolvedValueOnce(valid());
+    await loadInstallerEarnings();
+    resolveOld(valid()); await old;
+    expect(saveEarningsSnapshotMock).toHaveBeenCalledTimes(1);
   });
 });

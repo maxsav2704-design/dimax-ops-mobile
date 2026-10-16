@@ -17,6 +17,21 @@ export type CachedAuthUser = {
   is_active: boolean;
 };
 
+export function isValidCachedInstaller(
+  session: SessionSnapshot | null,
+  user: CachedAuthUser | null,
+): user is CachedAuthUser {
+  return Boolean(
+    session && user &&
+    user.id.trim() &&
+    user.is_active &&
+    user.role === "INSTALLER" &&
+    user.company_id === session.companyId &&
+    session.email.trim() &&
+    user.email.trim().toLowerCase() === session.email.trim().toLowerCase(),
+  );
+}
+
 export async function getStoredSession(): Promise<SessionSnapshot | null> {
   const [accessToken, refreshToken, companyId, email] = await Promise.all([
     SecureStore.getItemAsync(AUTH_STORAGE_KEYS.accessToken),
@@ -32,8 +47,16 @@ export async function getStoredSession(): Promise<SessionSnapshot | null> {
   return { accessToken, refreshToken, companyId, email };
 }
 
+async function settleCredentialMutations(operations: Promise<void>[]): Promise<void> {
+  // A rejected operation must not release the auth queue while other writes run.
+  const results = await Promise.allSettled(operations);
+  for (const result of results) {
+    if (result.status === "rejected") throw result.reason;
+  }
+}
+
 export async function persistSession(session: SessionSnapshot): Promise<void> {
-  await Promise.all([
+  await settleCredentialMutations([
     SecureStore.setItemAsync(AUTH_STORAGE_KEYS.accessToken, session.accessToken),
     SecureStore.setItemAsync(AUTH_STORAGE_KEYS.refreshToken, session.refreshToken),
     SecureStore.setItemAsync(AUTH_STORAGE_KEYS.companyId, session.companyId),
@@ -70,7 +93,7 @@ export async function persistStoredUser(user: CachedAuthUser): Promise<void> {
 }
 
 export async function clearSession(): Promise<void> {
-  await Promise.all([
+  await settleCredentialMutations([
     SecureStore.deleteItemAsync(AUTH_STORAGE_KEYS.accessToken),
     SecureStore.deleteItemAsync(AUTH_STORAGE_KEYS.refreshToken),
     SecureStore.deleteItemAsync(AUTH_STORAGE_KEYS.companyId),

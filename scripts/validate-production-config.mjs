@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"]);
@@ -125,16 +126,22 @@ function validateAndroidManifest(projectRoot = process.cwd()) {
   if (!/android:name="android\.permission\.INTERNET"/u.test(main)) {
     errors.push("Android release manifest must allow internet access");
   }
-  for (const permission of ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "VIBRATE"]) {
-    const declaration = main.match(
+  const permissionDeclaration = (permission) =>
+    main.match(
       new RegExp(
         `<uses-permission\\b[^>]*android:name="android\\.permission\\.${permission}"[^>]*/?>`,
         "u",
       ),
     )?.[0];
-    if (!declaration?.includes('tools:node="remove"')) {
+  for (const permission of ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"]) {
+    if (!permissionDeclaration(permission)?.includes('tools:node="remove"')) {
       errors.push(`Android release manifest must remove inherited ${permission}`);
     }
+  }
+  // expo-haptics vibrates through the inherited VIBRATE permission (approved 2026-10-15);
+  // removing it turns haptic feedback into a silent no-op on Android.
+  if (permissionDeclaration("VIBRATE")?.includes('tools:node="remove"')) {
+    errors.push("Android release manifest must keep inherited VIBRATE for haptic feedback");
   }
   if (main.includes("android.permission.SYSTEM_ALERT_WINDOW")) {
     errors.push("Android release manifest must not request SYSTEM_ALERT_WINDOW");
@@ -142,8 +149,9 @@ function validateAndroidManifest(projectRoot = process.cwd()) {
   if (!/android:allowBackup="false"/u.test(main)) {
     errors.push("Android release manifest must disable backup for the offline work database");
   }
-  const schemeMatches = main.match(/android:scheme="dimax-installer"/gu) || [];
-  if (schemeMatches.length !== 1) {
+  const schemeMatches = main.match(/android:scheme="\$\{dimaxScheme\}"/gu) || [];
+  const gradle = fs.readFileSync(path.join(projectRoot, "android", "app", "build.gradle"), "utf8");
+  if (schemeMatches.length !== 1 || !gradle.includes("manifestPlaceholders = [dimaxScheme: 'dimax-installer']")) {
     errors.push("Android release manifest must declare the DIMAX deep-link scheme exactly once");
   }
 
@@ -199,8 +207,39 @@ function runSelfTest() {
   if (androidErrors.length > 0) {
     throw new Error(`Android production contract failed: ${androidErrors.join("; ")}`);
   }
+  // Negative case: a manifest that strips VIBRATE again must fail the contract.
+  const mainManifest = fs.readFileSync(
+    path.join(process.cwd(), "android", "app", "src", "main", "AndroidManifest.xml"),
+    "utf8",
+  );
+  const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "dimax-manifest-contract-"));
+  try {
+    const sandboxMain = path.join(sandbox, "android", "app", "src", "main");
+    const sandboxDebug = path.join(sandbox, "android", "app", "src", "debug");
+    fs.mkdirSync(sandboxMain, { recursive: true });
+    fs.mkdirSync(sandboxDebug, { recursive: true });
+    fs.writeFileSync(
+      path.join(sandboxMain, "AndroidManifest.xml"),
+      mainManifest.replace(
+        '<uses-permission android:name="android.permission.INTERNET"/>',
+        '<uses-permission android:name="android.permission.INTERNET"/>\n  <uses-permission android:name="android.permission.VIBRATE" tools:node="remove"/>',
+      ),
+    );
+    fs.copyFileSync(
+      path.join(process.cwd(), "android", "app", "src", "debug", "AndroidManifest.xml"),
+      path.join(sandboxDebug, "AndroidManifest.xml"),
+    );
+    fs.copyFileSync(path.join(process.cwd(), "android", "app", "build.gradle"),
+      path.join(sandbox, "android", "app", "build.gradle"));
+    const strippedErrors = validateAndroidManifest(sandbox);
+    if (!strippedErrors.some((error) => error.includes("keep inherited VIBRATE"))) {
+      throw new Error("Android manifest self-test failed: stripping VIBRATE must be rejected");
+    }
+  } finally {
+    fs.rmSync(sandbox, { recursive: true, force: true });
+  }
   console.log(
-    `Mobile production contract passed (${cases.length} API cases + Android network/manifest policy).`,
+    `Mobile production contract passed (${cases.length} API cases + Android network/manifest policy, VIBRATE negative case).`,
   );
 }
 
@@ -221,6 +260,8 @@ function main() {
   }
 
   const errors = [
+    ...(values.EXPO_PUBLIC_BUILD_PROFILE && values.EXPO_PUBLIC_BUILD_PROFILE !== "production"
+      ? ["Production config cannot use a test build profile"] : []),
     ...validateApiBaseUrl(values.EXPO_PUBLIC_API_BASE_URL),
     ...validateAndroidNetworkSecurity(),
     ...validateAndroidManifest(),

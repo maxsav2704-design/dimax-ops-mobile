@@ -1,0 +1,389 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PendingSyncEvent, SyncResponse, SyncSnapshot } from "./types";
+
+const { apiFetchMock, dbRef, setStateMock } = vi.hoisted(() => ({
+  apiFetchMock: vi.fn(),
+  dbRef: { current: null as any },
+  setStateMock: vi.fn(),
+}));
+
+vi.mock("@/lib/api", () => ({ apiFetch: apiFetchMock, getAuthSessionGeneration: () => 0 }));
+vi.mock("@/lib/device-id", () => ({ getOrCreateDeviceId: async () => "reset-test-device" }));
+vi.mock("@/lib/db", () => ({
+  getDb: async () => dbRef.current,
+  getDatabaseContext: () => dbRef.current,
+  withDatabaseContext: async (_context: unknown, operation: () => Promise<unknown>) => operation(),
+  getState: async () => "1",
+  initDb: async () => undefined,
+  setState: setStateMock,
+}));
+
+import { dropPendingEvent, retryPendingEventNow, runSync } from "./service";
+
+type QueueRow = Omit<PendingSyncEvent, "payload"> & { payload_json: string };
+
+function queuedEvent(
+  id: string,
+  type: PendingSyncEvent["type"],
+  payload: Record<string, unknown>,
+  overrides: Partial<QueueRow> = {},
+): QueueRow {
+  return {
+    client_event_id: id,
+    type,
+    project_id: "project-1",
+    payload_json: JSON.stringify(payload),
+    happened_at: "2026-09-11T10:00:00Z",
+    created_at: "2026-09-11T10:00:00Z",
+    status: "PENDING",
+    error: null,
+    attempts: 0,
+    next_retry_at: null,
+    last_attempt_at: null,
+    ...overrides,
+  };
+}
+
+function snapshot(): SyncSnapshot {
+  return {
+    projects: [{
+      id: "project-1", name: "Synthetic tower", address: null, status: "OK",
+      lifecycle_status: "ACTIVE", health_status: "NORMAL", waze_url: null,
+    }],
+    doors: [{
+      id: "door-1", project_id: "project-1", door_type_id: "type-1", unit_label: "101",
+      order_number: null, house_number: null, floor_label: "1", apartment_number: "101",
+      location_code: null, door_marking: null, status: "PENDING", reason_id: null,
+      comment: null, is_locked: false, version: 2,
+    }],
+    door_types: [{ id: "type-1", code: "entrance", name: "Entrance" }],
+    reasons: [],
+    addon_types: [{ id: "addon-1", name: "Extra frame", unit: "unit" }],
+    addon_plans: [], addon_facts: [], issues: [],
+  };
+}
+
+function arrangeReset(sent: QueueRow[], remaining: QueueRow[], state = snapshot()) {
+  const response: SyncResponse = {
+    reset_required: true, snapshot: state, acks: [], changes: [],
+    next_cursor: 50, server_time: "2026-09-11T10:01:00Z",
+  };
+  dbRef.current.getAllAsync.mockResolvedValueOnce(sent).mockResolvedValue(remaining);
+  dbRef.current.getFirstAsync.mockImplementation(async (sql: string, params: unknown[]) => {
+    if (sql.includes("FROM doors")) {
+      const door = state.doors.find((item) => item.id === params[0]);
+      return door ? { ...door, is_locked: door.is_locked ? 1 : 0 } : null;
+    }
+    if (sql.includes("FROM pending_events")) {
+      return [...sent, ...remaining].find((item) => item.client_event_id === params[0]) ?? null;
+    }
+    return null;
+  });
+  apiFetchMock.mockResolvedValue(response);
+  return response;
+}
+
+function writes(fragment: string): Array<[string, unknown[]]> {
+  return dbRef.current.runAsync.mock.calls.filter(([sql]: [string]) => sql.includes(fragment));
+}
+
+describe("cold resync preserves the complete unresolved outbox", () => {
+  it("refreshes the price cache without altering blocked work evidence", async () => {
+    const event = queuedEvent("price-conflict", "DOOR_SET_STATUS", {
+      door_id: "door-1", status: "INSTALLED", previous_version: 2,
+      price_list_id: "00000000-0000-0000-0000-000000000001",
+    }, { status: "BLOCKED", error: "CONFLICT_FACTORY_PRICE" });
+    const original = JSON.stringify(event);
+    const response = arrangeReset([], [event]);
+    response.factory_prices = {
+      price_list_id: "00000000-0000-0000-0000-000000000002", version: 2,
+      currency: "ILS", effective_from: "2026-09-11T10:01:00Z", items: [],
+    };
+    await runSync({ includeEvents: false });
+    expect(JSON.stringify(event)).toBe(original);
+    expect(writes("DELETE FROM pending_events")).toEqual([]);
+    expect(writes("SET payload_json")).toEqual([]);
+    expect(setStateMock).toHaveBeenCalledWith("factory_prices_v1", JSON.stringify(response.factory_prices));
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    dbRef.current = {
+      getAllAsync: vi.fn().mockResolvedValue([]),
+      getFirstAsync: vi.fn().mockResolvedValue(null),
+      runAsync: vi.fn().mockResolvedValue(undefined),
+      withTransactionAsync: vi.fn(async (operation: () => Promise<void>) => operation()),
+    };
+  });
+
+  it("restores a failed door update even while its retry backoff prevents sending", async () => {
+    const event = queuedEvent("delayed-door", "DOOR_SET_STATUS", {
+      door_id: "door-1", status: "INSTALLED", previous_version: 2,
+    }, { status: "FAILED", attempts: 2, next_retry_at: "2099-01-01T00:00:00Z" });
+    arrangeReset([], [event]);
+
+    await runSync();
+
+    expect(JSON.parse(apiFetchMock.mock.calls[0][1].body).events).toEqual([]);
+    expect(writes("UPDATE doors").map(([, params]) => [params[0], params[4], params[6]]))
+      .toEqual([["INSTALLED", 3, "door-1"]]);
+    expect(writes("DELETE FROM pending_events")).toEqual([]);
+    expect(writes("SET status = 'FAILED'")).toEqual([]);
+  });
+
+  it("restores entries beyond the 500-event send batch without sending them early", async () => {
+    const events = Array.from({ length: 501 }, (_, index) => queuedEvent(`addon-${index}`, "ADDON_FACT_CREATE", {
+      addon_type_id: "addon-1", qty_done: "1.00",
+    }));
+    arrangeReset(events.slice(0, 500), events);
+
+    await runSync();
+
+    expect(JSON.parse(apiFetchMock.mock.calls[0][1].body).events).toHaveLength(500);
+    expect(writes("INSERT INTO addon_facts")).toHaveLength(501);
+    expect(writes("DELETE FROM pending_events")).toEqual([]);
+  });
+
+  it("restores work added while the sync request was in flight", async () => {
+    const newEvent = queuedEvent("new-issue", "ISSUE_CREATE", {
+      door_id: "door-1", title: "Damaged frame",
+    });
+    const response = arrangeReset([], []);
+    apiFetchMock.mockImplementationOnce(async () => {
+      dbRef.current.getAllAsync.mockResolvedValue([newEvent]);
+      return response;
+    });
+
+    await runSync();
+
+    expect(JSON.parse(apiFetchMock.mock.calls[0][1].body).events).toEqual([]);
+    expect(writes("INSERT INTO issues").map(([, params]) => params[0])).toEqual(["local:new-issue"]);
+    expect(writes("DELETE FROM pending_events")).toEqual([]);
+  });
+
+  it("does not recreate optimistic work explicitly removed while awaiting the response", async () => {
+    const event = queuedEvent("removed-addon", "ADDON_FACT_CREATE", { addon_type_id: "addon-1", qty_done: "1" });
+    arrangeReset([event], []);
+
+    await runSync();
+
+    expect(writes("INSERT INTO addon_facts")).toEqual([]);
+  });
+
+  it("does not restore blocked events or silently delete their payloads", async () => {
+    const event = queuedEvent("blocked-addon", "ADDON_FACT_CREATE", {
+      addon_type_id: "addon-1", qty_done: "1",
+    }, { status: "BLOCKED", error: "CONFLICT_ASSIGNMENT_CHANGED" });
+    arrangeReset([], [event]);
+
+    await runSync();
+
+    expect(writes("INSERT INTO addon_facts")).toEqual([]);
+    expect(writes("DELETE FROM pending_events")).toEqual([]);
+  });
+
+  it("preserves the server door state when an event is rejected in the reset response", async () => {
+    const state = snapshot();
+    state.doors[0] = { ...state.doors[0], status: "NOT_INSTALLED", reason_id: "reason-current", version: 7 };
+    const event = queuedEvent("rejected-door", "DOOR_SET_STATUS", {
+      door_id: "door-1", status: "INSTALLED", previous_status: "PENDING", previous_version: 2,
+    });
+    const response = arrangeReset([event], [{ ...event, status: "BLOCKED" }], state);
+    response.acks = [{ client_event_id: event.client_event_id, ok: false, applied: false, error: "CONFLICT_INVALID_TRANSITION" }];
+
+    await runSync();
+
+    expect(writes("INSERT INTO doors")[0][1][10]).toBe("NOT_INSTALLED");
+    expect(writes("UPDATE doors")).toEqual([]);
+    expect(writes("DELETE FROM pending_events")).toEqual([]);
+    expect(writes("SET status = 'BLOCKED'")).toEqual([
+      [expect.any(String), ["CONFLICT_INVALID_TRANSITION", "rejected-door"]],
+    ]);
+  });
+
+  it("keeps accepted work only in the server snapshot instead of recreating a local copy", async () => {
+    const event = queuedEvent("accepted-addon", "ADDON_FACT_CREATE", { addon_type_id: "addon-1", qty_done: "1" });
+    const state = snapshot();
+    state.addon_facts = [{
+      id: "server-fact", project_id: "project-1", addon_type_id: "addon-1", installer_id: "installer-1",
+      qty_done: "1.00", done_at: event.happened_at!, comment: null, source: "OFFLINE",
+    }];
+    const response = arrangeReset([event], [], state);
+    response.acks = [{ client_event_id: event.client_event_id, ok: true, applied: true, error: null }];
+
+    await runSync();
+
+    expect(writes("INSERT INTO addon_facts").map(([, params]) => params[0])).toEqual(["server-fact"]);
+    expect(writes("DELETE FROM pending_events")).toEqual([[expect.any(String), ["accepted-addon"]]]);
+  });
+
+  it.each(["snapshot", "delta"])("preserves same-version server installation on %s rejection", async (transport) => {
+    const state = snapshot();
+    state.doors[0] = { ...state.doors[0], status: "INSTALLED", is_locked: true, version: 3 };
+    const event = {
+      ...queuedEvent("conflicting-install", "DOOR_SET_STATUS", {
+        door_id: "door-1", status: "INSTALLED", previous_status: "PENDING", previous_version: 2,
+      }),
+      server_state_received: 0,
+    };
+    const originalPayload = event.payload_json;
+    const response = arrangeReset([event], [], state);
+    response.acks = [{ client_event_id: event.client_event_id, ok: false, applied: false, error: "CONFLICT_INVALID_TRANSITION" }];
+    if (transport === "delta") {
+      response.reset_required = false;
+      response.snapshot = null;
+      response.changes = [{
+        cursor_id: 50, change_type: "DOOR", payload: state.doors[0],
+      }];
+    }
+    dbRef.current.runAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes("SET server_state_received = 1")) event.server_state_received = 1;
+    });
+
+    await runSync();
+    await dropPendingEvent(event.client_event_id);
+
+    expect(writes("UPDATE doors")).toEqual([]);
+    expect(event.payload_json).toBe(originalPayload);
+    expect(writes("SET status = 'BLOCKED'")).toHaveLength(1);
+    expect(writes("DELETE FROM pending_events")).toEqual([[expect.any(String), [event.client_event_id]]]);
+  });
+
+  it("retries a same-version server installation without modifying its state", async () => {
+    const state = snapshot();
+    state.doors[0] = { ...state.doors[0], status: "INSTALLED", is_locked: true, version: 3 };
+    const event = {
+      ...queuedEvent("awaiting-ack", "DOOR_SET_STATUS", {
+        door_id: "door-1", status: "INSTALLED", previous_status: "PENDING", previous_version: 2,
+      }, { status: "FAILED" }),
+      server_state_received: 1,
+    };
+    arrangeReset([event], [], state);
+
+    await retryPendingEventNow(event.client_event_id);
+
+    expect(writes("UPDATE doors")).toEqual([]);
+    expect(writes("SET status = 'PENDING'")).toHaveLength(1);
+    expect(writes("DELETE FROM pending_events")).toEqual([]);
+  });
+
+  it("can discard its own optimistic update reapplied after reset", async () => {
+    const event = {
+      ...queuedEvent("reapplied-install", "DOOR_SET_STATUS", {
+        door_id: "door-1", status: "INSTALLED", previous_status: "PENDING", previous_version: 2,
+      }),
+      server_state_received: 0,
+    };
+    arrangeReset([event], [event]);
+    dbRef.current.runAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes("SET server_state_received = 1")) event.server_state_received = 1;
+      if (sql.includes("SET server_state_received = 0")) event.server_state_received = 0;
+    });
+
+    await runSync();
+    expect(event.server_state_received).toBe(0);
+    await dropPendingEvent(event.client_event_id);
+
+    expect(writes("UPDATE doors").map(([, params]) => [params[0], params[4]]))
+      .toEqual([["INSTALLED", 3], ["PENDING", 2]]);
+    expect(writes("DELETE FROM pending_events")).toHaveLength(1);
+  });
+
+  it("keeps the original event and server state until a duplicate ACK arrives", async () => {
+    const state = snapshot();
+    state.doors[0] = { ...state.doors[0], status: "INSTALLED", is_locked: true, version: 3 };
+    const event = {
+      ...queuedEvent("lost-ack", "DOOR_SET_STATUS", {
+        door_id: "door-1", status: "INSTALLED", previous_status: "PENDING", previous_version: 2,
+      }),
+      server_state_received: 0,
+    };
+    const response = arrangeReset([event], [event], state);
+    dbRef.current.runAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes("SET server_state_received = 1")) event.server_state_received = 1;
+    });
+
+    await runSync();
+    const firstRequest = JSON.parse(apiFetchMock.mock.calls[0][1].body);
+    expect(event.server_state_received).toBe(1);
+    expect(writes("DELETE FROM pending_events")).toEqual([]);
+    await retryPendingEventNow(event.client_event_id);
+    response.reset_required = false;
+    response.snapshot = null;
+    response.acks = [{ client_event_id: event.client_event_id, ok: true, applied: false, error: null }];
+    await runSync({ forceRetry: true });
+
+    expect(JSON.parse(apiFetchMock.mock.calls[1][1].body).events).toEqual(firstRequest.events);
+    expect(firstRequest.events[0]).not.toHaveProperty("server_state_received");
+    expect(writes("UPDATE doors")).toEqual([]);
+    expect(writes("DELETE FROM pending_events")).toEqual([[expect.any(String), [event.client_event_id]]]);
+  });
+
+  it.each([
+    ["ADDON_FACT_CREATE", { addon_type_id: "addon-1", qty_done: "1" }, "INSERT INTO addon_facts"],
+    ["ISSUE_CREATE", { door_id: "removed-door", title: "Frame issue" }, "INSERT INTO issues"],
+    ["DOOR_SET_STATUS", { door_id: "removed-door", status: "INSTALLED" }, "UPDATE doors"],
+  ] as const)("blocks %s outside the snapshot assignment without erasing the queued work", async (type, payload, sql) => {
+    const state = snapshot();
+    const event = queuedEvent("revoked-event", type, payload, {
+      project_id: type === "ADDON_FACT_CREATE" ? "removed-project" : "project-1",
+    });
+    arrangeReset([event], [event], state);
+
+    await runSync();
+
+    expect(writes(sql)).toEqual([]);
+    expect(writes("SET status = 'BLOCKED'")).toEqual([
+      [expect.any(String), ["CONFLICT_ASSIGNMENT_CHANGED", "revoked-event"]],
+    ]);
+    expect(writes("DELETE FROM pending_events")).toEqual([]);
+  });
+
+  it("does not recreate an issue when its door belongs to another project", async () => {
+    const state = snapshot();
+    state.doors[0].project_id = "different-project";
+    const event = queuedEvent("moved-issue", "ISSUE_CREATE", { door_id: "door-1", title: "Frame issue" });
+    arrangeReset([event], [event], state);
+
+    await runSync();
+
+    expect(writes("INSERT INTO issues")).toEqual([]);
+    expect(writes("SET status = 'BLOCKED'")).toEqual([
+      [expect.any(String), ["CONFLICT_ASSIGNMENT_CHANGED", "moved-issue"]],
+    ]);
+  });
+
+  it.each([true, false])("does not overwrite newer server door data (locked=%s)", async (locked) => {
+    const state = snapshot();
+    state.doors[0] = { ...state.doors[0], is_locked: locked, version: 7 };
+    const event = queuedEvent("stale-door", "DOOR_SET_STATUS", {
+      door_id: "door-1", status: "INSTALLED", previous_version: 2,
+    });
+    arrangeReset([event], [event], state);
+
+    await runSync();
+
+    expect(writes("UPDATE doors")).toEqual([]);
+    expect(writes("DELETE FROM pending_events")).toEqual([]);
+  });
+
+  it.each(["discard", "retry"])("preserves a newer server version on a later manual %s", async (action) => {
+    const state = snapshot();
+    state.doors[0].version = 7;
+    const event = queuedEvent("stale-door", "DOOR_SET_STATUS", {
+      door_id: "door-1", status: "INSTALLED", previous_status: "PENDING", previous_version: 2,
+    });
+    arrangeReset([], [event], state);
+
+    if (action === "discard") {
+      await dropPendingEvent(event.client_event_id);
+      expect(writes("DELETE FROM pending_events")).toEqual([[expect.any(String), ["stale-door"]]]);
+    } else {
+      await retryPendingEventNow(event.client_event_id);
+      expect(writes("SET status = 'PENDING'")).toEqual([]);
+      expect(writes("DELETE FROM pending_events")).toEqual([]);
+    }
+
+    expect(writes("UPDATE doors")).toEqual([]);
+  });
+});

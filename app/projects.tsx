@@ -1,32 +1,38 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Image, Pressable, ScrollView, StatusBar, StyleSheet, View } from "react-native";
+import { useFocusEffect, useRouter } from "expo-router";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Image, ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
+import { DirectionalChevron } from "@/components/directional-chevron";
+import { SkeletonList } from "@/components/skeleton";
+import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
+import { Reveal } from "@/components/motion";
 import {
   ActionButton,
+  AnimatedNumber,
   BrandText as Text,
+  BrandMark,
+  EmptyState,
   IconButton,
   ProgressRing,
-  ScreenHero,
   SectionCard,
   SectionHeader,
+  SegmentedControl,
   StatusPill,
 } from "@/components/mobile-ui";
 import { currentLocalDateKey } from "@/lib/date-key";
 import { translateEnum } from "@/lib/i18n";
 import { installerTheme, toneColors } from "@/lib/theme";
 import { loadInstallerCalendar } from "@/modules/calendar/service";
+import { calendarEventDay, compareCalendarEvents } from "@/modules/calendar/presentation";
 import type { InstallerCalendarViewModel } from "@/modules/calendar/types";
-import { loadInstallerEarnings } from "@/modules/earnings/service";
-import type { InstallerEarningsViewModel } from "@/modules/earnings/types";
 import { openProjectExternalAction } from "@/modules/projects/external-actions";
+import { buildSyncStatusPresentation } from "@/modules/sync/presentation";
 import {
   buildDashboardPrimaryAction,
-  buildIssueProjectRoute,
   buildProjectRoute,
 } from "@/modules/projects/navigation";
 import { listProjectDoors, listProjectIssues, listProjects } from "@/modules/projects/repository";
@@ -48,7 +54,17 @@ type ProjectSummary = {
   remaining: number;
 };
 
-type IconName = React.ComponentProps<typeof Ionicons>["name"];
+type HomeSnapshot = {
+  projects: ProjectListItem[];
+  summaries: Record<string, ProjectSummary>;
+  lastSyncAt: string | null;
+  queue: SyncQueueSummary | null;
+  calendar: InstallerCalendarViewModel;
+};
+const EMPTY_HOME: HomeSnapshot = {
+  projects: [], summaries: {}, lastSyncAt: null, queue: null,
+  calendar: { snapshot: null, source: "unavailable", message: null },
+};
 
 function projectTone(status: string, issues: number) {
   if (issues > 0 || status.toUpperCase() === "PROBLEM") return "danger" as const;
@@ -60,28 +76,8 @@ function LegendRow({ color, label, value }: { color: string; label: string; valu
   return (
     <View style={styles.legendRow}>
       <View style={[styles.legendDot, { backgroundColor: color }]} />
-      <Text style={styles.legendLabel} numberOfLines={1}>{label}</Text>
+      <Text style={styles.legendLabel}>{label}</Text>
       <Text style={[styles.legendValue, { color }]}>{value}</Text>
-    </View>
-  );
-}
-
-function SummaryTile({
-  icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: IconName;
-  label: string;
-  value: number;
-  tone: string;
-}) {
-  return (
-    <View style={styles.summaryTile}>
-      <Ionicons name={icon} size={16} color={tone} />
-      <Text style={styles.summaryValue}>{value}</Text>
-      <Text style={styles.summaryLabel} numberOfLines={1}>{label}</Text>
     </View>
   );
 }
@@ -89,19 +85,29 @@ function SummaryTile({
 export default function ProjectsScreen() {
   const router = useRouter();
   const { user, syncVersion } = useAuth();
-  const { locale } = useI18n();
-  const [projects, setProjects] = useState<ProjectListItem[]>([]);
-  const [summaries, setSummaries] = useState<Record<string, ProjectSummary>>({});
-  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
-  const [queue, setQueue] = useState<SyncQueueSummary | null>(null);
-  const [calendar, setCalendar] = useState<InstallerCalendarViewModel>({ snapshot: null, source: "unavailable", message: null });
-  const [earnings, setEarnings] = useState<InstallerEarningsViewModel>({ snapshot: null, source: "unavailable", message: null });
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [offlineNotice, setOfflineNotice] = useState<string | null>(null);
-  const assignmentRecoveryStarted = useRef(false);
+  const { locale, isRTL } = useI18n();
+  const identity = `${user?.company_id || ""}:${user?.id || ""}`;
+  const activeIdentity = useRef(identity);
+  activeIdentity.current = identity;
+  const [loaded, setLoaded] = useState<{ identity: string; value: HomeSnapshot } | null>(null);
+  const hasData = loaded?.identity === identity;
+  const { projects, summaries, lastSyncAt, queue, calendar } = hasData ? loaded.value : EMPTY_HOME;
+  const [loading, setLoading] = useState(true);
+  const [busyIdentity, setBusyIdentity] = useState<string | null>(null);
+  const busy = busyIdentity === identity;
+  const syncLock = useRef<string | null>(null);
+  const loadRevision = useRef(0);
+  const focused = useRef(false);
+  const [notice, setNotice] = useState<{ identity: string; error: string | null; offline: string | null } | null>(null);
+  const error = notice?.identity === identity ? notice.error : null;
+  const offlineNotice = notice?.identity === identity ? notice.offline : null;
+  const assignmentRecoveryStarted = useRef<string | null>(null);
+  const [view, setView] = useState<"TODAY" | "PROJECTS">("TODAY");
+  const [search, setSearch] = useState("");
+  const [projectFilter, setProjectFilter] = useState<"ALL" | "REMAINING" | "ISSUES">("ALL");
+  const [showProgress, setShowProgress] = useState(false);
 
-  const lt = (en: string, ru: string, he: string) => (locale === "ru" ? ru : locale === "he" ? he : en);
+  const lt = useCallback((en: string, ru: string, he: string) => (locale === "ru" ? ru : locale === "he" ? he : en), [locale]);
   const intlLocale = locale === "ru" ? "ru-RU" : locale === "he" ? "he-IL" : "en-GB";
   const formatSyncTime = (value: string) =>
     new Intl.DateTimeFormat(intlLocale, {
@@ -113,51 +119,62 @@ export default function ProjectsScreen() {
   const formatEventTime = (value: string) =>
     new Intl.DateTimeFormat(intlLocale, { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 
-  const reload = async () => {
-    const [projectRows, syncAt, queueRow, calendarRow, earningsRow] = await Promise.all([
-      listProjects(),
-      getLastSyncAt(),
-      getSyncQueueSummary(),
-      loadInstallerCalendar("7d"),
-      loadInstallerEarnings("month", currentLocalDateKey()),
-    ]);
-    const summaryRows = await Promise.all(
-      projectRows.map(async (project) => {
-        const [doors, issues] = await Promise.all([
-          listProjectDoors(project.id),
-          listProjectIssues(project.id),
-        ]);
-        const installed = doors.filter((door) => door.status === "INSTALLED").length;
-        return [
-          project.id,
-          {
-            total: doors.length,
-            installed,
-            issues: issues.filter((issue) => issue.status !== "CLOSED").length,
-            remaining: Math.max(doors.length - installed, 0),
-          },
-        ] as const;
-      })
-    );
-    setProjects(projectRows);
-    setSummaries(Object.fromEntries(summaryRows));
-    setLastSyncAt(syncAt);
-    setQueue(queueRow);
-    setCalendar(calendarRow);
-    setEarnings(earningsRow);
-  };
+  const reload = useCallback(async () => {
+    const revision = ++loadRevision.current;
+    setLoading(true);
+    try {
+      const [projectRows, syncAt, queueRow, calendarRow] = await Promise.all([
+        listProjects(),
+        getLastSyncAt(),
+        getSyncQueueSummary(),
+        loadInstallerCalendar("7d"),
+      ]);
+      const summaryRows = await Promise.all(
+        projectRows.map(async (project) => {
+          const [doors, issues] = await Promise.all([
+            listProjectDoors(project.id),
+            listProjectIssues(project.id),
+          ]);
+          const installed = doors.filter((door) => door.status === "INSTALLED").length;
+          return [
+            project.id,
+            {
+              total: doors.length,
+              installed,
+              issues: issues.filter((issue) => issue.status !== "CLOSED").length,
+              remaining: Math.max(doors.length - installed, 0),
+            },
+          ] as const;
+        })
+      );
+      if (revision !== loadRevision.current || activeIdentity.current !== identity || !focused.current) return;
+      setLoaded({ identity, value: { projects: projectRows, summaries: Object.fromEntries(summaryRows), lastSyncAt: syncAt, queue: queueRow, calendar: calendarRow } });
+      setNotice((current) => current?.identity === identity ? { ...current, error: null } : null);
+    } catch (reason) {
+      if (revision === loadRevision.current && activeIdentity.current === identity && focused.current) throw reason;
+    } finally {
+      if (revision === loadRevision.current && activeIdentity.current === identity) setLoading(false);
+    }
+  }, [identity]);
 
-  useEffect(() => {
-    void reload().then(() => {
-      setError(null);
-      setOfflineNotice(null);
-    }).catch((reason) => {
-      setError(reason instanceof Error ? reason.message : lt("Unable to load projects", "Не удалось загрузить проекты", "לא ניתן לטעון פרויקטים"));
-    });
-  }, [syncVersion]);
+  const loadScreen = useCallback(async () => {
+    try { await reload(); }
+    catch (reason) {
+      if (activeIdentity.current === identity && focused.current) setNotice({ identity, offline: null, error: reason instanceof Error ? reason.message : lt("Unable to load projects", "Не удалось загрузить проекты", "לא ניתן לטעון פרויקטים") });
+    }
+  }, [identity, lt, reload]);
+
+  useFocusEffect(useCallback(() => {
+    focused.current = true;
+    void loadScreen();
+    return () => { focused.current = false; loadRevision.current += 1; };
+  }, [loadScreen, syncVersion]));
+
+  useEffect(() => { setSearch(""); setProjectFilter("ALL"); }, [identity]);
 
   const refreshAssignedProjects = async () => {
     let queueBeforeRefresh = await getSyncQueueSummary();
+    if (activeIdentity.current !== identity) return;
     if (
       queueBeforeRefresh.pending > 0 ||
       queueBeforeRefresh.failed > 0 ||
@@ -170,34 +187,34 @@ export default function ProjectsScreen() {
       }
       queueBeforeRefresh = await getSyncQueueSummary();
     }
+    if (activeIdentity.current !== identity) return;
     if (
       queueBeforeRefresh.pending > 0 ||
       queueBeforeRefresh.failed > 0 ||
       queueBeforeRefresh.ready_to_send > 0
     ) {
       throw new Error(
-        "Sync queued work before refreshing assigned projects."
+        lt("Sync queued work before refreshing assigned projects.", "Сначала синхронизируйте работы из очереди.", "יש לסנכרן את העבודות שבתור לפני רענון הפרויקטים.")
       );
     }
-    const response = await forceColdResync();
+    await forceColdResync();
+    if (activeIdentity.current !== identity) return;
     await reload();
-    setLastSyncAt(response.server_time);
   };
 
   const showSyncFailure = async (reason: unknown) => {
     const cachedProjectCount = (await listProjects()).length;
+    if (activeIdentity.current !== identity || !focused.current) return;
     if (canUseProjectCacheAfterSyncFailure(reason, cachedProjectCount)) {
-      setError(null);
-      setOfflineNotice(lt(
+      setNotice({ identity, error: null, offline: lt(
         "Offline mode. Showing saved assignments from this phone.",
         "Работа офлайн. Показаны сохранённые задания с этого телефона.",
         "מצב לא מקוון. מוצגות המשימות השמורות בטלפון.",
-      ));
+      ) });
       return;
     }
 
-    setOfflineNotice(null);
-    setError(reason instanceof Error ? reason.message : lt("Sync failed", "Ошибка синхронизации", "הסנכרון נכשל"));
+    setNotice({ identity, offline: null, error: reason instanceof Error ? reason.message : lt("Sync failed", "Ошибка синхронизации", "הסנכרון נכשל") });
   };
 
   useEffect(() => {
@@ -207,7 +224,7 @@ export default function ProjectsScreen() {
       busy ||
       syncVersion === 0 ||
       projects.length > 0 ||
-      assignmentRecoveryStarted.current
+      assignmentRecoveryStarted.current === identity || !focused.current || loading
     ) {
       return;
     }
@@ -215,43 +232,39 @@ export default function ProjectsScreen() {
       return;
     }
 
-    assignmentRecoveryStarted.current = true;
-    void (async () => {
-      setBusy(true);
-      setError(null);
-      setOfflineNotice(null);
-      try {
-        await refreshAssignedProjects();
-      } catch (reason) {
-        await showSyncFailure(reason);
-      } finally {
-        setBusy(false);
-      }
-    })();
-  }, [busy, projects.length, queue, syncVersion, user]);
+    assignmentRecoveryStarted.current = identity;
+    void syncNow(true);
+  }, [busy, identity, loading, projects.length, queue, syncVersion, user]);
 
   const syncNow = async (bootstrap = false) => {
-    setBusy(true);
-    setError(null);
-    setOfflineNotice(null);
+    if (syncLock.current === identity) return;
+    syncLock.current = identity;
+    setBusyIdentity(identity);
+    setNotice(null);
     try {
       if (bootstrap) {
         await refreshAssignedProjects();
         return;
       }
-      const response = await runSync({ forceRetry: true });
+      await runSync({ forceRetry: true });
+      if (activeIdentity.current !== identity) return;
       await reload();
-      setLastSyncAt(response.server_time);
     } catch (reason) {
-      await showSyncFailure(reason);
+      try { await showSyncFailure(reason); }
+      catch {
+        if (activeIdentity.current === identity && focused.current) setNotice({ identity, offline: null, error: lt("Sync failed", "Ошибка синхронизации", "הסנכרון נכשל") });
+      }
     } finally {
-      setBusy(false);
+      if (syncLock.current === identity) {
+        syncLock.current = null;
+        setBusyIdentity(null);
+      }
     }
   };
 
   const todayKey = currentLocalDateKey();
   const todayEvents = useMemo(
-    () => (calendar.snapshot?.items || []).filter((item) => item.starts_at.slice(0, 10) === todayKey),
+    () => (calendar.snapshot?.items || []).filter((item) => calendarEventDay(item) === todayKey).sort(compareCalendarEvents),
     [calendar.snapshot, todayKey]
   );
   const openIssues = useMemo(
@@ -272,143 +285,56 @@ export default function ProjectsScreen() {
   );
   const portfolioProgress = totalDoors ? Math.round((installedDoors / totalDoors) * 100) : 0;
   const primaryAction = useMemo(() => buildDashboardPrimaryAction(todayEvents), [todayEvents]);
-  const queueTone = offlineNotice
-    ? "warning"
-    : busy
-      ? "info"
-      : queue?.blocked
-        ? "danger"
-        : queue?.failed
-          ? "warning"
-          : queue?.total
-            ? "accent"
-            : "success";
-  const queueLabel = offlineNotice
-    ? lt("Offline", "Офлайн", "לא מקוון")
-    : busy
-      ? lt("Synchronizing", "Синхронизация", "מסתנכרן")
-      : queue?.blocked
-        ? lt(`${queue.blocked} blocked`, `${queue.blocked} заблокировано`, `${queue.blocked} חסומים`)
-        : queue?.total
-          ? lt(`${queue.total} queued`, `${queue.total} в очереди`, `${queue.total} בתור`)
-          : lt("Synced", "Синхронизировано", "מסונכרן");
-  const queueIcon = offlineNotice
-    ? "cloud-offline-outline"
-    : busy
-      ? "sync"
-      : queue?.total
-        ? "cloud-upload-outline"
-        : "checkmark-circle-outline";
+  const visibleProjects = useMemo(() => projects.filter((project) => {
+    const matches = `${project.name} ${project.address || ""}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase());
+    const summary = summaries[project.id];
+    return matches && (projectFilter === "ALL" || (projectFilter === "REMAINING" ? summary?.remaining > 0 : summary?.issues > 0));
+  }), [projects, summaries, search, projectFilter]);
+  // Shared with the sync strip; only the screen-local "no data yet" states are decided here.
+  const syncStatus = buildSyncStatusPresentation({ queue, lastSyncAt, syncing: busy, offline: Boolean(offlineNotice) }, locale);
+  const queueTone = !hasData && error ? "danger" : !hasData || loading ? "neutral" : syncStatus.tone;
+  const queueLabel = !hasData && error ? lt("Data unavailable", "Данные недоступны", "הנתונים אינם זמינים") : !hasData || loading
+    ? lt("Checking data", "Проверка данных", "בדיקת נתונים")
+    : syncStatus.label;
+  const queueIcon = (!hasData || loading ? "time-outline" : syncStatus.icon) as React.ComponentProps<typeof Ionicons>["name"];
 
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       <StatusBar barStyle="light-content" backgroundColor={installerTheme.shell} />
-      <ScrollView style={styles.content} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <ScreenHero
-          eyebrow={lt("TODAY · FIELD WORKSPACE", "СЕГОДНЯ · РАБОЧЕЕ МЕСТО", "היום · סביבת עבודה")}
-          title={user?.full_name || lt("Installer", "Монтажник", "מתקין")}
-          subtitle={lt(
-            `${projects.length} assigned projects · ${remainingDoors} doors remaining`,
-            `${projects.length} объектов · осталось дверей: ${remainingDoors}`,
-            `${projects.length} אתרים · ${remainingDoors} דלתות נותרו`
-          )}
-          right={
-            <View style={styles.heroActions}>
-              <LocaleSwitcher dark />
-              <IconButton
-                icon="sync"
-                label={lt("Sync now", "Синхронизировать", "סנכרן")}
-                tone="dark"
-                onPress={() => void syncNow(true)}
-                disabled={busy}
-              />
-            </View>
-          }
-        >
-          <View style={styles.syncRow} accessibilityLiveRegion="polite">
-            <StatusPill
-              label={queueLabel}
-              tone={queueTone}
-              icon={queueIcon}
-            />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={lt("Open sync queue", "Открыть очередь синхронизации", "פתיחת תור הסנכרון")}
-              hitSlop={8}
-              onPress={() => router.push("/sync-queue" as never)}
-            >
-              <Text style={styles.syncMeta} numberOfLines={1}>
-                {lastSyncAt
-                  ? `${lt("Last sync", "Последняя синхронизация", "סנכרון אחרון")}: ${formatSyncTime(lastSyncAt)}`
-                  : lt("Local data ready", "Локальные данные готовы", "המידע המקומי מוכן")}
-              </Text>
-            </Pressable>
+      <ScrollView style={styles.content} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <View style={styles.homeHeader}>
+          <View style={styles.headerRow}>
+            <BrandMark compact />
+            <LocaleSwitcher dark />
           </View>
-        </ScreenHero>
+          <View style={styles.headerRow}>
+            <View style={styles.rowBody}>
+              <Text style={styles.eyebrow}>{lt("MY WORK", "МОЯ РАБОТА", "העבודה שלי")}</Text>
+              <Text style={styles.welcomeName} accessibilityRole="header">{user?.full_name || lt("Installer", "Монтажник", "מתקין")}</Text>
+            </View>
+            <IconButton icon="sync" label={lt("Sync now", "Синхронизировать", "סנכרן")} tone="dark" onPress={() => void syncNow()} disabled={busy || loading} />
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={lt("Open sync queue", "Открыть очередь синхронизации", "פתיחת תור הסנכרון")}
+            onPress={() => router.push("/sync-queue" as never)}
+            style={styles.syncRow}
+          >
+            <StatusPill label={queueLabel} tone={queueTone} icon={queueIcon} />
+            <Text style={[styles.syncMeta, { textAlign: isRTL ? "left" : "right" }]}>
+              {lastSyncAt ? formatSyncTime(lastSyncAt) : lt("Sync queue", "Очередь работ", "תור עבודות")}
+            </Text>
+            <DirectionalChevron size={16} color={installerTheme.textMuted} />
+          </Pressable>
+        </View>
 
         <View style={styles.body}>
-          <SectionCard style={styles.portfolioCard}>
-            <Image
-              source={require("../assets/premium/tower-a.jpg")}
-              resizeMode="cover"
-              style={styles.portfolioImage}
-              accessibilityIgnoresInvertColors
-            />
-            <LinearGradient
-              pointerEvents="none"
-              colors={[installerTheme.background, "rgba(8,14,21,0.72)", "rgba(8,14,21,0.12)"]}
-              locations={[0, 0.58, 1]}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-              style={StyleSheet.absoluteFillObject}
-            />
-            <View style={styles.portfolioContent}>
-              <View style={styles.portfolioHeader}>
-                <Text style={styles.eyebrow}>{lt("PORTFOLIO PROGRESS", "ПРОГРЕСС ОБЪЕКТОВ", "התקדמות הפרויקטים")}</Text>
-                <View style={styles.siteBadge}>
-                  <Text style={styles.siteBadgeText}>{projects.length} {lt("sites", "объектов", "אתרים")}</Text>
-                </View>
-              </View>
-              <View style={styles.portfolioMain}>
-                <ProgressRing value={portfolioProgress} size={104} stroke={8} />
-                <View style={styles.portfolioLegend}>
-                  <LegendRow color={installerTheme.success} label={lt("Installed", "Установлено", "הותקנו")} value={installedDoors} />
-                  <LegendRow color={installerTheme.info} label={lt("Remaining", "Осталось", "נותרו")} value={remainingDoors} />
-                  <LegendRow color={installerTheme.warning} label={lt("Issues open", "Открытые проблемы", "תקלות פתוחות")} value={openIssues} />
-                  <LegendRow color={installerTheme.purple} label={lt("Queued", "В очереди", "בתור")} value={queue?.total || 0} />
-                </View>
-              </View>
-            </View>
-          </SectionCard>
-
-          <View style={styles.todayHeader}>
-            <Text style={styles.todayTitle}>{lt("Today", "Сегодня", "היום")}</Text>
-            <Text style={styles.todayMeta}>{todayEvents.length} {lt("scheduled", "в плане", "מתוכננות")}</Text>
-          </View>
-          <View style={styles.metrics}>
-            <SummaryTile icon="calendar-outline" label={lt("Planned", "План", "מתוכנן")} value={todayEvents.length} tone={installerTheme.info} />
-            <SummaryTile icon="construct-outline" label={lt("Remaining", "Осталось", "נותרו")} value={remainingDoors} tone={installerTheme.primary} />
-            <SummaryTile icon="checkmark-circle-outline" label={lt("Installed", "Готово", "הושלם")} value={installedDoors} tone={installerTheme.success} />
-            <SummaryTile icon="alert-circle-outline" label={lt("Issues", "Проблемы", "תקלות")} value={openIssues} tone={installerTheme.warning} />
-          </View>
-
-          <ActionButton
-            label={
-              primaryAction.kind === "SCHEDULED_PROJECT"
-                ? lt("Start today's work", "Начать работу на сегодня", "התחל את העבודה להיום")
-                : lt("Open 7-day plan", "Открыть план на 7 дней", "פתיחת תכנית ל-7 ימים")
-            }
-            icon={primaryAction.kind === "SCHEDULED_PROJECT" ? "arrow-forward" : "calendar-outline"}
-            onPress={() => router.push(primaryAction.route as never)}
-          />
-
           {error ? (
             <View style={styles.errorBox} accessibilityLiveRegion="polite">
               <Ionicons name="alert-circle-outline" size={18} color={installerTheme.danger} />
               <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : null}
-
           {offlineNotice ? (
             <View style={styles.offlineBox} accessibilityLiveRegion="polite">
               <Ionicons name="cloud-offline-outline" size={18} color={installerTheme.warning} />
@@ -416,143 +342,148 @@ export default function ProjectsScreen() {
             </View>
           ) : null}
 
-          <SectionCard>
-            <SectionHeader
-              title={lt("Today schedule", "План на сегодня", "תוכנית להיום")}
-              meta={todayEvents.length}
-              action={
+          {!hasData ? (
+            loading ? <SectionCard>
+              <SkeletonList variant="cards" rows={3} label={lt("Loading assignments", "Загрузка заданий", "טעינת משימות")} testID="projects-loading" />
+            </SectionCard> : <EmptyState
+              icon="cloud-offline-outline"
+              title={lt("Assignments unavailable", "Задания недоступны", "המשימות אינן זמינות")}
+              action={<ActionButton label={lt("Try again", "Повторить", "ניסיון נוסף")} icon="refresh" onPress={() => void loadScreen()} />}
+            />
+          ) : <>
+            <SegmentedControl
+              value={view}
+              onChange={setView}
+              options={[
+                { value: "TODAY", label: lt("Today", "Сегодня", "היום") },
+                { value: "PROJECTS", label: lt("Projects", "Объекты", "פרויקטים") },
+              ]}
+            />
+
+            <SectionCard style={styles.portfolioCard}>
+              <Image source={require("../assets/premium/tower-a.jpg")} resizeMode="cover" style={styles.portfolioImage} accessibilityIgnoresInvertColors />
+              <LinearGradient pointerEvents="none" colors={[installerTheme.background, "rgba(8,14,21,0.8)", "rgba(8,14,21,0.18)"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0.5 }} style={StyleSheet.absoluteFillObject} />
+              <Pressable accessibilityRole="button" accessibilityLabel={lt("Overall progress", "Общий прогресс", "התקדמות כוללת")} accessibilityState={{ expanded: showProgress }} onPress={() => setShowProgress((value) => !value)} style={styles.portfolioHeader}>
+                <ProgressRing value={portfolioProgress} size={56} stroke={4} />
+                <View style={styles.rowBody}>
+                  <Text style={styles.rowTitle}>{lt("Overall progress", "Общий прогресс", "התקדמות כוללת")}</Text>
+                  <Text style={styles.rowMeta}>{lt(`Installed: ${installedDoors} / ${totalDoors}`, `Установлено: ${installedDoors} / ${totalDoors}`, `הותקנו: ${installedDoors} מתוך ${totalDoors}`)}</Text>
+                  <Text style={styles.rowMeta}>{`${lt("Projects", "Объекты", "פרויקטים")}: ${projects.length}`}</Text>
+                </View>
+                <Ionicons name={showProgress ? "chevron-up" : "chevron-down"} size={18} color={installerTheme.textMuted} />
+              </Pressable>
+              {showProgress ? <Reveal style={styles.portfolioLegend}>
+                <LegendRow color={installerTheme.success} label={lt("Installed", "Установлено", "הותקנו")} value={installedDoors} />
+                <LegendRow color={installerTheme.info} label={lt("Remaining", "Осталось", "נותרו")} value={remainingDoors} />
+                <LegendRow color={installerTheme.warning} label={lt("Issues open", "Открытые проблемы", "תקלות פתוחות")} value={openIssues} />
+                <LegendRow color={installerTheme.textMuted} label={lt("Queued", "В очереди", "בתור")} value={queue?.total || 0} />
+              </Reveal> : null}
+            </SectionCard>
+
+            {view === "TODAY" ? <Reveal key="today" style={styles.sectionContent}>
+              <SectionHeader
+                title={lt("Today schedule", "План на сегодня", "תוכנית להיום")}
+                meta={calendar.snapshot ? todayEvents.length : undefined}
+                action={<IconButton icon="calendar-outline" label={lt("Open calendar", "Открыть календарь", "פתיחת היומן")} onPress={() => router.push("/calendar" as never)} />}
+              />
+              <Text style={styles.dayLabel}>{new Intl.DateTimeFormat(intlLocale, { weekday: "long", day: "numeric", month: "long" }).format(new Date())}</Text>
+              {calendar.source !== "online" || calendar.message ? (
+                <StatusPill
+                  label={calendar.source === "cache" ? lt("Saved plan", "Сохранённый план", "תכנית שמורה") : calendar.source === "online" ? lt("Offline copy not updated", "Офлайн-копия не обновлена", "העותק הלא מקוון לא עודכן") : lt("Plan unavailable", "План недоступен", "התכנית אינה זמינה")}
+                  tone="warning" icon="cloud-offline-outline"
+                />
+              ) : null}
+              {calendar.snapshot ? <ActionButton
+                label={primaryAction.kind === "SCHEDULED_PROJECT" ? lt("Start today's work", "Начать работу на сегодня", "התחל את העבודה להיום") : lt("Open 7-day plan", "Открыть план на 7 дней", "פתיחת תכנית ל-7 ימים")}
+                icon={primaryAction.kind === "SCHEDULED_PROJECT" ? (locale === "he" ? "arrow-back" : "arrow-forward") : "calendar-outline"}
+                onPress={() => router.push(primaryAction.route as never)}
+              /> : null}
+              {todayEvents.length ? todayEvents.slice(0, 4).map((item, index) => (
+                <Reveal key={item.id} index={index} tilt>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={lt("Open calendar", "Открыть календарь", "פתיחת היומן")}
-                  onPress={() => router.push("/calendar" as never)}
+                  accessibilityLabel={`${item.title}. ${formatEventTime(item.starts_at)}. ${item.location || item.event_type}`}
+                  onPress={() => item.project_id ? router.push(buildProjectRoute(item.project_id) as never) : router.push("/calendar" as never)}
+                  style={({ pressed }) => [styles.scheduleRow, pressed && styles.pressed]}
                 >
-                  <Text style={styles.link}>{lt("Calendar", "Календарь", "יומן")}</Text>
+                  <View style={styles.timeBox}><Text style={styles.timeText}>{formatEventTime(item.starts_at)}</Text></View>
+                  <View style={styles.rowBody}>
+                    <Text style={styles.rowTitle}>{item.title}</Text>
+                    <Text style={styles.rowMeta}>{item.location || translateEnum(locale, item.event_type)}</Text>
+                  </View>
+                  <DirectionalChevron size={17} color={installerTheme.textMuted} />
                 </Pressable>
-              }
-            />
-            {todayEvents.length ? (
-              <View style={styles.list}>
-                {todayEvents.slice(0, 4).map((item) => (
-                  <Pressable
-                    key={item.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${item.title}. ${formatEventTime(item.starts_at)}. ${item.location || item.event_type}`}
-                    onPress={() => item.project_id ? router.push(buildProjectRoute(item.project_id) as never) : router.push("/calendar" as never)}
-                    style={({ pressed }) => [styles.scheduleRow, pressed && styles.pressed]}
-                  >
-                    <View style={styles.timeBox}>
-                      <Text style={styles.timeText}>{formatEventTime(item.starts_at)}</Text>
+                </Reveal>
+              )) : <EmptyState
+                icon={calendar.snapshot ? "calendar-outline" : "cloud-offline-outline"}
+                title={calendar.snapshot ? lt("No scheduled work today", "Сегодня нет запланированных работ", "אין עבודות מתוכננות להיום") : lt("Open the calendar to check the plan", "Откройте календарь для проверки плана", "פתחו את היומן לבדיקת התכנית")}
+              />}
+              <ActionButton label={lt("My projects", "Мои объекты", "הפרויקטים שלי")} icon="business-outline" variant="secondary" onPress={() => setView("PROJECTS")} />
+            </Reveal> : <Reveal key="projects" style={styles.sectionContent}>
+              <SectionHeader title={lt("Assigned projects", "Назначенные объекты", "פרויקטים שהוקצו")} meta={`${visibleProjects.length}/${projects.length}`} />
+              {projects.length ? <>
+                <View style={styles.searchField}>
+                  <Ionicons name="search-outline" size={18} color={installerTheme.textMuted} />
+                  <TextInput value={search} onChangeText={setSearch} accessibilityLabel={lt("Search projects", "Поиск объектов", "חיפוש פרויקטים")} placeholder={lt("Name or address", "Название или адрес", "שם או כתובת")} placeholderTextColor={installerTheme.textFaint} style={styles.searchInput} />
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+                  {(["ALL", "REMAINING", "ISSUES"] as const).map((value) => (
+                    <Pressable key={value} accessibilityRole="tab" accessibilityState={{ selected: projectFilter === value }}
+                      accessibilityLabel={value === "ALL" ? lt("All projects", "Все объекты", "כל הפרויקטים") : value === "REMAINING" ? lt("Work remaining", "Есть работа", "נותרה עבודה") : lt("With issues", "С проблемами", "עם תקלות")}
+                      onPress={() => setProjectFilter(value)} style={[styles.filterChip, projectFilter === value && styles.filterActive]}>
+                      <Text style={[styles.filterText, projectFilter === value && styles.filterActiveText]}>{value === "ALL" ? lt("All projects", "Все объекты", "כל הפרויקטים") : value === "REMAINING" ? lt("Work remaining", "Есть работа", "נותרה עבודה") : lt("With issues", "С проблемами", "עם תקלות")}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </> : null}
+              {visibleProjects.map((project, index) => {
+                const summary = summaries[project.id] || { total: 0, installed: 0, issues: 0, remaining: 0 };
+                const progress = summary.total ? Math.round((summary.installed / summary.total) * 100) : 0;
+                const tone = projectTone(project.status, summary.issues);
+                const palette = toneColors(tone);
+                return <Reveal key={project.id} index={index} tilt><SectionCard style={styles.projectCard}>
+                  <View pointerEvents="none" style={[styles.projectRiskStrip, { backgroundColor: palette.text }]} />
+                  <Pressable accessibilityRole="button" accessibilityLabel={project.name} onPress={() => router.push(buildProjectRoute(project.id) as never)} style={styles.projectMain}>
+                    <View style={styles.projectTop}>
+                      <View style={[styles.projectGlyph, { borderColor: palette.border }]}>
+                        <Ionicons name="business-outline" size={22} color={palette.text} />
+                      </View>
+                      <View style={styles.projectIdentity}>
+                        <Text style={styles.projectTitle}>{project.name}</Text>
+                        <Text style={styles.projectAddress}>{project.address || lt("Address not set", "Адрес не указан", "הכתובת לא הוגדרה")}</Text>
+                      </View>
+                      <DirectionalChevron size={18} color={installerTheme.info} />
                     </View>
-                    <View style={styles.rowBody}>
-                      <Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text>
-                      <Text style={styles.rowMeta} numberOfLines={1}>{item.location || item.event_type}</Text>
+                    <View style={styles.projectStatus}>
+                      <StatusPill label={translateEnum(locale, project.status)} tone={project.status === "COMPLETED" ? "success" : "accent"} />
+                      {summary.issues ? <StatusPill label={`${lt("Issues", "Проблемы", "תקלות")}: ${summary.issues}`} tone="danger" icon="alert-circle-outline" /> : null}
                     </View>
-                    <Ionicons name="chevron-forward" size={17} color={installerTheme.textFaint} />
+                    <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress}%` }]} /></View>
+                    <View style={styles.progressLegend}>
+                      <Text style={styles.progressText}>{lt(`Installed: ${summary.installed} / ${summary.total}`, `Установлено: ${summary.installed} / ${summary.total}`, `הותקנו: ${summary.installed} מתוך ${summary.total}`)}</Text>
+                      <AnimatedNumber value={progress} format={(current) => `${Math.round(current)}%`} style={styles.progressValue} />
+                    </View>
+                    <View style={styles.projectStats}>
+                      <Text style={styles.projectStatLabel}>{`${lt("Remaining", "Осталось", "נותרו")}: ${summary.remaining}`}</Text>
+                      <Text style={styles.projectStatLabel}>{lt("Open doors", "Открыть двери", "פתיחת דלתות")}</Text>
+                    </View>
                   </Pressable>
-                ))}
-              </View>
-            ) : (
-              <Text style={styles.emptyText}>{lt("No scheduled work today.", "На сегодня нет назначенных работ.", "אין עבודות מתוכננות להיום.")}</Text>
-            )}
-          </SectionCard>
-
-          <View style={styles.sectionLabelRow}>
-            <Text style={styles.sectionLabel}>{lt("MY JOBS", "МОИ ОБЪЕКТЫ", "העבודות שלי")}</Text>
-            <Text style={styles.sectionCount}>{projects.length}</Text>
-          </View>
-
-          {projects.map((project) => {
-            const summary = summaries[project.id] || { total: 0, installed: 0, issues: 0, remaining: 0 };
-            const progress = summary.total ? Math.round((summary.installed / summary.total) * 100) : 0;
-            const tone = projectTone(project.status, summary.issues);
-            const tonePalette = toneColors(tone);
-            return (
-              <SectionCard key={project.id} style={styles.projectCard}>
-                <View style={[styles.projectRiskStrip, { backgroundColor: tonePalette.text }]} />
-                <View style={styles.projectTop}>
-                  <View style={[styles.projectGlyph, { borderColor: tonePalette.border }]}>
-                    <Ionicons name="business-outline" size={21} color={tonePalette.text} />
-                    <View style={[styles.projectGlyphBeacon, { backgroundColor: tonePalette.text }]} />
-                  </View>
-                  <View style={styles.projectIdentity}>
-                    <Text style={styles.projectTitle} numberOfLines={1}>{project.name}</Text>
-                    <Text style={styles.projectAddress} numberOfLines={2}>{project.address || lt("Address not set", "Адрес не указан", "הכתובת לא הוגדרה")}</Text>
-                  </View>
-                  <StatusPill
-                    label={summary.issues ? lt("Problem", "Проблема", "תקלה") : translateEnum(locale, project.status)}
-                    tone={tone}
-                    icon={summary.issues ? "alert-circle-outline" : "checkmark-circle-outline"}
-                  />
-                </View>
-
-                <View style={styles.progressTrack}>
-                  <View style={[styles.progressFill, { width: `${progress}%` }]} />
-                </View>
-                <View style={styles.progressLegend}>
-                  <Text style={styles.progressText}>{summary.installed}/{summary.total} {lt("installed", "установлено", "הותקנו")}</Text>
-                  <Text style={styles.progressValue}>{progress}%</Text>
-                </View>
-
-                <View style={styles.projectStats}>
-                  <View style={styles.projectStat}>
-                    <Ionicons name="time-outline" size={14} color={installerTheme.textMuted} />
-                    <Text style={styles.projectStatValue}>{summary.remaining}</Text>
-                    <Text style={styles.projectStatLabel}>{lt("remaining", "осталось", "נותרו")}</Text>
-                  </View>
-                  <View style={styles.projectStat}>
-                    <Ionicons name="alert-circle-outline" size={14} color={summary.issues ? installerTheme.danger : installerTheme.textMuted} />
-                    <Text style={[styles.projectStatValue, summary.issues > 0 && { color: installerTheme.danger }]}>{summary.issues}</Text>
-                    <Text style={styles.projectStatLabel}>{lt("issues", "проблемы", "תקלות")}</Text>
-                  </View>
-                  <View style={styles.projectStat}>
-                    <Ionicons name="grid-outline" size={14} color={installerTheme.textMuted} />
-                    <Text style={styles.projectStatValue}>{summary.total}</Text>
-                    <Text style={styles.projectStatLabel}>{lt("doors", "дверей", "דלתות")}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.projectActions}>
-                  <ActionButton
-                    label={lt("Open job", "Открыть объект", "פתח עבודה")}
-                    icon="briefcase-outline"
-                    variant="dark"
-                    style={styles.flexButton}
-                    onPress={() => router.push(buildProjectRoute(project.id) as never)}
-                  />
-                  {project.waze_url ? (
-                    <IconButton
-                      icon="navigate-outline"
-                      label={lt("Open Waze", "Открыть Waze", "פתח Waze")}
-                      onPress={() => void openProjectExternalAction({ kind: "waze", url: project.waze_url as string }).catch((reason) => setError(reason instanceof Error ? reason.message : "Waze failed"))}
-                    />
-                  ) : null}
-                  {summary.issues ? (
-                    <IconButton
-                      icon="alert-circle-outline"
-                      label={lt("Open issues", "Открыть проблемы", "פתח תקלות")}
-                      onPress={() => router.push(buildIssueProjectRoute(project.id) as never)}
-                    />
-                  ) : null}
-                </View>
-              </SectionCard>
-            );
-          })}
-
-          {!projects.length ? (
-            <SectionCard>
-              <View style={styles.bootstrapBox}>
-                <Ionicons name="cloud-download-outline" size={28} color={installerTheme.textFaint} />
-                <Text style={styles.bootstrapTitle}>{lt("No assigned work cached", "Назначенные объекты ещё не загружены", "אין עבודות שמורות")}</Text>
-                <Text style={styles.bootstrapCopy}>{lt("Connect once to download your projects for offline work.", "Подключитесь один раз, чтобы загрузить объекты для офлайн-работы.", "התחבר פעם אחת כדי להוריד עבודות לאופליין.")}</Text>
-                <ActionButton
-                  label={lt("Download assigned work", "Загрузить назначенные объекты", "הורד עבודות")}
-                  icon="cloud-download-outline"
-                  onPress={() => void syncNow(true)}
-                  loading={busy}
-                />
-              </View>
-            </SectionCard>
-          ) : null}
+                  {project.waze_url || summary.issues ? <View style={styles.projectActions}>
+                    {project.waze_url ? <ActionButton label={lt("Waze", "Waze", "Waze")} icon="navigate-outline" variant="secondary" style={styles.flexButton} onPress={() => void openProjectExternalAction({ kind: "waze", url: project.waze_url as string }).catch((reason) => {
+                      if (activeIdentity.current === identity) setNotice({ identity, offline: null, error: reason instanceof Error ? reason.message : lt("Unable to open Waze", "Не удалось открыть Waze", "לא ניתן לפתוח את Waze") });
+                    })} /> : null}
+                    {summary.issues ? <ActionButton label={lt("Issues", "Проблемы", "תקלות")} icon="alert-circle-outline" variant="secondary" style={styles.flexButton} onPress={() => router.push(`/issues?projectId=${encodeURIComponent(project.id)}` as never)} /> : null}
+                  </View> : null}
+                </SectionCard></Reveal>;
+              })}
+              {projects.length && !visibleProjects.length ? <EmptyState icon="search-outline" title={lt("No matching projects", "Объекты не найдены", "לא נמצאו פרויקטים")} action={<ActionButton label={lt("Reset filters", "Сбросить фильтры", "איפוס מסננים")} variant="secondary" icon="close" onPress={() => { setSearch(""); setProjectFilter("ALL"); }} />} /> : null}
+              {!projects.length ? <EmptyState
+                icon="business-outline"
+                title={lastSyncAt ? lt("No assigned projects", "Нет назначенных объектов", "אין פרויקטים שהוקצו") : lt("Assignments not downloaded", "Задания ещё не загружены", "המשימות טרם הורדו")}
+                action={<ActionButton label={lt("Download assigned work", "Загрузить назначенные объекты", "הורד עבודות")} icon="cloud-download-outline" onPress={() => void syncNow(true)} loading={busy} />}
+              /> : null}
+            </Reveal>}
+          </>}
         </View>
       </ScrollView>
       <InstallerBottomNav />
@@ -561,416 +492,60 @@ export default function ProjectsScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: installerTheme.background,
-  },
-  content: {
-    flex: 1,
-  },
-  scroll: {
-    paddingBottom: installerTheme.layout.bottomNavClearance,
-  },
-  heroActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  syncRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-    marginTop: 12,
-  },
-  syncMeta: {
-    maxWidth: 190,
-    color: installerTheme.textFaint,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 9,
-  },
-  body: {
-    gap: 14,
-    paddingHorizontal: 16,
-    paddingTop: 4,
-    paddingBottom: 12,
-  },
-  portfolioCard: {
-    minHeight: 224,
-    overflow: "hidden",
-    padding: 0,
-    borderRadius: installerTheme.radius.glass,
-  },
-  portfolioImage: {
-    position: "absolute",
-    top: 0,
-    end: 0,
-    width: "68%",
-    height: "100%",
-    opacity: 0.42,
-  },
-  portfolioContent: {
-    flex: 1,
-    padding: 18,
-  },
-  portfolioHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  eyebrow: {
-    color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamilyMedium,
-    fontSize: 10,
-    letterSpacing: 0,
-  },
-  siteBadge: {
-    borderRadius: installerTheme.radius.pill,
-    borderWidth: 1,
-    borderColor: installerTheme.border,
-    backgroundColor: "rgba(19,24,33,0.74)",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  siteBadgeText: {
-    color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamilyStrong,
-    fontSize: 9,
-  },
-  portfolioMain: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 20,
-    marginTop: 20,
-  },
-  portfolioLegend: {
-    flex: 1,
-    gap: 9,
-  },
-  legendRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  legendDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  legendLabel: {
-    flex: 1,
-    color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 10,
-  },
-  legendValue: {
-    fontFamily: installerTheme.fontFamilyMono,
-    fontSize: 10,
-  },
-  todayHeader: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-    marginTop: 3,
-  },
-  todayTitle: {
-    color: installerTheme.text,
-    fontFamily: installerTheme.fontFamilyDisplay,
-    fontSize: 18,
-  },
-  todayMeta: {
-    color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamilyMono,
-    fontSize: 10,
-  },
-  metrics: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  summaryTile: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 78,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-    borderRadius: installerTheme.radius.card,
-    borderWidth: 1,
-    borderColor: installerTheme.border,
-    backgroundColor: "rgba(19,24,33,0.78)",
-  },
-  summaryValue: {
-    color: installerTheme.text,
-    fontFamily: installerTheme.fontFamilyDisplay,
-    fontSize: 18,
-    lineHeight: 20,
-  },
-  summaryLabel: {
-    maxWidth: "94%",
-    color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 8,
-    textAlign: "center",
-  },
-  errorBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderRadius: installerTheme.radius.card,
-    borderWidth: 1,
-    borderColor: installerTheme.dangerBorder,
-    backgroundColor: installerTheme.dangerSoft,
-    padding: 11,
-  },
-  errorText: {
-    flex: 1,
-    color: installerTheme.danger,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 11,
-  },
-  offlineBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderRadius: installerTheme.radius.card,
-    borderWidth: 1,
-    borderColor: installerTheme.warningBorder,
-    backgroundColor: installerTheme.warningSoft,
-    padding: 11,
-  },
-  offlineText: {
-    flex: 1,
-    color: installerTheme.warning,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 11,
-  },
-  link: {
-    color: installerTheme.infoFill,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  list: {
-    marginTop: 8,
-  },
-  scheduleRow: {
-    minHeight: 58,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: installerTheme.border,
-    paddingVertical: 9,
-  },
-  timeBox: {
-    minWidth: 50,
-    minHeight: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: installerTheme.radius.md,
-    backgroundColor: installerTheme.accentWarm,
-    borderWidth: 1,
-    borderColor: installerTheme.accentEdge,
-  },
-  timeText: {
-    color: installerTheme.accentText,
-    fontFamily: installerTheme.fontFamilyMono,
-    fontSize: 10,
-    fontWeight: "800",
-  },
-  rowBody: {
-    flex: 1,
-    minWidth: 0,
-  },
-  rowTitle: {
-    color: installerTheme.text,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  rowMeta: {
-    color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 10,
-    marginTop: 3,
-  },
-  emptyText: {
-    color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 12,
-    marginTop: 10,
-  },
-  sectionLabelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 2,
-    marginTop: 3,
-  },
-  sectionLabel: {
-    color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 10,
-    fontWeight: "800",
-  },
-  sectionCount: {
-    color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 10,
-    fontWeight: "800",
-  },
-  projectCard: {
-    position: "relative",
-    padding: 0,
-    overflow: "hidden",
-    borderColor: installerTheme.borderStrong,
-    backgroundColor: installerTheme.shellRaised,
-  },
-  projectRiskStrip: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    start: 0,
-    width: 3,
-  },
-  projectTop: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-    paddingStart: 16,
-  },
-  projectGlyph: {
-    position: "relative",
-    width: 42,
-    height: 46,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: installerTheme.radius.card,
-    borderWidth: 1,
-    backgroundColor: installerTheme.background,
-  },
-  projectGlyphBeacon: {
-    position: "absolute",
-    end: -3,
-    top: -3,
-    width: 8,
-    height: 8,
-    borderRadius: installerTheme.radius.pill,
-    borderWidth: 2,
-    borderColor: installerTheme.shellRaised,
-  },
-  projectIdentity: {
-    flex: 1,
-    minWidth: 0,
-  },
-  projectTitle: {
-    color: installerTheme.text,
-    fontFamily: installerTheme.fontFamilyDisplay,
-    fontSize: 14,
-  },
-  projectAddress: {
-    color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 9,
-    lineHeight: 13,
-    marginTop: 3,
-  },
-  progressTrack: {
-    height: 5,
-    backgroundColor: installerTheme.border,
-    marginHorizontal: 12,
-    marginStart: 16,
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: "100%",
-    backgroundColor: installerTheme.successFill,
-  },
-  progressLegend: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingStart: 16,
-    paddingTop: 5,
-  },
-  progressText: {
-    color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 9,
-  },
-  progressValue: {
-    color: installerTheme.text,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 9,
-    fontWeight: "800",
-  },
-  projectStats: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 8,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: installerTheme.border,
-    backgroundColor: installerTheme.card,
-    paddingHorizontal: 12,
-    paddingStart: 16,
-    paddingVertical: 7,
-  },
-  projectStat: {
-    flex: 1,
-    minWidth: 0,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-  },
-  projectStatValue: {
-    color: installerTheme.text,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  projectStatLabel: {
-    color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 8,
-  },
-  projectActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    paddingHorizontal: 10,
-    paddingStart: 14,
-    paddingVertical: 9,
-  },
-  flexButton: {
-    flex: 1,
-  },
-  bootstrapBox: {
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: 12,
-  },
-  bootstrapTitle: {
-    color: installerTheme.text,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 14,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-  bootstrapCopy: {
-    color: installerTheme.textMuted,
-    fontFamily: installerTheme.fontFamily,
-    fontSize: 11,
-    lineHeight: 17,
-    textAlign: "center",
-    marginBottom: 6,
-  },
-  pressed: {
-    opacity: 0.7,
-  },
+  screen: { flex: 1, backgroundColor: installerTheme.background },
+  content: { flex: 1 },
+  scroll: { paddingBottom: installerTheme.layout.bottomNavClearance },
+  homeHeader: { padding: 16, gap: 12, borderBottomWidth: 1, borderBottomColor: installerTheme.border },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  welcomeName: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyDisplay, fontSize: 23, lineHeight: 31, marginTop: 3 },
+  eyebrow: { color: installerTheme.accent, fontFamily: installerTheme.fontFamilyMedium, fontSize: installerTheme.type.caption, lineHeight: 15 },
+  syncRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 },
+  syncMeta: { flex: 1, minWidth: 0, color: installerTheme.textMuted, fontSize: installerTheme.type.caption, lineHeight: 16 },
+  body: { gap: 14, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 },
+  sectionContent: { gap: 12 },
+  portfolioCard: { overflow: "hidden", padding: 0 },
+  portfolioImage: { position: "absolute", top: 0, end: 0, width: "65%", height: "100%", opacity: 0.55 },
+  portfolioHeader: { flexDirection: "row", alignItems: "center", gap: 14, padding: 14, minHeight: 92 },
+  portfolioLegend: { paddingHorizontal: 16, paddingBottom: 16, gap: 10 },
+  legendRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  legendDot: { width: 6, height: 6, borderRadius: 3 },
+  legendLabel: { flex: 1, color: installerTheme.textMuted, fontSize: 12, lineHeight: 17 },
+  legendValue: { fontFamily: installerTheme.fontFamilyMono, fontSize: 13 },
+  dayLabel: { color: installerTheme.textMuted, fontSize: 12, lineHeight: 18, marginTop: -8 },
+  errorBox: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: installerTheme.radius.md, borderWidth: 1, borderColor: installerTheme.dangerBorder, backgroundColor: installerTheme.dangerSoft, padding: 12 },
+  errorText: { flex: 1, color: installerTheme.danger, fontSize: 12, lineHeight: 18 },
+  offlineBox: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: installerTheme.radius.md, borderWidth: 1, borderColor: installerTheme.warningBorder, backgroundColor: installerTheme.warningSoft, padding: 12 },
+  offlineText: { flex: 1, color: installerTheme.warning, fontSize: 12, lineHeight: 18 },
+  scheduleRow: { minHeight: 76, flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: 1, borderBottomColor: installerTheme.border, paddingVertical: 12 },
+  timeBox: { width: 56, minHeight: 36, alignItems: "center", justifyContent: "center", borderRadius: installerTheme.radius.md, backgroundColor: installerTheme.accentWarm, borderWidth: 1, borderColor: installerTheme.accentEdge },
+  timeText: { color: installerTheme.accentText, fontFamily: installerTheme.fontFamilyMono, fontSize: 12 },
+  rowBody: { flex: 1, minWidth: 0 },
+  rowTitle: { color: installerTheme.text, fontSize: 14, lineHeight: 20, fontWeight: "700" },
+  rowMeta: { color: installerTheme.textMuted, fontSize: 12, lineHeight: 17, marginTop: 3 },
+  searchField: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 46, paddingHorizontal: 12, borderRadius: installerTheme.radius.md, borderWidth: 1, borderColor: installerTheme.borderStrong, backgroundColor: installerTheme.shellRaised },
+  searchInput: { flex: 1, minWidth: 0, minHeight: 44, paddingVertical: 10, color: installerTheme.text, fontFamily: installerTheme.fontFamily, fontSize: 13 },
+  filterRow: { gap: 8 },
+  filterChip: { minHeight: 44, justifyContent: "center", paddingHorizontal: 14, borderRadius: installerTheme.radius.pill, borderWidth: 1, borderColor: installerTheme.border, backgroundColor: installerTheme.shellRaised },
+  filterActive: { borderColor: installerTheme.infoBorder, backgroundColor: installerTheme.primarySoft },
+  filterText: { fontSize: 12, fontWeight: "700", color: installerTheme.textMuted },
+  filterActiveText: { color: installerTheme.info },
+  projectCard: { padding: 0, overflow: "hidden", borderColor: installerTheme.borderStrong },
+  projectMain: { minHeight: 160, padding: 16, gap: 12 },
+  projectRiskStrip: { position: "absolute", top: 0, bottom: 0, start: 0, width: 3 },
+  projectTop: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  projectGlyph: { width: 42, height: 46, flexShrink: 0, alignItems: "center", justifyContent: "center", borderRadius: installerTheme.radius.md, borderWidth: 1, backgroundColor: installerTheme.background },
+  projectIdentity: { flex: 1, minWidth: 0 },
+  projectTitle: { color: installerTheme.text, fontFamily: installerTheme.fontFamilyDisplay, fontSize: 16, lineHeight: 23 },
+  projectAddress: { color: installerTheme.textMuted, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  projectStatus: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  progressTrack: { height: 5, borderRadius: installerTheme.radius.pill, backgroundColor: installerTheme.border, overflow: "hidden" },
+  progressFill: { height: "100%", borderRadius: installerTheme.radius.pill, backgroundColor: installerTheme.successFill },
+  progressLegend: { flexDirection: "row", justifyContent: "space-between", gap: 8, marginTop: -6 },
+  progressText: { flex: 1, color: installerTheme.textMuted, fontSize: 12, lineHeight: 17 },
+  progressValue: { color: installerTheme.success, fontFamily: installerTheme.fontFamilyMono, fontSize: 12 },
+  projectStats: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  projectStatLabel: { color: installerTheme.textMuted, fontSize: 12, lineHeight: 17 },
+  projectActions: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderTopWidth: 1, borderTopColor: installerTheme.border },
+  flexButton: { flex: 1 },
+  pressed: { opacity: 0.7 },
 });

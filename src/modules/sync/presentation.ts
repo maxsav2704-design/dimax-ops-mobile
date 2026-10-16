@@ -1,5 +1,15 @@
 import { translateEnum, type MobileLocale } from "@/lib/i18n";
-import type { PendingSyncEvent } from "@/modules/sync/types";
+import { MAX_AUTO_RETRY_ATTEMPTS } from "@/modules/sync/policy";
+import type { PendingSyncEvent, SyncQueueSummary } from "@/modules/sync/types";
+
+export function getQueueReadState(
+  summary: SyncQueueSummary | null,
+  loading: boolean,
+  failed: boolean,
+): "loading" | "error" | "ready" {
+  if (loading) return "loading";
+  return failed || summary === null ? "error" : "ready";
+}
 
 type QueueResolution = {
   title: string;
@@ -9,18 +19,110 @@ type QueueResolution = {
   dropAllowed: boolean;
 };
 
+export function needsSyncAttention(event: PendingSyncEvent): boolean {
+  return event.status !== "PENDING" || event.attempts >= MAX_AUTO_RETRY_ATTEMPTS;
+}
+
 function text(locale: MobileLocale, en: string, ru: string, he: string): string {
   if (locale === "ru") return ru;
   if (locale === "he") return he;
   return en;
 }
 
-export function buildEventSummary(event: PendingSyncEvent, locale: MobileLocale = "en"): string {
+export type SyncStatusTone = "neutral" | "info" | "accent" | "warning" | "danger" | "success";
+
+/** One compact state for the persistent sync strip; mirrors the home screen's pill order. */
+export function buildSyncStatusPresentation(
+  status: { queue: SyncQueueSummary | null; lastSyncAt: string | null; syncing: boolean; offline: boolean },
+  locale: MobileLocale,
+): { tone: SyncStatusTone; label: string; icon: string; detail: string | null } {
+  const queued = status.queue?.total ?? 0;
+  const detail = status.lastSyncAt
+    ? new Intl.DateTimeFormat(locale === "ru" ? "ru-RU" : locale === "he" ? "he-IL" : "en-GB", { hour: "2-digit", minute: "2-digit" })
+      .format(new Date(status.lastSyncAt))
+    : null;
+  if (status.syncing) {
+    return { tone: "info", icon: "sync", detail, label: text(locale, "Synchronizing", "Синхронизация", "מסתנכרן") };
+  }
+  if (status.offline) {
+    return {
+      tone: "warning", icon: "cloud-offline-outline", detail,
+      label: queued
+        ? text(locale, `Offline · ${queued} queued`, `Офлайн · ${queued} в очереди`, `לא מקוון · ${queued} בתור`)
+        : text(locale, "Offline", "Офлайн", "לא מקוון"),
+    };
+  }
+  if (status.queue?.blocked) {
+    const blocked = status.queue.blocked;
+    return { tone: "danger", icon: "alert-circle-outline", detail, label: text(locale, `${blocked} blocked`, `${blocked} заблокировано`, `${blocked} חסומים`) };
+  }
+  if (queued) {
+    return { tone: "accent", icon: "cloud-upload-outline", detail, label: text(locale, `${queued} queued`, `${queued} в очереди`, `${queued} בתור`) };
+  }
+  if (!status.lastSyncAt) {
+    return { tone: "neutral", icon: "time-outline", detail, label: text(locale, "Not synced yet", "Ещё не синхронизировано", "טרם סונכרן") };
+  }
+  return { tone: "success", icon: "checkmark-circle-outline", detail, label: text(locale, "Synced", "Синхронизировано", "מסונכרן") };
+}
+
+export function buildProfileQueuePresentation(
+  summary: SyncQueueSummary | null,
+  loading: boolean,
+  failed: boolean,
+  locale: MobileLocale,
+): {
+  state: ReturnType<typeof getQueueReadState>;
+  tone: "neutral" | "danger" | "warning" | "success";
+  subtitle: string;
+  signOutMessage: string;
+} {
+  const state = getQueueReadState(summary, loading, failed);
+  if (state !== "ready" || summary === null) {
+    return {
+      state,
+      tone: state === "loading" ? "neutral" : "warning",
+      subtitle: state === "loading"
+        ? text(locale, "Checking saved work...", "Проверяем сохранённые работы...", "בודקים עבודות שמורות...")
+        : text(locale, "Could not check saved work. Try again.", "Не удалось проверить сохранённые работы. Повторите проверку.", "לא ניתן לבדוק עבודות שמורות. נסו שוב."),
+      signOutMessage: text(
+        locale,
+        "The queue could not be verified. Work may still be waiting on this phone. Signing out will not send or delete it; return with the same account to continue. Sign out?",
+        "Очередь не удалось проверить. На телефоне могут оставаться неотправленные работы. Выход не отправит и не удалит их; для продолжения потребуется войти в тот же аккаунт. Выйти?",
+        "לא ניתן לאמת את התור. ייתכן שעבודות עדיין ממתינות במכשיר. יציאה לא תשלח או תמחק אותן; יש להתחבר שוב לאותו חשבון כדי להמשיך. לצאת?",
+      ),
+    };
+  }
+  if (summary.total > 0) {
+    return {
+      state,
+      tone: summary.blocked > 0 ? "danger" : "warning",
+      subtitle: text(locale, `${summary.total} actions waiting`, `Ожидают действий: ${summary.total}`, `${summary.total} פעולות ממתינות`),
+      signOutMessage: text(
+        locale,
+        `${summary.total} actions have not been sent. They will stay on this phone for this account. Signing out will not sync them; sign in again with the same account to continue. Sign out?`,
+        `Не отправлено действий: ${summary.total}. Они останутся на этом телефоне в текущем аккаунте. Выход не отправит их; для продолжения потребуется войти в тот же аккаунт. Выйти?`,
+        `${summary.total} פעולות טרם נשלחו. הן יישארו במכשיר עבור החשבון הזה. יציאה לא תסנכרן אותן; יש להתחבר שוב לאותו חשבון כדי להמשיך. לצאת?`,
+      ),
+    };
+  }
+  return {
+    state,
+    tone: "success",
+    subtitle: text(locale, "No actions waiting to be sent", "Нет действий, ожидающих отправки", "אין פעולות הממתינות לשליחה"),
+    signOutMessage: text(locale, "Sign out of DIMAX Installer?", "Выйти из DIMAX Installer?", "לצאת מ-DIMAX Installer?"),
+  };
+}
+
+export function buildEventSummary(
+  event: PendingSyncEvent,
+  locale: MobileLocale = "en",
+  labels: { doorLabel?: string; addonLabel?: string } = {},
+): string {
   if (event.type === "DOOR_SET_STATUS") {
     const doorId =
-      typeof event.payload.door_id === "string"
+      labels.doorLabel || (typeof event.payload.door_id === "string"
         ? event.payload.door_id
-        : text(locale, "door", "дверь", "דלת");
+        : text(locale, "door", "дверь", "דלת"));
     const status =
       typeof event.payload.status === "string"
         ? translateEnum(locale, event.payload.status)
@@ -35,9 +137,9 @@ export function buildEventSummary(event: PendingSyncEvent, locale: MobileLocale 
 
   if (event.type === "ADDON_FACT_CREATE") {
     const addonId =
-      typeof event.payload.addon_type_id === "string"
+      labels.addonLabel || (typeof event.payload.addon_type_id === "string"
         ? event.payload.addon_type_id
-        : text(locale, "add-on", "допработа", "עבודה נוספת");
+        : text(locale, "add-on", "допработа", "עבודה נוספת"));
     const quantity = typeof event.payload.qty_done === "string" ? event.payload.qty_done : "-";
     return text(
       locale,
@@ -79,6 +181,22 @@ export function buildQueueResolution(
 ): QueueResolution {
   const code = errorCode(event.error);
 
+  if (code === "CONFLICT_FACTORY_PRICE") {
+    return {
+      title: text(locale, "Price needs review", "Нужно проверить цену", "נדרשת בדיקת מחיר"),
+      detail: text(locale,
+        "The saved price version could not be confirmed for this work. No earnings were posted.",
+        "Сохранённую версию цены для этой работы подтвердить не удалось. Начисления не проведены.",
+        "לא ניתן לאמת את גרסת המחיר השמורה לעבודה זו. לא נרשמה הכנסה."),
+      action: text(locale,
+        "Keep this record and contact the administrator. Do not submit the same work again.",
+        "Сохраните запись и свяжитесь с администратором. Не создавайте эту работу повторно.",
+        "שמרו את הרשומה ופנו למנהל. אין להזין את אותה עבודה שוב."),
+      retryAllowed: false,
+      dropAllowed: false,
+    };
+  }
+
   if (code === "CONFLICT_ASSIGNMENT_CHANGED") {
     return {
       title: text(locale, "Assignment changed", "Назначение изменилось", "השיוך השתנה"),
@@ -90,9 +208,9 @@ export function buildQueueResolution(
       ),
       action: text(
         locale,
-        "Refresh data first. If the door is still yours, retry; otherwise contact the office.",
-        "Сначала обновите данные. Если дверь всё ещё назначена вам, повторите; иначе свяжитесь с офисом.",
-        "רעננו נתונים. אם הדלת עדיין משויכת אליכם, נסו שוב; אחרת פנו למשרד."
+        "Sync to refresh assignments, then contact the office before discarding this action.",
+        "Обновите назначения через синхронизацию и свяжитесь с офисом перед удалением действия.",
+        "סנכרנו לרענון השיוכים ופנו למשרד לפני מחיקת הפעולה."
       ),
       retryAllowed: false,
       dropAllowed: true,
@@ -139,7 +257,7 @@ export function buildQueueResolution(
     };
   }
 
-  if (event.status === "FAILED") {
+  if (event.status === "FAILED" && event.attempts < MAX_AUTO_RETRY_ATTEMPTS) {
     return {
       title: text(locale, "Temporary sync failure", "Временная ошибка синхронизации", "שגיאת סנכרון זמנית"),
       detail: text(
@@ -159,7 +277,10 @@ export function buildQueueResolution(
     };
   }
 
-  if (event.status === "BLOCKED" && isAutoRetryLimit(event.error)) {
+  if (
+    (event.status === "BLOCKED" && isAutoRetryLimit(event.error)) ||
+    (event.status !== "BLOCKED" && event.attempts >= MAX_AUTO_RETRY_ATTEMPTS)
+  ) {
     return {
       title: text(locale, "Retry limit reached", "Лимит повторов исчерпан", "הגעתם למגבלת הניסיונות"),
       detail: text(
@@ -175,7 +296,7 @@ export function buildQueueResolution(
         "בדקו את החיבור ונסו ידנית. אם השגיאה חוזרת, פנו למשרד."
       ),
       retryAllowed: true,
-      dropAllowed: true,
+      dropAllowed: event.status === "BLOCKED",
     };
   }
 

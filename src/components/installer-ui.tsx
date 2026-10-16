@@ -2,18 +2,30 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { Link, usePathname } from "expo-router";
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandText as Text } from "@/components/mobile-ui";
+import { SyncStatusBar } from "@/components/sync-status-bar";
 import { installerTheme } from "@/lib/theme";
 import { useI18n } from "@/providers/AppProviders";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
+// Below this width five tabs share ~56 dp each, too narrow for "Заработок" at the caption size.
+// Such screens show a compact label; the full label stays in the accessibility name.
+export const NAV_COMPACT_MAX_WIDTH = 360;
+
+// Soft fade over the last rows of any screen's scroll view so content cut at the
+// navigation edge reads as "more below" instead of a hard crop. Touches pass through.
+export const NAV_SCROLL_FADE_HEIGHT = 28;
+
 export function InstallerBottomNav() {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const { locale } = useI18n();
+  const { width } = useWindowDimensions();
+  const compact = width < NAV_COMPACT_MAX_WIDTH;
   const label = (en: string, ru: string, he: string) => {
     if (locale === "ru") return ru;
     if (locale === "he") return he;
@@ -23,6 +35,7 @@ export function InstallerBottomNav() {
   const tabs: Array<{
     href: string;
     label: string;
+    compactLabel?: string;
     icon: IconName;
     activeIcon: IconName;
     center?: boolean;
@@ -35,7 +48,7 @@ export function InstallerBottomNav() {
     },
     {
       href: "/calendar",
-      label: label("Plan", "План", "יומן"),
+      label: label("Plan", "План", "תכנית"),
       icon: "calendar-outline",
       activeIcon: "calendar",
     },
@@ -49,6 +62,7 @@ export function InstallerBottomNav() {
     {
       href: "/earnings",
       label: label("Earnings", "Заработок", "שכר"),
+      compactLabel: label("Earnings", "Доход", "שכר"),
       icon: "wallet-outline",
       activeIcon: "wallet",
     },
@@ -62,7 +76,15 @@ export function InstallerBottomNav() {
 
   return (
     <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+      <LinearGradient
+        pointerEvents="none"
+        testID="nav-scroll-fade"
+        colors={["rgba(8,14,21,0)", installerTheme.background]}
+        style={styles.scrollFade}
+      />
+      <SyncStatusBar />
       <View style={styles.shell}>
+        <View pointerEvents="none" style={styles.shellEdge} />
         {tabs.map((tab) => {
           const active =
             pathname === tab.href ||
@@ -111,7 +133,7 @@ export function InstallerBottomNav() {
                       </LinearGradient>
                     </View>
                   ) : (
-                    <View pointerEvents="none" style={styles.iconShell}>
+                    <View pointerEvents="none" style={[styles.iconShell, active && styles.iconShellActive]}>
                       <Ionicons
                         name={active ? tab.activeIcon : tab.icon}
                         size={20}
@@ -131,7 +153,7 @@ export function InstallerBottomNav() {
                       style={[styles.label, active && styles.labelActive]}
                       numberOfLines={1}
                     >
-                      {tab.label}
+                      {compact && tab.compactLabel ? tab.compactLabel : tab.label}
                     </Text>
                   </View>
                   {!tab.center ? (
@@ -159,6 +181,13 @@ const styles = StyleSheet.create({
     paddingTop: 28,
     backgroundColor: "transparent",
   },
+  scrollFade: {
+    position: "absolute",
+    top: -NAV_SCROLL_FADE_HEIGHT,
+    left: 0,
+    right: 0,
+    height: NAV_SCROLL_FADE_HEIGHT,
+  },
   shell: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -169,13 +198,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: installerTheme.border,
     borderRadius: 24,
-    backgroundColor: "rgba(8,14,21,0.96)",
+    overflow: "hidden",
+    backgroundColor: "rgba(13,20,30,0.92)",
     shadowColor: "#000000",
     shadowOpacity: 0.34,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: -7 },
     elevation: 10,
   },
+  // Glass edge: a light line along the top of the shell gives the bar a lit rim.
+  shellEdge: { position: "absolute", top: 0, start: 12, end: 12, height: 1, backgroundColor: "rgba(255,255,255,0.14)" },
   tabSlot: {
     flex: 1,
     minWidth: 0,
@@ -193,12 +225,13 @@ const styles = StyleSheet.create({
     overflow: "visible",
   },
   iconShell: {
-    minWidth: 32,
+    minWidth: 40,
     height: 24,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 12,
   },
+  iconShellActive: { backgroundColor: installerTheme.infoSoft },
   activeRail: {
     position: "absolute",
     bottom: -2,
@@ -218,7 +251,7 @@ const styles = StyleSheet.create({
   label: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamilyStrong,
-    fontSize: 9,
+    fontSize: installerTheme.type.caption,
   },
   centerOuter: {
     position: "absolute",
@@ -254,6 +287,6 @@ const styles = StyleSheet.create({
     color: installerTheme.info,
   },
   pressed: {
-    opacity: 0.65,
+    opacity: 0.94,
   },
 });

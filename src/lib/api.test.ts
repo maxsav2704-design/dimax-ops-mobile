@@ -25,7 +25,7 @@ vi.mock("@/modules/auth/session", () => ({
   clearSession: clearSessionMock,
 }));
 
-import { apiFetch, authMe, login, logout, refreshSession } from "@/lib/api";
+import { apiFetch, authMe, getAuthSessionGeneration, login, logout, refreshSession } from "@/lib/api";
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
@@ -51,6 +51,48 @@ describe("mobile api auth payloads", () => {
     persistSessionMock.mockResolvedValue(undefined);
     persistStoredUserMock.mockResolvedValue(undefined);
     clearSessionMock.mockResolvedValue(undefined);
+  });
+
+  it("refuses an outgoing sync payload captured by an older login generation", async () => {
+    const generation = getAuthSessionGeneration();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal("fetch", fetchMock);
+    await logout();
+    fetchMock.mockClear();
+    getStoredSessionMock.mockResolvedValue({
+      accessToken: "account-b-access", refreshToken: "account-b-refresh",
+      companyId: "company-b", email: "installer-b@example.invalid",
+    });
+
+    await expect(apiFetch("/api/v1/installer/sync", {
+      method: "POST", body: JSON.stringify({ events: [{ client_event_id: "account-a-work" }] }),
+      expectedAuthGeneration: generation,
+    })).rejects.toThrow("session changed");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not dispatch when logout happens during the session storage read", async () => {
+    const read = createDeferred<any>();
+    getStoredSessionMock.mockImplementationOnce(() => read.promise);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal("fetch", fetchMock);
+    const request = apiFetch("/api/v1/installer/sync", { method: "POST" }).catch((error: unknown) => error);
+    await logout();
+    read.resolve({
+      accessToken: "old-access", refreshToken: "old-refresh", companyId: "company-1", email: "old@example.invalid",
+    });
+
+    expect(await request).toMatchObject({ name: "SessionChangedError" });
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["http://127.0.0.1:8000/api/v1/auth/logout-refresh"]);
+  });
+
+  it("keeps the local generation guard out of the HTTP request options", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true }) });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(apiFetch("/api/v1/installer/sync", {
+      method: "POST", expectedAuthGeneration: getAuthSessionGeneration(),
+    })).resolves.toEqual({ ok: true });
+    expect(fetchMock.mock.calls[0][1]).not.toHaveProperty("expectedAuthGeneration");
   });
 
   it("sends device_id during login", async () => {
@@ -765,5 +807,68 @@ describe("mobile api auth payloads", () => {
     expect(persistStoredUserMock).toHaveBeenCalledWith(
       expect.objectContaining({ id: "installer-b", company_id: "company-b" })
     );
+  });
+
+  it("rejects a login that finishes writing its profile after logout starts", async () => {
+    const profileWrite = createDeferred<void>();
+    const writeStarted = createDeferred<void>();
+    persistStoredUserMock.mockImplementationOnce(async () => {
+      writeStarted.resolve();
+      await profileWrite.promise;
+    });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.endsWith("/auth/logout-refresh")) return { ok: true, status: 204 };
+      return {
+        ok: true, status: 200,
+        json: async () => url.endsWith("/auth/login")
+          ? { access_token: "access", refresh_token: "refresh", token_type: "bearer" }
+          : { id: "user-1", company_id: "company-1", email: "installer@dimax.dev",
+              full_name: "Installer", role: "INSTALLER", is_active: true },
+      };
+    }));
+
+    const signingIn = login({
+      companyId: "company-1", email: "installer@dimax.dev", password: "test-password",
+    }).catch((error: unknown) => error);
+    await writeStarted.promise;
+    const signingOut = logout();
+    profileWrite.resolve();
+
+    expect(await signingIn).toMatchObject({ name: "SessionChangedError" });
+    await signingOut;
+    expect(clearSessionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears local credentials even when logout cannot read the stored session", async () => {
+    getStoredSessionMock.mockRejectedValueOnce(new Error("SecureStore read failed"));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(logout()).rejects.toThrow("SecureStore read failed");
+    expect(clearSessionMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes failed credential removal from an offline logout", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Network offline")));
+    await expect(logout()).rejects.toMatchObject({ name: "NetworkError" });
+    expect(clearSessionMock).toHaveBeenCalledTimes(1);
+
+    clearSessionMock.mockRejectedValueOnce(new Error("Private native storage details"));
+    const error = await logout().catch((reason: unknown) => reason);
+    expect(error).toMatchObject({
+      name: "SessionStorageError",
+      message: "Could not remove the saved sign-in data from this device",
+    });
+    expect(String(error)).not.toContain("Private native storage details");
+  });
+
+  it("clears residual profile data even when no complete session exists", async () => {
+    getStoredSessionMock.mockResolvedValueOnce(null);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await logout();
+    expect(clearSessionMock).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

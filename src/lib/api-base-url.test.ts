@@ -33,4 +33,17 @@ describe("resolveApiBaseUrl", () => {
   it("accepts and normalizes a real production API URL", () => {
     expect(resolveApiBaseUrl("https://api.dimax.co.il/", false)).toBe("https://api.dimax.co.il");
   });
+
+  it("restricts the explicit acceptance profile to the isolated USB API", () => {
+    expect(resolveApiBaseUrl("http://127.0.0.1:8001", false, "acceptance")).toBe("http://127.0.0.1:8001");
+    for (const url of [undefined, "http://127.0.0.1:8000", "http://localhost:8001", "https://api.dimax.co.il", "http://127.0.0.1:8001/path"]) {
+      expect(() => resolveApiBaseUrl(url, false, "acceptance")).toThrow("isolated USB API");
+    }
+  });
+
+  it("does not weaken the default or explicit production policy", () => {
+    expect(() => resolveApiBaseUrl("http://127.0.0.1:8001", false)).toThrow("HTTPS");
+    expect(() => resolveApiBaseUrl("http://127.0.0.1:8001", false, "production")).toThrow("HTTPS");
+    expect(() => resolveApiBaseUrl("http://127.0.0.1:8001", false, "accidental")).toThrow("Unknown");
+  });
 });

@@ -1,61 +1,16 @@
 import { apiFetch } from "@/lib/api";
-import { addLocalDays, currentLocalDateKey, dateKeyToLocalDate, formatLocalDateKey } from "@/lib/date-key";
-import { ApiError, NetworkError } from "@/lib/errors";
+import { addLocalDays, currentLocalDateKey, dateKeyToLocalDate, formatLocalDateKey, parseLocalDateKey } from "@/lib/date-key";
+import { ApiError, NetworkError, SessionChangedError } from "@/lib/errors";
+import { assertWorkspaceContext, captureWorkspaceContext, withWorkspaceDatabase } from "@/lib/workspace-context";
 import { getEarningsSnapshot, saveEarningsSnapshot } from "@/modules/earnings/repository";
 import type { InstallerEarningsSummary, InstallerEarningsViewModel } from "@/modules/earnings/types";
+import { parseEarningsSummary } from "./contract";
 
-function isInstallerEarningsSummary(payload: unknown): payload is InstallerEarningsSummary {
-  if (!payload || typeof payload !== "object") {
-    return false;
-  }
-
-  const candidate = payload as Record<string, unknown>;
-  return (
-    typeof candidate.period_key === "string" &&
-    typeof candidate.currency === "string" &&
-    typeof candidate.today_total === "string" &&
-    typeof candidate.month_total === "string" &&
-    Array.isArray(candidate.days) &&
-    Array.isArray(candidate.install_types) &&
-    Array.isArray(candidate.rows)
-  );
-}
-
-function numericValue(value: unknown): number {
-  const parsed = typeof value === "number" ? value : Number.parseFloat(String(value ?? "0"));
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function normalizeInstallerEarningsSummary(
-  payload: InstallerEarningsSummary
-): InstallerEarningsSummary {
-  return {
-    ...payload,
-    days: payload.days.map((item) => ({
-      ...item,
-      jobs_count: numericValue(item.jobs_count),
-    })),
-    install_types: payload.install_types.map((item) => ({
-      ...item,
-      quantity: numericValue(item.quantity),
-    })),
-    rows: payload.rows.map((item) => ({
-      ...item,
-      quantity: numericValue(item.quantity),
-    })),
-  };
-}
-
-function anchorDateValue(anchorDate?: string | null): string {
-  const trimmed = anchorDate?.trim();
-  if (trimmed && /^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return trimmed;
-  }
-  return currentLocalDateKey();
-}
+let requestSequence = 0;
+const savedRequests = new WeakMap<object, Map<string, number>>();
 
 function periodKeyFor(period: "day" | "week" | "month", anchorDate?: string | null): string {
-  const day = anchorDateValue(anchorDate);
+  const day = parseLocalDateKey(anchorDate) || currentLocalDateKey();
   if (period === "day") {
     return day;
   }
@@ -74,28 +29,38 @@ export async function loadInstallerEarnings(
   period: "day" | "week" | "month" = "month",
   anchorDate?: string | null
 ): Promise<InstallerEarningsViewModel> {
+  const context = captureWorkspaceContext();
+  assertWorkspaceContext(context);
+  const anchor = parseLocalDateKey(anchorDate);
   const requestedPeriodKey = periodKeyFor(period, anchorDate);
+  const requestNumber = ++requestSequence;
   const params = new URLSearchParams({ period });
-  if (anchorDate) {
-    params.set("date", anchorDate);
+  if (anchor) {
+    params.set("date", anchor);
   }
   const suffix = `?${params.toString()}`;
 
   try {
     const snapshot = await apiFetch<unknown>(
-      `/api/v1/installer/earnings/summary${suffix}`
+      `/api/v1/installer/earnings/summary${suffix}`,
+      { expectedAuthGeneration: context.authGeneration },
     );
-    if (!isInstallerEarningsSummary(snapshot)) {
-      return {
-        snapshot: null,
-        source: "unavailable",
-        message: "Mobile earnings view is waiting for the canonical backend summary shape.",
-      };
-    }
-    const normalizedSnapshot = normalizeInstallerEarningsSummary(snapshot);
+    assertWorkspaceContext(context);
+    const normalizedSnapshot = parseEarningsSummary(snapshot, requestedPeriodKey);
+    if (!normalizedSnapshot) throw new Error("Mobile earnings view is waiting for the canonical backend summary shape.");
     try {
-      await saveEarningsSnapshot(normalizedSnapshot);
-    } catch {
+      await withWorkspaceDatabase(context, async () => {
+        // Do not let a late focus refresh replace a newer offline calculation.
+        const saved = savedRequests.get(context.database!) || new Map<string, number>();
+        if ((saved.get(requestedPeriodKey) || 0) > requestNumber) return;
+        await saveEarningsSnapshot(normalizedSnapshot);
+        saved.set(requestedPeriodKey, requestNumber);
+        savedRequests.set(context.database!, saved);
+      });
+      assertWorkspaceContext(context);
+    } catch (error) {
+      assertWorkspaceContext(context);
+      if (error instanceof SessionChangedError) throw error;
       return {
         snapshot: normalizedSnapshot,
         source: "online",
@@ -108,19 +73,25 @@ export async function loadInstallerEarnings(
       message: null,
     };
   } catch (error) {
+    assertWorkspaceContext(context);
+    if (error instanceof SessionChangedError) throw error;
     let cached: InstallerEarningsSummary | null = null;
     try {
-      cached = await getEarningsSnapshot(requestedPeriodKey);
-    } catch {
+      cached = await withWorkspaceDatabase(context, () => getEarningsSnapshot(requestedPeriodKey));
+      assertWorkspaceContext(context);
+    } catch (cacheError) {
+      assertWorkspaceContext(context);
+      if (cacheError instanceof SessionChangedError) throw cacheError;
       return {
         snapshot: null,
         source: "unavailable",
         message: `Earnings for ${requestedPeriodKey} and their offline copy are temporarily unavailable.`,
       };
     }
-    if (cached && isInstallerEarningsSummary(cached)) {
+    const validCached = parseEarningsSummary(cached, requestedPeriodKey);
+    if (validCached) {
       return {
-        snapshot: normalizeInstallerEarningsSummary(cached),
+        snapshot: validCached,
         source: "cache",
         message:
           error instanceof NetworkError

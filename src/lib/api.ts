@@ -1,6 +1,6 @@
 import { API_BASE_URL } from "@/lib/config";
 import { getOrCreateDeviceId } from "@/lib/device-id";
-import { ApiError, NetworkError } from "@/lib/errors";
+import { ApiError, NetworkError, SessionChangedError, SessionStorageError } from "@/lib/errors";
 import {
   clearSession,
   getStoredSession,
@@ -26,6 +26,7 @@ type TokenPair = {
 
 type ApiRequestInit = RequestInit & {
   timeoutMs?: number;
+  expectedAuthGeneration?: number;
 };
 
 const refreshInFlight = new Map<string, Promise<SessionSnapshot>>();
@@ -35,11 +36,16 @@ const AUTH_LOGIN_TIMEOUT_MS = 30000;
 const AUTH_IDENTITY_TIMEOUT_MS = 30000;
 const AUTH_REFRESH_TIMEOUT_MS = 30000;
 
-class SessionChangedError extends Error {
-  constructor() {
-    super("Mobile session changed while the request was in progress");
-    this.name = "SessionChangedError";
+export function getAuthSessionGeneration(): number {
+  return authGeneration;
+}
+
+export async function clearAuthenticatedSession(expectedGeneration: number): Promise<void> {
+  if (expectedGeneration !== authGeneration) {
+    throw new SessionChangedError();
   }
+  const generation = ++authGeneration;
+  await enqueueAuthStorageMutation(generation, clearSession);
 }
 
 function normalizeSessionEmail(email: string): string {
@@ -85,13 +91,36 @@ function enqueueAuthStorageMutation<T>(
     if (generation !== authGeneration) {
       throw new SessionChangedError();
     }
-    return operation();
+    const value = await operation();
+    if (generation !== authGeneration) {
+      throw new SessionChangedError();
+    }
+    return value;
   });
   authStorageTail = result.then(
     () => undefined,
     () => undefined,
   );
   return result;
+}
+
+export async function persistAuthenticatedUser(
+  user: AuthMe,
+  expectedAuthGeneration: number,
+): Promise<void> {
+  await enqueueAuthStorageMutation(expectedAuthGeneration, async () => {
+    const current = await getStoredSession();
+    if (
+      expectedAuthGeneration !== authGeneration ||
+      !current ||
+      current.companyId !== user.company_id ||
+      normalizeSessionEmail(current.email) !== normalizeSessionEmail(user.email)
+    ) {
+      throw new SessionChangedError();
+    }
+    // Serialize profile refreshes with login/logout so a late write cannot win.
+    await persistStoredUser(user);
+  });
 }
 
 async function assertSessionContextCurrent(
@@ -308,17 +337,27 @@ async function refreshSessionForRetry(
 }
 
 export async function apiFetch<T>(path: string, init?: ApiRequestInit): Promise<T> {
-  const generation = authGeneration;
+  const { expectedAuthGeneration = authGeneration, ...requestInit } = init || {};
+  const generation = expectedAuthGeneration;
+  if (generation !== authGeneration) {
+    throw new SessionChangedError();
+  }
   const stored = await getStoredSession();
+  if (generation !== authGeneration) {
+    throw new SessionChangedError();
+  }
   if (!stored) {
     throw new Error("No mobile session");
   }
 
   const doRequest = async (token: string) => {
+    if (generation !== authGeneration) {
+      throw new SessionChangedError();
+    }
     return rawFetch<T>(path, {
-      ...init,
+      ...requestInit,
       headers: {
-        ...(init?.headers || {}),
+        ...(requestInit.headers || {}),
         Authorization: `Bearer ${token}`,
       },
     });
@@ -362,11 +401,11 @@ export async function refreshSession(refreshToken?: string): Promise<SessionSnap
 
 export async function logout(): Promise<void> {
   const generation = ++authGeneration;
-  const stored = await getStoredSession();
-  if (generation !== authGeneration) {
-    return;
-  }
   try {
+    const stored = await getStoredSession();
+    if (generation !== authGeneration) {
+      return;
+    }
     if (stored) {
       await rawFetch("/api/v1/auth/logout-refresh", {
         method: "POST",
@@ -378,7 +417,7 @@ export async function logout(): Promise<void> {
       await enqueueAuthStorageMutation(generation, clearSession);
     } catch (error) {
       if (!(error instanceof SessionChangedError)) {
-        throw error;
+        throw new SessionStorageError();
       }
     }
   }

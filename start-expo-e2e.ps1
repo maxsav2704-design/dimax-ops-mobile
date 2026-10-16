@@ -1,15 +1,51 @@
+param([switch]$ValidateOnly)
+
 $ErrorActionPreference = "Stop"
 
 $mobile = $PSScriptRoot
 $workspace = Split-Path -Parent $mobile
 $metroScript = Join-Path $workspace "scripts\mobile-metro.ps1"
-$apiPort = 8000
 $metroPort = 8081
-$env:EXPO_PUBLIC_API_BASE_URL = 'http://127.0.0.1:8000'
+
+if ($env:NODE_ENV -eq 'production') {
+    throw "The device E2E launcher is development-only."
+}
+$requiredVariables = @(
+    'EXPO_PUBLIC_API_BASE_URL',
+    'EXPO_PUBLIC_E2E_COMPANY_ID',
+    'EXPO_PUBLIC_E2E_EMAIL',
+    'EXPO_PUBLIC_E2E_PASSWORD'
+)
+foreach ($name in $requiredVariables) {
+    if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+        throw "$name is required. Use an isolated test API and synthetic installer credentials."
+    }
+}
+$apiUri = $null
+if (-not [Uri]::TryCreate($env:EXPO_PUBLIC_API_BASE_URL.Trim(), [UriKind]::Absolute, [ref]$apiUri) -or
+    $apiUri.Scheme -notin @('http', 'https') -or -not $apiUri.IsLoopback -or
+    $apiUri.UserInfo -or $apiUri.Query -or $apiUri.Fragment) {
+    throw "Device E2E requires an explicit loopback HTTP(S) API URL for ADB reverse, without credentials, query or fragment."
+}
+$companyId = [guid]::Empty
+if (-not [guid]::TryParse($env:EXPO_PUBLIC_E2E_COMPANY_ID.Trim(), [ref]$companyId)) {
+    throw "EXPO_PUBLIC_E2E_COMPANY_ID must be a test company UUID."
+}
+$apiPort = $apiUri.Port
+if ($apiPort -eq $metroPort) {
+    throw "The test API and Metro must use different ports."
+}
+
+if ($ValidateOnly) {
+    [pscustomobject]@{
+        ApiBaseUrl = $apiUri.AbsoluteUri.TrimEnd('/')
+        ApiPort = $apiPort
+        MetroPort = $metroPort
+    } | ConvertTo-Json
+    return
+}
+$env:EXPO_PUBLIC_API_BASE_URL = $apiUri.AbsoluteUri.TrimEnd('/')
 $env:EXPO_PUBLIC_E2E_AUTO_LOGIN = '1'
-$env:EXPO_PUBLIC_E2E_COMPANY_ID = '1f16d537-5617-4c4b-a944-dafba2bcead9'
-$env:EXPO_PUBLIC_E2E_EMAIL = 'installer1@dimax.dev'
-$env:EXPO_PUBLIC_E2E_PASSWORD = 'installer12345'
 
 function Resolve-AdbPath {
     $candidates = @()

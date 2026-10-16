@@ -1,3 +1,5 @@
+import type { FactoryPriceSnapshot } from "@/modules/prices/contract";
+
 export type SyncEventType = "DOOR_SET_STATUS" | "ADDON_FACT_CREATE" | "ISSUE_CREATE";
 export type PendingSyncStatus = "PENDING" | "FAILED" | "BLOCKED";
 
@@ -89,6 +91,7 @@ export type SyncSnapshot = {
 };
 
 export type SyncResponse = {
+  factory_prices?: FactoryPriceSnapshot | null;
   server_time: string;
   next_cursor: number;
   reset_required: boolean;

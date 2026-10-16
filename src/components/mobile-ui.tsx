@@ -1,10 +1,12 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { type ReactNode } from "react";
+import React, { useEffect, useRef, type ReactNode } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Modal,
-  Pressable,
+  Platform,
   type PressableProps,
   StyleSheet,
   Text as NativeText,
@@ -21,6 +23,10 @@ import Svg, {
   Stop,
 } from "react-native-svg";
 import { installerTheme, toneColors, type InstallerTone } from "@/lib/theme";
+import { FeedbackPressable as Pressable } from "./feedback-pressable";
+import { DirectionalChevron } from "./directional-chevron";
+import { Reveal, useAnimatedNumber, useReducedMotion } from "./motion";
+import { useI18n } from "@/providers/AppProviders";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -31,7 +37,7 @@ export function BrandText({ style, ...props }: TextProps) {
   const numericWeight = Number.parseInt(requestedWeight, 10);
   const strong = requestedWeight === "bold" || (Number.isFinite(numericWeight) && numericWeight >= 600);
   const medium = Number.isFinite(numericWeight) && numericWeight >= 500;
-  const fontFamily =
+  let fontFamily: string =
     requestedFamily === "monospace"
       ? installerTheme.fontFamilyMono
       : requestedFamily && requestedFamily !== installerTheme.fontFamily
@@ -41,11 +47,21 @@ export function BrandText({ style, ...props }: TextProps) {
           : medium
             ? installerTheme.fontFamilyMedium
             : installerTheme.fontFamily;
+  const text = React.Children.toArray(props.children).filter((child) => typeof child === "string").join("");
+  let fontWeight: TextStyle["fontWeight"];
+  // Sora has no Cyrillic or Hebrew glyphs; choose a deliberate sans fallback.
+  if (/[\u0400-\u04ff]/.test(text) && fontFamily.startsWith("Sora_")) {
+    fontFamily = installerTheme.fontFamilyStrong;
+  } else if (/[\u0590-\u05ff]/.test(text)) {
+    fontWeight = strong || /(?:SemiBold|Bold)/.test(fontFamily) ? "700" : "400";
+    fontFamily = Platform.OS === "ios" ? "System" : Platform.OS === "web" ? "system-ui, sans-serif" : "sans-serif";
+  }
 
   return (
     <NativeText
+      maxFontSizeMultiplier={installerTheme.maxFontScale}
       {...props}
-      style={[styles.brandText, style, { fontFamily, fontWeight: undefined }]}
+      style={[styles.brandText, style, { fontFamily, fontWeight }]}
     />
   );
 }
@@ -56,7 +72,8 @@ export function BrandMark({ compact = false }: { compact?: boolean }) {
   const size = compact ? 24 : 32;
   return (
     <View style={[styles.brandMark, compact && styles.brandMarkCompact]}>
-      <Svg width={size} height={size} viewBox="0 0 32 32" accessibilityElementsHidden>
+      <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <Svg width={size} height={size} viewBox="0 0 32 32">
         <Defs>
           <SvgLinearGradient id="dimaxGold" x1="0" y1="0" x2="1" y2="1">
             <Stop offset="0" stopColor={installerTheme.accent} />
@@ -71,6 +88,7 @@ export function BrandMark({ compact = false }: { compact?: boolean }) {
         />
         <Path d="M12 9h3c3.6 0 5.6 2.6 5.6 7s-2 7-5.6 7h-3z" fill="url(#dimaxGold)" opacity={0.55} />
       </Svg>
+      </View>
       <View>
         <Text style={[styles.brandName, compact && styles.brandNameCompact]}>DIMAX</Text>
         <Text style={[styles.brandProduct, compact && styles.brandProductCompact]}>INSTALLER</Text>
@@ -97,7 +115,7 @@ export function ScreenHero({
   showMark?: boolean;
 }) {
   return (
-    <View style={styles.hero}>
+    <Reveal style={styles.hero}>
       {showMark || right ? (
         <View style={[styles.heroTop, !showMark && styles.heroTopActionsOnly]}>
           {showMark ? <BrandMark /> : null}
@@ -108,7 +126,7 @@ export function ScreenHero({
       <Text style={styles.heroTitle}>{title}</Text>
       {subtitle ? <Text style={styles.heroSubtitle}>{subtitle}</Text> : null}
       {children}
-    </View>
+    </Reveal>
   );
 }
 
@@ -121,11 +139,14 @@ export function SectionCard({
 }) {
   return (
     <LinearGradient
-      colors={["rgba(255,255,255,0.035)", "rgba(8,14,21,0.82)"]}
-      start={{ x: 0.1, y: 0 }}
-      end={{ x: 0.9, y: 1 }}
+      colors={["#1D2530", installerTheme.shellRaised, "#101720"]}
+      locations={[0, 0.45, 1]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0.8, y: 1 }}
       style={[styles.card, style]}
     >
+      <View pointerEvents="none" style={styles.cardBevelTop} />
+      <View pointerEvents="none" style={styles.cardBevelBottom} />
       {children}
     </LinearGradient>
   );
@@ -155,23 +176,49 @@ export function SectionHeader({
   );
 }
 
+/** Cross-fades its colours when the tone changes; `value` renders an eased number instead of the label. */
 export function StatusPill({
   label,
   tone = "neutral",
   icon,
+  value,
+  format = (current) => String(Math.round(current)),
 }: {
   label: string;
   tone?: InstallerTone;
   icon?: IconName;
+  value?: number;
+  format?: (current: number) => string;
 }) {
   const colors = toneColors(tone);
+  const reducedMotion = useReducedMotion();
+  const blend = useRef(new Animated.Value(1)).current;
+  const shownTone = useRef(tone);
+  const fromTone = useRef(tone);
+  useEffect(() => {
+    if (shownTone.current === tone) return;
+    fromTone.current = shownTone.current;
+    shownTone.current = tone;
+    if (reducedMotion) { blend.setValue(1); return; }
+    blend.setValue(0);
+    const animation = Animated.timing(blend, { toValue: 1, duration: 420, easing: Easing.out(Easing.cubic), useNativeDriver: false, isInteraction: false });
+    animation.start();
+    return () => animation.stop();
+  }, [blend, tone, reducedMotion]);
+  const previous = toneColors(fromTone.current);
+  const mix = (key: keyof typeof colors) => blend.interpolate({ inputRange: [0, 1], outputRange: [previous[key], colors[key]] });
   return (
-    <View style={[styles.statusPill, { backgroundColor: colors.background, borderColor: colors.border }]}>
+    <Animated.View style={[styles.statusPill, { backgroundColor: mix("background"), borderColor: mix("border") }]}>
+      <View pointerEvents="none" style={styles.statusPillGloss} />
       {icon ? <Ionicons name={icon} size={12} color={colors.text} /> : null}
-      <Text style={[styles.statusPillText, { color: colors.text }]} numberOfLines={1}>
-        {label}
-      </Text>
-    </View>
+      {value === undefined ? (
+        <Animated.Text style={[styles.brandText, styles.statusPillText, { color: mix("text") }]} numberOfLines={1}>
+          {label}
+        </Animated.Text>
+      ) : (
+        <AnimatedNumber value={value} format={format} style={[styles.statusPillText, { color: colors.text }]} numberOfLines={1} accessibilityLabel={label} />
+      )}
+    </Animated.View>
   );
 }
 
@@ -189,8 +236,13 @@ export function ProgressRing({
   label?: string;
 }) {
   const normalized = Math.max(0, Math.min(100, value));
-  const radius = (size - stroke) / 2;
+  // The arc sweeps to its value; the track is an engraved groove and the arc carries a lit edge.
+  const shown = useAnimatedNumber(normalized, 900);
+  const radius = (size - stroke) / 2 - 1;
   const circumference = 2 * Math.PI * radius;
+  const dash = `${circumference} ${circumference}`;
+  const offset = circumference - (circumference * shown) / 100;
+  const center = size / 2;
   return (
     <View
       accessible
@@ -199,31 +251,37 @@ export function ProgressRing({
       style={{ width: size, height: size }}
     >
       <Svg width={size} height={size} style={styles.progressRingSvg}>
+        <Circle cx={center} cy={center} r={radius + stroke / 2 + 0.75} stroke="rgba(0,0,0,0.45)" strokeWidth={1.5} fill="none" />
+        <Circle cx={center} cy={center} r={radius} stroke={installerTheme.shellMuted} strokeWidth={stroke} fill="none" />
+        <Circle cx={center} cy={center} r={radius - stroke / 2 - 0.5} stroke="rgba(255,255,255,0.08)" strokeWidth={1} fill="none" />
         <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          stroke={installerTheme.borderStrong}
-          strokeWidth={stroke}
-          fill="none"
+          cx={center} cy={center} r={radius} stroke={tone} strokeOpacity={0.28} strokeWidth={stroke + 4}
+          strokeLinecap="round" strokeDasharray={dash} strokeDashoffset={offset} fill="none"
         />
         <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          stroke={tone}
-          strokeWidth={stroke}
-          strokeLinecap="round"
-          strokeDasharray={`${circumference} ${circumference}`}
-          strokeDashoffset={circumference - (circumference * normalized) / 100}
-          fill="none"
+          cx={center} cy={center} r={radius} stroke={tone} strokeWidth={stroke}
+          strokeLinecap="round" strokeDasharray={dash} strokeDashoffset={offset} fill="none"
+        />
+        <Circle
+          cx={center} cy={center} r={radius + stroke / 4} stroke="rgba(255,255,255,0.35)" strokeWidth={Math.max(1, stroke / 3)}
+          strokeLinecap="round" strokeDasharray={dash} strokeDashoffset={offset} fill="none"
         />
       </Svg>
       <View style={styles.progressRingLabel}>
-        <Text style={styles.progressRingText}>{label ?? `${normalized}%`}</Text>
+        <Text style={styles.progressRingText}>{label ?? `${Math.round(shown)}%`}</Text>
       </View>
     </View>
   );
+}
+
+/** A number that eases to its value; renders the final value at once under reduced motion. */
+export function AnimatedNumber({ value, format = (current) => String(Math.round(current)), duration, ...props }: TextProps & {
+  value: number;
+  format?: (current: number) => string;
+  duration?: number;
+}) {
+  const displayed = useAnimatedNumber(value, duration);
+  return <Text {...props}>{format(displayed)}</Text>;
 }
 
 export function MetricTile({
@@ -232,20 +290,32 @@ export function MetricTile({
   meta,
   tone = "accent",
   style,
+  onPress,
+  children,
 }: {
   label: string;
   value: string | number;
   meta?: string | null;
   tone?: InstallerTone;
   style?: ViewStyle | ViewStyle[];
+  onPress?: () => void;
+  children?: ReactNode;
 }) {
   const colors = toneColors(tone);
-  return (
-    <View style={[styles.metric, { borderStartColor: colors.text }, style]}>
+  const content = (
+    <>
       <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={styles.metricValue} numberOfLines={1}>{value}</Text>
+      <Text style={styles.metricValue} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.85}>{value}</Text>
       {meta ? <Text style={styles.metricMeta} numberOfLines={2}>{meta}</Text> : null}
-    </View>
+      {children}
+      {onPress ? <DirectionalChevron size={14} color={colors.text} style={styles.metricChevron} /> : null}
+    </>
+  );
+  const containerStyle = [styles.metric, { borderStartColor: colors.text }, style];
+  return onPress ? (
+    <Pressable accessibilityRole="button" accessibilityLabel={[label, String(value), meta].filter(Boolean).join(". ")} onPress={onPress} style={[containerStyle, { paddingEnd: 24 }]}>{content}</Pressable>
+  ) : (
+    <View style={containerStyle}>{content}</View>
   );
 }
 
@@ -289,7 +359,7 @@ export function ActionButton({
         variant === "danger" && styles.actionDanger,
         variant === "dark" && styles.actionDark,
         pressed && styles.actionPressed,
-        props.disabled && styles.actionDisabled,
+        (props.disabled || loading) && styles.actionDisabled,
         style,
       ]}
     >
@@ -302,6 +372,16 @@ export function ActionButton({
           style={styles.actionGradient}
         />
       ) : null}
+      {variant === "primary" ? (
+        <LinearGradient
+          pointerEvents="none"
+          colors={["rgba(255,255,255,0.30)", "rgba(255,255,255,0)"]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={styles.actionGloss}
+        />
+      ) : <View pointerEvents="none" style={styles.actionEdge} />}
+      <View pointerEvents="none" style={styles.actionRim} />
       {loading ? (
         <ActivityIndicator size="small" color={foreground} />
       ) : (
@@ -329,6 +409,7 @@ export function ConfirmDialog({
   confirmIcon,
   onConfirm,
   onCancel,
+  direction,
 }: {
   visible: boolean;
   title: string;
@@ -340,17 +421,21 @@ export function ConfirmDialog({
   confirmIcon?: IconName;
   onConfirm: () => void;
   onCancel: () => void;
+  direction?: "ltr" | "rtl";
 }) {
+  const reducedMotion = useReducedMotion();
   return (
     <Modal
-      animationType="fade"
+      animationType={reducedMotion ? "none" : "fade"}
       transparent
       visible={visible}
       statusBarTranslucent
-      onRequestClose={onCancel}
+      onRequestClose={() => { if (!busy) onCancel(); }}
     >
       <View style={styles.dialogRoot}>
         <Pressable
+          feedback="none"
+          disabled={busy}
           accessibilityRole="button"
           accessibilityLabel={cancelLabel}
           style={styles.dialogBackdrop}
@@ -359,7 +444,7 @@ export function ConfirmDialog({
         <View
           accessibilityViewIsModal
           accessibilityRole="alert"
-          style={styles.dialogPanel}
+          style={[styles.dialogPanel, direction && { direction }]}
         >
           <View style={[styles.dialogIcon, danger && styles.dialogIconDanger]}>
             <Ionicons
@@ -416,11 +501,13 @@ export function IconButton({
       accessibilityRole={props.accessibilityRole ?? "button"}
       accessibilityState={{ ...props.accessibilityState, disabled: Boolean(props.disabled) }}
       hitSlop={props.hitSlop ?? 6}
-      style={({ pressed }) => [
+      style={(state) => [
         styles.iconButton,
         tone === "dark" && styles.iconButtonDark,
         tone === "accent" && styles.iconButtonAccent,
-        pressed && styles.actionPressed,
+        state.pressed && styles.actionPressed,
+        props.disabled && styles.actionDisabled,
+        typeof props.style === "function" ? props.style(state) : props.style,
       ]}
     >
       <Ionicons pointerEvents="none" name={icon} size={19} color={color} />
@@ -433,11 +520,13 @@ export function SegmentedControl<T extends string>({
   options,
   onChange,
   dark = false,
+  stackedCounts = false,
 }: {
   value: T;
   options: Array<{ value: T; label: string; count?: number }>;
   onChange: (value: T) => void;
   dark?: boolean;
+  stackedCounts?: boolean;
 }) {
   return (
     <View style={[styles.segmented, dark && styles.segmentedDark]}>
@@ -450,7 +539,7 @@ export function SegmentedControl<T extends string>({
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
             accessibilityLabel={option.label}
-            style={[styles.segment, active && (dark ? styles.segmentActiveAccent : styles.segmentActiveDark)]}
+            style={[styles.segment, stackedCounts && styles.segmentStacked, active && (dark ? styles.segmentActiveAccent : styles.segmentActiveDark)]}
           >
             <Text
               style={[
@@ -458,7 +547,7 @@ export function SegmentedControl<T extends string>({
                 dark && styles.segmentTextDark,
                 active && (dark ? styles.segmentTextAccent : styles.segmentTextActive),
               ]}
-              numberOfLines={1}
+              numberOfLines={stackedCounts ? 2 : 1}
             >
               {option.label}
             </Text>
@@ -511,6 +600,7 @@ export function Row({
   onPress?: () => void;
 }) {
   const colors = toneColors(tone);
+  const { isRTL } = useI18n();
   const content = (
     <>
       <View style={[styles.rowIcon, { backgroundColor: colors.background, borderColor: colors.border }]}>
@@ -520,8 +610,8 @@ export function Row({
         <Text style={styles.rowTitle} numberOfLines={1}>{title}</Text>
         {subtitle ? <Text style={styles.rowSubtitle} numberOfLines={2}>{subtitle}</Text> : null}
       </View>
-      {value ? <Text style={styles.rowValue} numberOfLines={1}>{value}</Text> : null}
-      {onPress ? <Ionicons name="chevron-forward" size={16} color={installerTheme.textFaint} /> : null}
+      {value ? <Text style={[styles.rowValue, { textAlign: isRTL ? "left" : "right" }]} numberOfLines={1}>{value}</Text> : null}
+      {onPress ? <DirectionalChevron size={16} color={installerTheme.textFaint} /> : null}
     </>
   );
   return onPress ? (
@@ -553,13 +643,13 @@ export const mobileText = StyleSheet.create({
   label: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamilyStrong,
-    fontSize: 10,
+    fontSize: installerTheme.type.caption,
     textTransform: "uppercase",
   },
   mono: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamilyMono,
-    fontSize: 11,
+    fontSize: installerTheme.type.caption,
   } satisfies TextStyle,
 });
 
@@ -590,13 +680,13 @@ const styles = StyleSheet.create({
   brandProduct: {
     color: installerTheme.accent,
     fontFamily: installerTheme.fontFamilyStrong,
-    fontSize: 8,
-    lineHeight: 10,
+    fontSize: installerTheme.type.caption,
+    lineHeight: 14,
     letterSpacing: 0,
   },
   brandProductCompact: {
-    fontSize: 6,
-    lineHeight: 8,
+    fontSize: installerTheme.type.caption,
+    lineHeight: 14,
     letterSpacing: 0,
   },
   hero: {
@@ -621,7 +711,7 @@ const styles = StyleSheet.create({
     zIndex: 1,
     color: installerTheme.textFaint,
     fontFamily: installerTheme.fontFamilyMedium,
-    fontSize: 11,
+    fontSize: installerTheme.type.caption,
     letterSpacing: 0,
     textTransform: "uppercase",
     marginBottom: 5,
@@ -645,7 +735,9 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: installerTheme.radius.xl,
     borderWidth: 1,
-    borderColor: installerTheme.border,
+    borderColor: installerTheme.borderStrong,
+    borderTopColor: "rgba(255,255,255,0.22)",
+    backgroundColor: installerTheme.shellRaised,
     padding: 12,
     shadowColor: "#000000",
     shadowOpacity: 0.42,
@@ -653,6 +745,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 12 },
     elevation: 5,
   },
+  cardBevelTop: { position: "absolute", top: 0, start: 0, end: 0, height: 1, borderTopStartRadius: installerTheme.radius.xl, borderTopEndRadius: installerTheme.radius.xl, backgroundColor: "rgba(255,255,255,0.10)" },
+  cardBevelBottom: { position: "absolute", bottom: 0, start: 0, end: 0, height: 2, borderBottomStartRadius: installerTheme.radius.xl, borderBottomEndRadius: installerTheme.radius.xl, backgroundColor: "rgba(0,0,0,0.38)" },
   sectionHeader: {
     minHeight: 28,
     flexDirection: "row",
@@ -683,7 +777,7 @@ const styles = StyleSheet.create({
   counterText: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamilyMono,
-    fontSize: 9,
+    fontSize: installerTheme.type.caption,
   },
   statusPill: {
     maxWidth: "100%",
@@ -695,10 +789,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 3,
+    overflow: "hidden",
   },
+  statusPillGloss: { position: "absolute", top: 0, start: 0, end: 0, height: "50%", backgroundColor: "rgba(255,255,255,0.07)" },
   statusPillText: {
     fontFamily: installerTheme.fontFamilyStrong,
-    fontSize: 10,
+    fontSize: installerTheme.type.caption,
     flexShrink: 1,
   },
   progressRingSvg: {
@@ -712,11 +808,11 @@ const styles = StyleSheet.create({
   progressRingText: {
     color: installerTheme.text,
     fontFamily: installerTheme.fontFamilyMono,
-    fontSize: 10,
+    fontSize: installerTheme.type.caption,
   },
   metric: {
     flex: 1,
-    minWidth: 96,
+    minWidth: 120,
     minHeight: 76,
     backgroundColor: installerTheme.shellRaised,
     borderRadius: installerTheme.radius.card,
@@ -733,9 +829,10 @@ const styles = StyleSheet.create({
   metricLabel: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamilyMedium,
-    fontSize: 9,
+    fontSize: installerTheme.type.caption,
     textTransform: "uppercase",
   },
+  metricChevron: { position: "absolute", end: 7, top: 34 },
   metricValue: {
     color: installerTheme.text,
     fontFamily: installerTheme.fontFamilyMono,
@@ -745,8 +842,8 @@ const styles = StyleSheet.create({
   metricMeta: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamily,
-    fontSize: 9,
-    lineHeight: 12,
+    fontSize: installerTheme.type.caption,
+    lineHeight: 16,
     marginTop: 2,
   },
   action: {
@@ -774,6 +871,10 @@ const styles = StyleSheet.create({
   actionGradient: {
     ...StyleSheet.absoluteFillObject,
   },
+  // Bevel: a gloss on the upper half, a light top edge on flat variants and a dark rim below.
+  actionGloss: { position: "absolute", top: 0, start: 0, end: 0, height: "52%" },
+  actionEdge: { position: "absolute", top: 0, start: 0, end: 0, height: 1, backgroundColor: "rgba(255,255,255,0.14)" },
+  actionRim: { position: "absolute", bottom: 0, start: 0, end: 0, height: 1.5, backgroundColor: "rgba(0,0,0,0.32)" },
   actionSecondary: {
     backgroundColor: installerTheme.shellRaised,
     borderWidth: 1,
@@ -790,7 +891,10 @@ const styles = StyleSheet.create({
     borderColor: installerTheme.infoBorder,
   },
   actionPressed: {
-    opacity: 0.72,
+    opacity: 0.94,
+    transform: [{ translateY: 1 }],
+    shadowOpacity: 0.08,
+    elevation: 1,
   },
   actionDisabled: {
     opacity: 0.42,
@@ -856,8 +960,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 7,
   },
-  dialogActions: { flexDirection: "row", gap: 8, marginTop: 18 },
-  dialogAction: { flex: 1 },
+  dialogActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 18 },
+  dialogAction: { flexGrow: 1, flexBasis: 150 },
   iconButton: {
     width: 40,
     height: 40,
@@ -905,13 +1009,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: installerTheme.infoBorder,
   },
+  segmentStacked: {
+    flexDirection: "column",
+    minHeight: 54,
+    gap: 2,
+    paddingHorizontal: 4,
+  },
   segmentActiveAccent: {
     backgroundColor: installerTheme.accent,
   },
   segmentText: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamilyStrong,
-    fontSize: 10,
+    fontSize: installerTheme.type.caption,
     flexShrink: 1,
   },
   segmentTextDark: {
@@ -926,7 +1036,7 @@ const styles = StyleSheet.create({
   segmentCount: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamilyStrong,
-    fontSize: 8,
+    fontSize: installerTheme.type.caption,
   },
   segmentCountActive: {
     color: installerTheme.text,
@@ -996,7 +1106,7 @@ const styles = StyleSheet.create({
   rowSubtitle: {
     color: installerTheme.textMuted,
     fontFamily: installerTheme.fontFamily,
-    fontSize: 10,
+    fontSize: installerTheme.type.caption,
     lineHeight: 14,
     marginTop: 2,
   },
@@ -1005,7 +1115,6 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     color: installerTheme.text,
     fontFamily: installerTheme.fontFamilyMono,
-    fontSize: 11,
-    textAlign: "right",
+    fontSize: installerTheme.type.caption,
   },
 });

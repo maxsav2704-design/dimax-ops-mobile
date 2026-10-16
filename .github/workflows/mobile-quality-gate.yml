@@ -16,6 +16,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  device-launcher-contract:
+    name: Device launcher contract
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.2
+
+      - name: Validate isolated device launcher without connecting to a device
+        run: node --test scripts/e2e-launcher.test.mjs
+
   quality-gate:
     name: quality-gate
     runs-on: ubuntu-latest
