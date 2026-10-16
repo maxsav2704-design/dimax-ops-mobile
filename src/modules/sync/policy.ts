@@ -15,7 +15,8 @@ export function isRetryableSyncError(error: unknown): boolean {
     return true;
   }
   if (error instanceof ApiError) {
-    return error.status === 401 || error.status >= 500;
+    // 429 is a "slow down", not a rejection of the queued work.
+    return error.status === 401 || error.status === 429 || error.status >= 500;
   }
   return false;
 }

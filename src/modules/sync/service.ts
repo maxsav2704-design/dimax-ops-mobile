@@ -1255,20 +1255,19 @@ async function executeSync(context: SyncContext, options?: {
       priceResolutionChecks: blockedPrices.map((event) => event.client_event_id) };
   });
 
-  let response: SyncResponse;
-  try {
-    const deviceId = await getOrCreateDeviceId();
-    response = await apiFetch<SyncResponse>("/api/v1/installer/sync", {
+  const deviceId = await getOrCreateDeviceId();
+  const postSync = (cursor: number, events: PendingSyncEvent[]) =>
+    apiFetch<SyncResponse>("/api/v1/installer/sync", {
       method: "POST",
       timeoutMs: 30000,
       expectedAuthGeneration: context.authGeneration,
       body: JSON.stringify({
-        since_cursor: sinceCursor,
-        ack_cursor: sinceCursor,
+        since_cursor: cursor,
+        ack_cursor: cursor,
         app_version: `mobile-${MOBILE_APP_VERSION}`,
         device_id: deviceId,
         price_resolution_checks: priceResolutionChecks,
-        events: pendingEvents.map((event) => ({
+        events: events.map((event) => ({
           client_event_id: event.client_event_id,
           type: event.type,
           project_id: event.project_id,
@@ -1277,12 +1276,24 @@ async function executeSync(context: SyncContext, options?: {
         })),
       }),
     });
+
+  let response: SyncResponse;
+  try {
+    response = await postSync(sinceCursor, pendingEvents);
   } catch (error) {
     // Keep catch bindings out of deferred native async/generator callbacks.
     const failure = error;
     if (pendingEventIds.length && !(failure instanceof SessionChangedError)) {
       const retryable = isRetryableSyncError(failure);
       const message = getSyncErrorMessage(failure);
+      if (!retryable && pendingEvents.length > 1) {
+        // The server rejected the batch as a whole (for example one malformed event
+        // failed request validation). Find the offender by halving the batch so the
+        // other events are still delivered instead of all of them being blocked.
+        const isolated = await syncInHalves(context, postSync, applyResponse, sinceCursor, pendingEvents, message);
+        if (isolated) return isolated;
+        throw failure;
+      }
       await withSyncDatabase(context, () => retryable
         ? scheduleRetry(pendingEventIds, message)
         : markEventsBlocked(pendingEventIds, message));
@@ -1290,45 +1301,131 @@ async function executeSync(context: SyncContext, options?: {
     throw failure;
   }
 
-  return withSyncDatabase(context, async () => {
-    // Reject malformed prices before changing the cursor, queue or snapshot.
-    const prices = response.factory_prices === undefined ? undefined : parseFactoryPrices(response.factory_prices);
-    if (response.reset_required) {
-      if (!response.snapshot) {
-        const error = "Sync reset requested without snapshot";
-        if (pendingEventIds.length) {
-          await scheduleRetry(pendingEventIds, error);
-        }
-        throw new Error(error);
+  return applyResponse(context, response, pendingEventIds);
+}
+
+/** Re-sends a rejected batch in halves; a single rejected event is blocked alone. */
+async function syncInHalves(
+  context: SyncContext,
+  postSync: (cursor: number, events: PendingSyncEvent[]) => Promise<SyncResponse>,
+  apply: (context: SyncContext, response: SyncResponse, eventIds: string[]) => Promise<SyncResponse>,
+  cursor: number,
+  events: PendingSyncEvent[],
+  batchError: string,
+): Promise<SyncResponse | null> {
+  if (events.length === 1) {
+    await withSyncDatabase(context, () => markEventsBlocked([events[0].client_event_id], batchError));
+    return null;
+  }
+  const middle = Math.floor(events.length / 2);
+  let last: SyncResponse | null = null;
+  let nextCursor = cursor;
+  for (const half of [events.slice(0, middle), events.slice(middle)]) {
+    const halfIds = half.map((event) => event.client_event_id);
+    let response: SyncResponse;
+    try {
+      response = await postSync(nextCursor, half);
+    } catch (error) {
+      const failure = error;
+      if (failure instanceof SessionChangedError) throw failure;
+      const message = getSyncErrorMessage(failure);
+      if (isRetryableSyncError(failure)) {
+        await withSyncDatabase(context, () => scheduleRetry(halfIds, message));
+        throw failure;
       }
-      await upsertSnapshot(response.snapshot);
+      const deeper = await syncInHalves(context, postSync, apply, nextCursor, half, message);
+      if (deeper) {
+        last = deeper;
+        nextCursor = deeper.next_cursor;
+      }
+      continue;
     }
+    last = await apply(context, response, halfIds);
+    nextCursor = response.next_cursor;
+  }
+  return last;
+}
 
-    for (const change of response.changes) {
-      await applyChange(change);
+/** Applies a sync response; on failure the sent events are rescheduled instead of silently stalling. */
+async function applyResponse(context: SyncContext, response: SyncResponse, pendingEventIds: string[]): Promise<SyncResponse> {
+  try {
+    return await withSyncDatabase(context, async () => {
+      // Reject malformed prices before changing the cursor, queue or snapshot.
+      const prices = response.factory_prices === undefined ? undefined : parseFactoryPrices(response.factory_prices);
+      if (response.reset_required) {
+        if (!response.snapshot) {
+          throw new Error("Sync reset requested without snapshot");
+        }
+        await upsertSnapshot(response.snapshot);
+      }
+
+      for (const change of response.changes) {
+        await applyChange(change);
+      }
+
+      for (const ack of response.acks) {
+        await markAckResult(ack.client_event_id, ack.ok, ack.error, {
+          preserveServerDoorState: response.reset_required,
+        });
+      }
+
+      const ackedEventIds = new Set(response.acks.map((ack) => ack.client_event_id));
+      const missingAckEventIds = pendingEventIds.filter((clientEventId) => !ackedEventIds.has(clientEventId));
+      if (missingAckEventIds.length) {
+        await scheduleRetry(missingAckEventIds, "Sync response missed event acknowledgement");
+      }
+
+      if (response.reset_required && response.snapshot) {
+        await reapplyPendingOptimisticChanges(response.snapshot);
+      }
+
+      if (prices !== undefined) await storeFactoryPrices(prices);
+      await setState(CURSOR_KEY, String(response.next_cursor));
+      await setState(LAST_SYNC_AT_KEY, response.server_time);
+      return response;
+    });
+  } catch (error) {
+    const failure = error;
+    if (pendingEventIds.length && !(failure instanceof SessionChangedError)) {
+      // The POST succeeded, so the events were attempted; give them a retry slot
+      // instead of leaving them PENDING with an exhausted attempt counter.
+      await withSyncDatabase(context, () => scheduleRetry(pendingEventIds, getSyncErrorMessage(failure)));
     }
+    throw failure;
+  }
+}
 
-    for (const ack of response.acks) {
-      await markAckResult(ack.client_event_id, ack.ok, ack.error, {
-        preserveServerDoorState: response.reset_required,
-      });
-    }
+/**
+ * Work blocked by an expired session (AUTH_REQUIRED) can only be cured by a fresh
+ * login; the app calls this once a session is active so the next sync sends it again.
+ */
+export function releaseAuthBlockedEvents(): Promise<number> {
+  const context = captureSyncContext();
+  return enqueueSync(() => withSyncDatabase(context, async () => {
+    await initDb();
+    return releaseAuthBlockedRows();
+  }));
+}
 
-    const ackedEventIds = new Set(response.acks.map((ack) => ack.client_event_id));
-    const missingAckEventIds = pendingEventIds.filter((clientEventId) => !ackedEventIds.has(clientEventId));
-    if (missingAckEventIds.length) {
-      await scheduleRetry(missingAckEventIds, "Sync response missed event acknowledgement");
-    }
-
-    if (response.reset_required && response.snapshot) {
-      await reapplyPendingOptimisticChanges(response.snapshot);
-    }
-
-    if (prices !== undefined) await storeFactoryPrices(prices);
-    await setState(CURSOR_KEY, String(response.next_cursor));
-    await setState(LAST_SYNC_AT_KEY, response.server_time);
-    return response;
-  });
+async function releaseAuthBlockedRows(): Promise<number> {
+  const db = await getDb();
+  const blocked = await db.getFirstAsync<{ total: number }>(
+    "SELECT COUNT(*) as total FROM pending_events WHERE status = 'BLOCKED' AND error = 'AUTH_REQUIRED'"
+  );
+  const total = Number(blocked?.total || 0);
+  if (!total) {
+    return 0;
+  }
+  await db.runAsync(
+    `UPDATE pending_events
+     SET status = 'PENDING',
+         attempts = 0,
+         error = NULL,
+         next_retry_at = NULL
+     WHERE status = 'BLOCKED' AND error = 'AUTH_REQUIRED'`
+  );
+  notifySyncQueueChanged();
+  return total;
 }
 
 export async function queueDoorStatusEvent(input: {

@@ -34,7 +34,7 @@ import {
   isValidCachedInstaller,
 } from "@/modules/auth/session";
 import { clearAuthWorkspace } from "@/modules/auth/workspace";
-import { runSync } from "@/modules/sync/service";
+import { releaseAuthBlockedEvents, runSync } from "@/modules/sync/service";
 
 type AuthContextValue = {
   user: AuthMe | null;
@@ -172,6 +172,8 @@ export function AppProviders({ children }: { children: ReactNode }) {
     const syncSafe = async () => {
       if (!isCurrent()) return;
       try {
+        // A session is active again: queued work blocked by AUTH_REQUIRED may go out.
+        await releaseAuthBlockedEvents();
         await runSync();
         if (isCurrent()) {
           setSyncVersion((version) => version + 1);

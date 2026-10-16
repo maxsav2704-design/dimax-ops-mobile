@@ -48,6 +48,7 @@ import {
   queueAddonFactEvent,
   queueDoorStatusEvent,
   queueIssueCreateEvent,
+  releaseAuthBlockedEvents,
   retryPendingEventNow,
   runSync,
 } from "@/modules/sync/service";
@@ -1726,5 +1727,86 @@ describe("mobile sync service", () => {
       "DELETE FROM pending_events WHERE client_event_id = ?",
       ["event-1"]
     );
+  });
+
+  function pendingEvent(id: string, doorId: string) {
+    return {
+      client_event_id: id, type: "DOOR_SET_STATUS", project_id: "project-1",
+      happened_at: "2026-04-26T08:01:00Z", payload_json: JSON.stringify({ door_id: doorId, status: "INSTALLED" }),
+      status: "PENDING", error: null, attempts: 0, next_retry_at: null, last_attempt_at: null,
+      created_at: "2026-04-26T08:01:00Z",
+    };
+  }
+
+  it("blocks only the rejected event when the server refuses the batch as a whole", async () => {
+    // Regression (audit A1): one malformed event used to BLOCK every event of the batch.
+    dbRef.current.getAllAsync.mockResolvedValueOnce([
+      pendingEvent("event-a", "door-a"), pendingEvent("event-b", "door-b"), pendingEvent("event-c", "door-c"),
+    ]);
+    apiFetchMock.mockImplementation(async (_path: string, init: { body: string }) => {
+      const events = JSON.parse(init.body).events as { client_event_id: string }[];
+      if (events.some((event) => event.client_event_id === "event-b")) {
+        throw new ApiError("validation", 422, "payload invalid");
+      }
+      return { server_time: "2026-04-26T08:02:00Z", next_cursor: 8, reset_required: false, snapshot: null, changes: [],
+        acks: events.map((event) => ({ client_event_id: event.client_event_id, ok: true, applied: true, error: null })) };
+    });
+
+    const response = await runSync();
+
+    expect(response.next_cursor).toBe(8);
+    const sent = apiFetchMock.mock.calls.map((call: unknown[]) =>
+      (JSON.parse((call[1] as { body: string }).body).events as { client_event_id: string }[]).map((event) => event.client_event_id));
+    expect(sent).toEqual([["event-a", "event-b", "event-c"], ["event-a"], ["event-b", "event-c"], ["event-b"], ["event-c"]]);
+    const blocked = dbRef.current.runAsync.mock.calls.filter(([sql]: [string]) => sql.includes("SET status = 'BLOCKED'"));
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0][1]).toEqual(["validation", "event-b"]);
+    const deleted = dbRef.current.runAsync.mock.calls.filter(([sql]: [string]) => sql.includes("DELETE FROM pending_events"));
+    expect(deleted.map(([, params]: [string, string[]]) => params[0])).toEqual(["event-a", "event-c"]);
+  });
+
+  it("schedules a retry instead of blocking when the server answers 429", async () => {
+    dbRef.current.getAllAsync.mockResolvedValueOnce([pendingEvent("event-a", "door-a")]);
+    dbRef.current.getFirstAsync.mockResolvedValue({ attempts: 1 });
+    apiFetchMock.mockRejectedValue(new ApiError("Too many requests", 429, "Too many requests"));
+
+    await expect(runSync()).rejects.toThrow("Too many requests");
+
+    const failed = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("SET status = 'FAILED'"));
+    expect(failed?.[1]?.[0]).toBe("Too many requests");
+    expect(dbRef.current.runAsync.mock.calls.some(([sql]: [string]) => sql.includes("SET status = 'BLOCKED'"))).toBe(false);
+  });
+
+  it("reschedules sent events when the response cannot be applied", async () => {
+    // Regression (audit A2): a post-response failure left events PENDING with a used-up attempt.
+    dbRef.current.getAllAsync.mockResolvedValueOnce([pendingEvent("event-a", "door-a")]);
+    dbRef.current.getFirstAsync.mockResolvedValue({ attempts: 1 });
+    apiFetchMock.mockResolvedValue({ server_time: "2026-10-03T08:00:00Z", next_cursor: 9, reset_required: false,
+      changes: [], factory_prices: { ...prices, version: -1 },
+      acks: [{ client_event_id: "event-a", ok: true, applied: true, error: null }] });
+
+    await expect(runSync()).rejects.toThrow("Invalid confirmed price snapshot");
+
+    const failed = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("SET status = 'FAILED'"));
+    expect(failed?.[1]?.[0]).toBe("Invalid confirmed price snapshot");
+    expect(failed?.[1]?.[2]).toBe("event-a");
+    expect(setStateMock).not.toHaveBeenCalled();
+  });
+
+  it("releases AUTH_REQUIRED work once a session is active again", async () => {
+    // Regression (audit A3): such items had neither retry nor drop after re-login.
+    dbRef.current.getFirstAsync.mockResolvedValueOnce({ total: 2 });
+
+    expect(await releaseAuthBlockedEvents()).toBe(2);
+
+    const update = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("SET status = 'PENDING'"));
+    expect(update?.[0]).toContain("error = 'AUTH_REQUIRED'");
+    expect(update?.[0]).toContain("attempts = 0");
+  });
+
+  it("does not touch the queue when nothing is blocked by authentication", async () => {
+    dbRef.current.getFirstAsync.mockResolvedValueOnce({ total: 0 });
+    expect(await releaseAuthBlockedEvents()).toBe(0);
+    expect(dbRef.current.runAsync).not.toHaveBeenCalled();
   });
 });

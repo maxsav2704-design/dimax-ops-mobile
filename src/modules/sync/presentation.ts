@@ -237,7 +237,11 @@ export function buildQueueResolution(
     };
   }
 
-  if (code === "AUTH_REQUIRED" || event.error?.toLowerCase().includes("auth")) {
+  // An exact AUTH_REQUIRED stays protected (the next sync after login releases it);
+  // a transport error that merely mentions "auth" and exhausted its retries must
+  // still be retryable, otherwise the item can never leave the queue.
+  const authLimitReached = code !== "AUTH_REQUIRED" && isAutoRetryLimit(event.error);
+  if (code === "AUTH_REQUIRED" || (!authLimitReached && event.error?.toLowerCase().includes("auth"))) {
     return {
       title: text(locale, "Sign in again", "Войдите снова", "יש להתחבר מחדש"),
       detail: text(

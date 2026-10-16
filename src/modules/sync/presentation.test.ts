@@ -164,6 +164,16 @@ describe("sync queue presentation", () => {
     expect(resolution.dropAllowed).toBe(false);
   });
 
+  it("lets an auth-looking transport error retry once its auto retries are exhausted", () => {
+    // Regression (audit A3): "HTTP 401 ... (auto retry limit reached)" had neither retry nor drop.
+    const event = makeEvent({ status: "BLOCKED", attempts: MAX_AUTO_RETRY_ATTEMPTS,
+      error: "HTTP 401 Unauthorized (auto retry limit reached)" });
+    const resolution = buildQueueResolution(event);
+    expect(resolution.retryAllowed).toBe(true);
+    expect(resolution.dropAllowed).toBe(true); // same as any exhausted item
+    expect(buildQueueResolution(makeEvent({ status: "BLOCKED", error: "AUTH_REQUIRED" })).retryAllowed).toBe(false);
+  });
+
   it("allows manual retry for auto retry limit failures", () => {
     const event = makeEvent({
       status: "BLOCKED",

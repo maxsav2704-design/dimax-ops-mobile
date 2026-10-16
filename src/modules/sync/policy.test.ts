@@ -22,6 +22,7 @@ describe("sync retry policy", () => {
     expect(isRetryableSyncError(new NetworkError("offline"))).toBe(true);
     expect(isRetryableSyncError(new ApiError("unauthorized", 401, "unauthorized"))).toBe(true);
     expect(isRetryableSyncError(new ApiError("server", 503, "server"))).toBe(true);
+    expect(isRetryableSyncError(new ApiError("slow down", 429, "slow down"))).toBe(true);
     expect(isRetryableSyncError(new ApiError("validation", 422, "validation"))).toBe(false);
     expect(isRetryableSyncError(new Error("boom"))).toBe(false);
   });
