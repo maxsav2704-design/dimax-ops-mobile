@@ -39,6 +39,7 @@ import {
 } from "@/modules/sync/service";
 import type { PendingSyncEvent, SyncQueueSummary } from "@/modules/sync/types";
 import { useAuth, useI18n } from "@/providers/AppProviders";
+import { localizeWorkflowMessage } from "@/modules/sync/messages";
 
 type QueueFilter = "ALL" | "ATTENTION" | "WAITING";
 
@@ -210,7 +211,7 @@ function SyncQueueWorkspace({ ownerKey, authLoading, syncVersion }: { ownerKey: 
       }
       if (shouldSync && current() && focused.current) await runSync({ forceRetry: true });
     } catch (reason) {
-      if (current()) setError(reason instanceof Error ? reason.message : lt("Unable to complete action", "Не удалось выполнить действие", "לא ניתן להשלים את הפעולה"));
+      if (current()) setError(reason instanceof Error ? localizeWorkflowMessage(reason.message, locale) : lt("Unable to complete action", "Не удалось выполнить действие", "לא ניתן להשלים את הפעולה"));
     } finally {
       if (current()) {
         setDropCandidate(null);

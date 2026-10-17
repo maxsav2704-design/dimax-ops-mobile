@@ -11,6 +11,8 @@ type DoorActionInput = {
 export type DoorActionState = {
   isLocked: boolean;
   needsNotInstalledReason: boolean;
+  /** The reason form may open before a reason is chosen; only the confirmation needs one. */
+  canOpenNotInstalled: boolean;
   canMarkInstalled: boolean;
   canMarkNotInstalled: boolean;
   hasPendingStatusEvent: boolean;
@@ -40,6 +42,7 @@ export function buildDoorActionState(input: DoorActionInput): DoorActionState {
     hasPendingStatusEvent,
     needsNotInstalledReason,
     canMarkInstalled: !input.busy && !isLocked && !hasPendingStatusEvent,
+    canOpenNotInstalled: !input.busy && !isLocked && !hasPendingStatusEvent,
     canMarkNotInstalled: !input.busy && !isLocked && !hasPendingStatusEvent && !needsNotInstalledReason,
   };
 }

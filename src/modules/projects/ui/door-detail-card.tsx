@@ -173,7 +173,7 @@ export function DoorDetailCard({
                 label={lt("Not installed", "Не установлено", "לא הותקנה")}
                 icon="close"
                 variant="secondary"
-                disabled={!doorActionState?.canMarkNotInstalled}
+                disabled={!doorActionState?.canOpenNotInstalled}
                 style={styles.actionButtonSlot}
                 onPress={() => setShowNotInstalledForm(true)}
               />

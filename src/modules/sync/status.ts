@@ -6,11 +6,13 @@ export type SyncStatusState = {
   lastSyncAt: string | null;
   syncing: boolean;
   offline: boolean;
+  /** The last run failed for a reason other than being offline (server fault, bad response). */
+  failed: boolean;
   /** Bumps whenever the queue may have changed; readers reload the snapshot on change. */
   queueVersion: number;
 };
 
-const initialState: SyncStatusState = { queue: null, lastSyncAt: null, syncing: false, offline: false, queueVersion: 0 };
+const initialState: SyncStatusState = { queue: null, lastSyncAt: null, syncing: false, offline: false, failed: false, queueVersion: 0 };
 let state: SyncStatusState = initialState;
 let activeSyncs = 0;
 const listeners = new Set<() => void>();
@@ -40,6 +42,7 @@ export function markSyncFinished(error: unknown): void {
     ...state,
     syncing: activeSyncs > 0,
     offline: error instanceof NetworkError,
+    failed: error != null && !(error instanceof NetworkError),
     queueVersion: state.queueVersion + 1,
   });
 }

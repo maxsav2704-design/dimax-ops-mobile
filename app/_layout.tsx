@@ -21,7 +21,8 @@ import { isFontBootstrapReady } from "@/lib/startup";
 import { installerTheme } from "@/lib/theme";
 import { MotionProvider, useReducedMotion } from "@/components/motion";
 import { resolveAuthRedirect } from "@/modules/auth/navigation";
-import { AppProviders, useAuth } from "@/providers/AppProviders";
+import { AppProviders, useAuth, useI18n } from "@/providers/AppProviders";
+import { isRtlLocale } from "@/lib/i18n";
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 const FONT_LOAD_TIMEOUT_MS = 8000;
@@ -29,6 +30,7 @@ const FONT_LOAD_TIMEOUT_MS = 8000;
 function AppStack() {
   const reducedMotion = useReducedMotion();
   const { loading, user } = useAuth();
+  const { locale } = useI18n();
   const router = useRouter();
   const rootNavigationState = useRootNavigationState();
   const segments = useSegments();
@@ -52,7 +54,8 @@ function AppStack() {
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: installerTheme.background },
+        // Hebrew lays every screen out right-to-left; screens no longer set it one by one.
+        contentStyle: { backgroundColor: installerTheme.background, direction: isRtlLocale(locale) ? "rtl" : "ltr" },
         animation: reducedMotion ? "none" : "fade",
       }}
     >

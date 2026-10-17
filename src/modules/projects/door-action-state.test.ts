@@ -15,6 +15,7 @@ describe("door action state", () => {
       hasPendingStatusEvent: false,
       needsNotInstalledReason: false,
       canMarkInstalled: true,
+      canOpenNotInstalled: true,
       canMarkNotInstalled: true,
     });
   });
@@ -126,5 +127,12 @@ describe("door action state", () => {
       hasValidQty: false,
       canQueueAddonFact: false,
     });
+  });
+
+  it("lets the reason form open before a reason is chosen, but not the confirmation", () => {
+    const state = buildDoorActionState({ door: { is_locked: false, status: "NOT_INSTALLED" } as never, busy: false, selectedReasonId: "" });
+    expect(state.canOpenNotInstalled).toBe(true);
+    expect(state.canMarkNotInstalled).toBe(false);
+    expect(buildDoorActionState({ door: { is_locked: true, status: "NOT_INSTALLED" } as never, busy: false, selectedReasonId: "" }).canOpenNotInstalled).toBe(false);
   });
 });

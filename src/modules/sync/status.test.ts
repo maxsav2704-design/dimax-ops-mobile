@@ -25,6 +25,7 @@ describe("sync status store", () => {
     expect(getSyncStatusState()).toMatchObject({ syncing: false, offline: false, queueVersion: 3 });
     markSyncStarted();
     markSyncFinished(new Error("HTTP 500"));
+    expect(getSyncStatusState()).toMatchObject({ offline: false, failed: true });
     expect(getSyncStatusState().offline).toBe(false);
     unsubscribe();
     notifySyncQueueChanged();
@@ -40,7 +41,8 @@ describe("sync status store", () => {
 });
 
 describe("buildSyncStatusPresentation", () => {
-  const base = { queue: queue(0), lastSyncAt: "2026-10-12T09:30:00Z", syncing: false, offline: false };
+  const today = new Date(); today.setHours(9, 30, 0, 0);
+  const base = { queue: queue(0), lastSyncAt: today.toISOString(), syncing: false, offline: false };
 
   it("orders syncing, offline, blocked, queued, never-synced and synced states", () => {
     expect(buildSyncStatusPresentation({ ...base, syncing: true, queue: queue(2, 1) }, "en")).toMatchObject({ tone: "info", label: "Synchronizing" });
@@ -52,8 +54,15 @@ describe("buildSyncStatusPresentation", () => {
     expect(buildSyncStatusPresentation(base, "ru")).toMatchObject({ tone: "success", label: "Синхронизировано" });
   });
 
-  it("formats the last sync time in the active locale", () => {
+  it("formats the last sync time in the active locale, with the date when it was not today", () => {
     const view = buildSyncStatusPresentation(base, "en");
     expect(view.detail).toMatch(/^\d{2}:\d{2}$/);
+    expect(buildSyncStatusPresentation({ ...base, lastSyncAt: "2026-10-12T09:30:00Z" }, "en").detail).toMatch(/^12\/10,? \d{2}:\d{2}$/);
+  });
+
+  it("shows a failed run and failed queue items as a danger state with a retry hint", () => {
+    expect(buildSyncStatusPresentation({ ...base, failed: true }, "en")).toMatchObject({ tone: "danger", label: "Sync failed · retry" });
+    expect(buildSyncStatusPresentation({ ...base, queue: { ...queue(2), failed: 2 } }, "ru")).toMatchObject({ tone: "danger", label: "2 с ошибкой · повторить" });
+    expect(buildSyncStatusPresentation({ ...base, queue: { ...queue(2), failed: 1 }, offline: true }, "en")).toMatchObject({ tone: "warning" });
   });
 });

@@ -172,8 +172,9 @@ export default function ProjectDetailsScreen() {
     }
 
     setLocalWorkspace(workspace);
+    // The installer chooses the not-installed reason; nothing is pre-selected.
     setSelectedReasonId((current) =>
-      workspace.reasons.some((reason) => reason.id === current) ? current : workspace.reasons[0]?.id || ""
+      workspace.reasons.some((reason) => reason.id === current) ? current : ""
     );
     setAddonTypeId((current) =>
       workspace.addonTypes.some((addon) => addon.id === current) ? current : workspace.addonTypes[0]?.id || ""

@@ -19,6 +19,7 @@ import { BrandText as Text, DimaxMark } from "@/components/mobile-ui";
 import { DEV_AUTO_LOGIN } from "@/lib/config";
 import { installerTheme } from "@/lib/theme";
 import { useAuth, useI18n } from "@/providers/AppProviders";
+import { localizeWorkflowMessage } from "@/modules/sync/messages";
 
 type FieldProps = {
   icon: React.ComponentProps<typeof Ionicons>["name"];
@@ -85,7 +86,7 @@ export default function LoginScreen() {
       await signIn(nextCompanyId.trim(), nextEmail.trim(), nextPassword);
       router.replace("/projects");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t("login.failed"));
+      setError(reason instanceof Error ? localizeWorkflowMessage(reason.message, locale) : t("login.failed"));
     } finally {
       setSubmitting(false);
     }

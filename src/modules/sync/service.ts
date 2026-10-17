@@ -55,7 +55,11 @@ function enqueueSync<T>(operation: () => Promise<T>): Promise<T> {
 const ASSIGNMENT_CHANGED_ERROR = "CONFLICT_ASSIGNMENT_CHANGED";
 
 function createClientEventId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+  // The server dedupes per company on this id; a UUID cannot collide between installers.
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 12)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 function parsePendingPayload(payloadJson: string): Record<string, unknown> {
@@ -379,6 +383,17 @@ async function markEventsBlocked(clientEventIds: string[], error: string): Promi
      WHERE client_event_id IN (${placeholders})`,
     [error, ...clientEventIds]
   );
+  // A blocked door event is a verdict on the work: the optimistic local status
+  // goes back to what the server last confirmed (same rule as a per-event NACK).
+  for (const clientEventId of clientEventIds) {
+    const row = await db.getFirstAsync<{ type: string; payload_json: string; server_state_received: number | null }>(
+      "SELECT type, payload_json, server_state_received FROM pending_events WHERE client_event_id = ?",
+      [clientEventId]
+    );
+    if (row?.type === "DOOR_SET_STATUS" && !row.server_state_received) {
+      await revertDoorStatus(db, parsePendingPayload(row.payload_json));
+    }
+  }
 }
 
 async function revertDoorStatus(

@@ -104,6 +104,13 @@ export async function hydrateProjectDetails(payload: ProjectDetailsResponse): Pr
         [reason.id, reason.code, reason.name]
       );
     }
+    // The server sends the whole active catalog: reasons the office retired disappear from the picker.
+    if (payload.reasons_catalog.length > 0) {
+      await db.runAsync(
+        `DELETE FROM reasons WHERE id NOT IN (${payload.reasons_catalog.map(() => "?").join(", ")})`,
+        payload.reasons_catalog.map((reason) => reason.id)
+      );
+    }
 
     for (const addonType of payload.addons.types) {
       await db.runAsync(

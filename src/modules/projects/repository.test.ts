@@ -139,9 +139,12 @@ describe("replaceProjects", () => {
       doors: [],
       issues_open: [],
       door_types_catalog: [],
-      reasons_catalog: [],
+      reasons_catalog: [{ id: "reason-keep", code: "R1", name: "Keep" }],
       addons: { types: [], plan: [], facts: [] },
     });
+
+    const prune = runAsyncMock.mock.calls.find((call: unknown[]) => String(call[0]).includes("DELETE FROM reasons WHERE id NOT IN"));
+    expect(prune?.[1]).toEqual(["reason-keep"]);
 
     const [sql, params] = runAsyncMock.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain("INSERT INTO projects");

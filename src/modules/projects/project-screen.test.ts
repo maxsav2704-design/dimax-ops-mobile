@@ -469,6 +469,10 @@ describe("project execution screen", () => {
     mocks.notInstalled.mockReturnValue(pending.promise);
     await mount(); openFirstDoor();
     act(() => button("Not installed").props.onPress(event));
+    // Nothing is pre-selected: confirming before picking a reason does nothing.
+    act(() => button("Confirm not installed").props.onPress(event));
+    expect(mocks.notInstalled).not.toHaveBeenCalled();
+    act(() => tabs("No access")[0].props.onPress(event));
     act(() => input("Door comment").props.onChangeText("Apartment closed"));
     const press = button("Confirm not installed").props.onPress;
     act(() => { press(event); press(event); });

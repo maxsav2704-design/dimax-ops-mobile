@@ -1765,6 +1765,24 @@ describe("mobile sync service", () => {
     expect(deleted.map(([, params]: [string, string[]]) => params[0])).toEqual(["event-a", "event-c"]);
   });
 
+  it("reverts the optimistic door when the server refuses its event as a whole batch", async () => {
+    const event = { ...pendingEvent("event-a", "door-a"),
+      payload_json: JSON.stringify({ door_id: "door-a", status: "INSTALLED", previous_status: "NOT_INSTALLED", previous_reason_id: null, previous_comment: null }),
+      server_state_received: 0 };
+    dbRef.current.getAllAsync.mockResolvedValueOnce([event]);
+    dbRef.current.getFirstAsync.mockImplementation(async (sql: string) =>
+      sql.includes("FROM pending_events WHERE client_event_id") ? event : null);
+    apiFetchMock.mockRejectedValue(new ApiError("validation", 422, "payload invalid"));
+
+    await runSync().catch(() => undefined);
+
+    const blocked = dbRef.current.runAsync.mock.calls.filter(([sql]: [string]) => sql.includes("SET status = 'BLOCKED'"));
+    expect(blocked).toHaveLength(1);
+    const revert = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("UPDATE doors") && sql.includes("SET status = ?"));
+    expect(revert?.[1]?.[0]).toBe("NOT_INSTALLED");
+    expect(revert?.[1]?.slice(-1)[0]).toBe("door-a");
+  });
+
   it("schedules a retry instead of blocking when the server answers 429", async () => {
     dbRef.current.getAllAsync.mockResolvedValueOnce([pendingEvent("event-a", "door-a")]);
     dbRef.current.getFirstAsync.mockResolvedValue({ attempts: 1 });

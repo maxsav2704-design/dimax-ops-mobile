@@ -31,16 +31,23 @@ function text(locale: MobileLocale, en: string, ru: string, he: string): string 
 
 export type SyncStatusTone = "neutral" | "info" | "accent" | "warning" | "danger" | "success";
 
+/** HH:MM today, otherwise DD.MM HH:MM: "synced at 09:30" must not hide that it was last week. */
+export function formatLastSync(iso: string, locale: MobileLocale, now: Date = new Date()): string {
+  const at = new Date(iso);
+  const intl = locale === "ru" ? "ru-RU" : locale === "he" ? "he-IL" : "en-GB";
+  const sameDay = at.getFullYear() === now.getFullYear() && at.getMonth() === now.getMonth() && at.getDate() === now.getDate();
+  return new Intl.DateTimeFormat(intl, sameDay
+    ? { hour: "2-digit", minute: "2-digit" }
+    : { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(at);
+}
+
 /** One compact state for the persistent sync strip; mirrors the home screen's pill order. */
 export function buildSyncStatusPresentation(
-  status: { queue: SyncQueueSummary | null; lastSyncAt: string | null; syncing: boolean; offline: boolean },
+  status: { queue: SyncQueueSummary | null; lastSyncAt: string | null; syncing: boolean; offline: boolean; failed?: boolean },
   locale: MobileLocale,
 ): { tone: SyncStatusTone; label: string; icon: string; detail: string | null } {
   const queued = status.queue?.total ?? 0;
-  const detail = status.lastSyncAt
-    ? new Intl.DateTimeFormat(locale === "ru" ? "ru-RU" : locale === "he" ? "he-IL" : "en-GB", { hour: "2-digit", minute: "2-digit" })
-      .format(new Date(status.lastSyncAt))
-    : null;
+  const detail = status.lastSyncAt ? formatLastSync(status.lastSyncAt, locale) : null;
   if (status.syncing) {
     return { tone: "info", icon: "sync", detail, label: text(locale, "Synchronizing", "Синхронизация", "מסתנכרן") };
   }
@@ -55,6 +62,15 @@ export function buildSyncStatusPresentation(
   if (status.queue?.blocked) {
     const blocked = status.queue.blocked;
     return { tone: "danger", icon: "alert-circle-outline", detail, label: text(locale, `${blocked} blocked`, `${blocked} заблокировано`, `${blocked} חסומים`) };
+  }
+  const failed = status.queue?.failed ?? 0;
+  if (status.failed || failed) {
+    return {
+      tone: "danger", icon: "alert-circle-outline", detail,
+      label: failed
+        ? text(locale, `${failed} failed · retry`, `${failed} с ошибкой · повторить`, `${failed} נכשלו · נסה שוב`)
+        : text(locale, "Sync failed · retry", "Ошибка синхронизации · повторить", "הסנכרון נכשל · נסה שוב"),
+    };
   }
   if (queued) {
     return { tone: "accent", icon: "cloud-upload-outline", detail, label: text(locale, `${queued} queued`, `${queued} в очереди`, `${queued} בתור`) };

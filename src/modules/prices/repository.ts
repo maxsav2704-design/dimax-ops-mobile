@@ -21,7 +21,11 @@ export async function storeFactoryPrices(value: FactoryPriceSnapshot | null): Pr
   await setState(FACTORY_PRICES_KEY, value === null ? null : JSON.stringify(value));
 }
 
-export async function capturePriceVersion(): Promise<{ price_list_id?: string }> {
+export async function capturePriceVersion(now: Date = new Date()): Promise<{ price_list_id?: string }> {
+  // The stamp says "this is the list the installer saw in effect". A list that only
+  // becomes effective later must not be claimed: the server would refuse the work
+  // with CONFLICT_FACTORY_PRICE and the door would stay blocked.
   const prices = await readFactoryPrices();
-  return prices ? { price_list_id: prices.price_list_id } : {};
+  if (!prices || Date.parse(prices.effective_from) > now.getTime()) return {};
+  return { price_list_id: prices.price_list_id };
 }

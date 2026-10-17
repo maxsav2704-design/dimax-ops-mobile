@@ -19,6 +19,12 @@ describe("factory price cache", () => {
     expect(await capturePriceVersion()).toEqual({ price_list_id: snapshot.price_list_id });
   });
 
+  it("does not claim a list that is not yet in effect (the server would block the work)", async () => {
+    mocks.getState.mockResolvedValue(JSON.stringify({ ...snapshot, effective_from: "2026-10-20T08:00:00Z" }));
+    expect(await capturePriceVersion(new Date("2026-10-19T12:00:00Z"))).toEqual({});
+    expect(await capturePriceVersion(new Date("2026-10-20T08:00:00Z"))).toEqual({ price_list_id: snapshot.price_list_id });
+  });
+
   it.each(["not json", JSON.stringify({ price_list_id: "x" })])(
     "treats a damaged cache (%s) as no confirmed list instead of failing the work", async (value) => {
       // Regression (audit A5): queueDoorStatusEvent threw here, so the install could not be saved.
