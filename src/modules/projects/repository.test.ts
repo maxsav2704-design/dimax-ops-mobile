@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   hydrateProjectDetails,
   listProjectAddonFacts,
+  listProjectAddonTypes,
   listProjects,
   replaceProjects,
 } from "@/modules/projects/repository";
@@ -145,10 +146,24 @@ describe("replaceProjects", () => {
 
     const prune = runAsyncMock.mock.calls.find((call: unknown[]) => String(call[0]).includes("DELETE FROM reasons WHERE id NOT IN"));
     expect(prune?.[1]).toEqual(["reason-keep"]);
+    // Office-closed issues stay as CLOSED instead of disappearing; queued local reports are kept.
+    const closed = runAsyncMock.mock.calls.find((call: unknown[]) => String(call[0]).includes("UPDATE issues SET status = 'CLOSED'"));
+    expect(closed?.[1]).toEqual(["project-1"]);
+    expect(String(closed?.[0])).toContain("NOT LIKE 'local:%'");
+    expect(runAsyncMock.mock.calls.some((call: unknown[]) => String(call[0]).includes("DELETE FROM issues"))).toBe(false);
 
     const [sql, params] = runAsyncMock.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain("INSERT INTO projects");
     expect(params[4]).toBe("ACTIVE");
     expect(params[5]).toBe("NORMAL");
+  });
+
+  it("offers only the add-on types the office planned on the project", async () => {
+    getAllAsyncMock.mockResolvedValueOnce([]);
+    await listProjectAddonTypes("project-1");
+    const [sql, params] = getAllAsyncMock.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("JOIN addon_plans");
+    expect(sql).not.toContain("LEFT JOIN");
+    expect(params).toEqual(["project-1"]);
   });
 });

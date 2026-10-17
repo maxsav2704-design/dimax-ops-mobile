@@ -1550,6 +1550,14 @@ export async function queueAddonFactEvent(input: {
   if (Number(addonTypeRow?.total || 0) <= 0) {
     throw new Error("Add-on type is no longer available. Refresh data before continuing.");
   }
+  // Product rule: the office plans extra work, the installer records the fact.
+  const planRow = await db.getFirstAsync<{ total: number }>(
+    "SELECT COUNT(*) as total FROM addon_plans WHERE project_id = ? AND addon_type_id = ?",
+    [input.projectId, addonTypeId]
+  );
+  if (Number(planRow?.total || 0) <= 0) {
+    throw new Error("Extra work must be planned by the office before you record it.");
+  }
 
   const payload = {
     addon_type_id: addonTypeId,

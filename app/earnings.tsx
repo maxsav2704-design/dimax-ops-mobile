@@ -173,11 +173,14 @@ export default function EarningsScreen() {
           "נתוני השכר עדכניים, אך לא ניתן לעדכן את העותק הלא מקוון."
         )
       : state.source === "cache"
-      ? lt(
+      ? `${lt(
           "Earnings could not be refreshed. The latest saved calculation is shown.",
           "Не удалось обновить начисления. Показан последний сохранённый расчёт.",
           "לא ניתן לרענן את השכר. מוצג החישוב האחרון שנשמר."
-        )
+        )}${snapshot?.generated_at ? ` ${lt("As of", "По состоянию на", "נכון ל")} ${new Intl.DateTimeFormat(
+          locale === "ru" ? "ru-RU" : locale === "he" ? "he-IL" : "en-GB",
+          { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }
+        ).format(new Date(snapshot.generated_at))}.` : ""}`
       : lt(
           "Earnings are temporarily unavailable. Try refreshing them.",
           "Начисления временно недоступны. Попробуйте обновить их.",

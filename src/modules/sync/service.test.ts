@@ -123,7 +123,7 @@ describe("mobile sync service", () => {
       });
       await queueDoorStatusEvent({ projectId: "project-1", doorId: "door-1", status: "INSTALLED" });
     } else {
-      dbRef.current.getFirstAsync.mockResolvedValueOnce({ total: 1 }).mockResolvedValueOnce({ total: 1 });
+      dbRef.current.getFirstAsync.mockResolvedValueOnce({ total: 1 }).mockResolvedValueOnce({ total: 1 }).mockResolvedValueOnce({ total: 1 });
       await queueAddonFactEvent({ projectId: "project-1", addonTypeId: "addon-1", qtyDone: "1,50" });
     }
     const insert = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("INSERT INTO pending_events"));
@@ -1354,6 +1354,7 @@ describe("mobile sync service", () => {
   it("queues add-on facts with an optimistic offline local row", async () => {
     dbRef.current.getFirstAsync
       .mockResolvedValueOnce({ total: 1 })
+      .mockResolvedValueOnce({ total: 1 })
       .mockResolvedValueOnce({ total: 1 });
 
     await queueAddonFactEvent({
@@ -1433,6 +1434,19 @@ describe("mobile sync service", () => {
         qtyDone: "1.00",
       })
     ).rejects.toThrow("Add-on type is no longer available");
+
+    expect(dbRef.current.runAsync).not.toHaveBeenCalled();
+  });
+
+  it("rejects add-on facts for types the office has not planned on the project", async () => {
+    dbRef.current.getFirstAsync
+      .mockResolvedValueOnce({ total: 1 })
+      .mockResolvedValueOnce({ total: 1 })
+      .mockResolvedValueOnce({ total: 0 });
+
+    await expect(
+      queueAddonFactEvent({ projectId: "project-1", addonTypeId: "addon-unplanned", qtyDone: "1.00" })
+    ).rejects.toThrow("planned by the office");
 
     expect(dbRef.current.runAsync).not.toHaveBeenCalled();
   });

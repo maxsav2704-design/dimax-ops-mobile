@@ -86,7 +86,9 @@ export async function hydrateProjectDetails(payload: ProjectDetailsResponse): Pr
     );
 
     await db.runAsync("DELETE FROM doors WHERE project_id = ?", [payload.id]);
-    await db.runAsync("DELETE FROM issues WHERE project_id = ?", [payload.id]);
+    // Issues the office closed stay visible as CLOSED; only the open ones come back from the server.
+    // Local reports still waiting in the queue (local:*) are not touched.
+    await db.runAsync("UPDATE issues SET status = 'CLOSED' WHERE project_id = ? AND id NOT LIKE 'local:%'", [payload.id]);
     await db.runAsync("DELETE FROM addon_plans WHERE project_id = ?", [payload.id]);
 
     for (const doorType of payload.door_types_catalog) {
@@ -263,11 +265,10 @@ export async function listProjectAddonTypes(projectId: string): Promise<ProjectA
        addon_types.unit,
        addon_plans.qty_planned
      FROM addon_types
-     LEFT JOIN addon_plans
+     JOIN addon_plans
        ON addon_plans.addon_type_id = addon_types.id
       AND addon_plans.project_id = ?
      ORDER BY
-       CASE WHEN addon_plans.project_id IS NULL THEN 1 ELSE 0 END ASC,
        addon_types.name ASC`,
     [projectId]
   );

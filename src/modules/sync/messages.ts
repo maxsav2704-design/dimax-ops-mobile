@@ -35,6 +35,10 @@ const MESSAGES: Record<string, { ru: string; he: string }> = {
     ru: "Описание проблемы: не более 2000 символов",
     he: "תיאור התקלה: עד 2000 תווים",
   },
+  "Extra work must be planned by the office before you record it.": {
+    ru: "Доп. работу сначала планирует офис, затем монтажник фиксирует факт.",
+    he: "המשרד מתכנן עבודה נוספת לפני שהמתקין מתעד אותה.",
+  },
   "addon_type_id is required": {
     ru: "Выберите тип доп. работы",
     he: "יש לבחור סוג עבודה נוספת",

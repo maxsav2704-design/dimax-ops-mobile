@@ -15,6 +15,7 @@ describe("workflow message localization", () => {
       "Issue title or details is required",
       "Issue title must be at most 200 characters",
       "Issue details must be at most 2000 characters",
+      "Extra work must be planned by the office before you record it.",
       "project_id and door_id are required",
     ]) {
       expect(localizeWorkflowMessage(message, "ru")).not.toBe(message);
