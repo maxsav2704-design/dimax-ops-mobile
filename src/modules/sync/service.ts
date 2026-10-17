@@ -282,6 +282,13 @@ async function markAckResult(
     return;
   }
 
+  if (error === "SERVER_ERROR") {
+    // A server fault is not a verdict on the work: keep the optimistic local state
+    // and send the same event again with backoff.
+    await scheduleRetry([clientEventId], error);
+    return;
+  }
+
   const payload = eventRow ? parsePendingPayload(eventRow.payload_json) : {};
   await db.withTransactionAsync(async () => {
     if (eventRow?.type === "DOOR_SET_STATUS" && !options?.preserveServerDoorState && !eventRow.server_state_received) {

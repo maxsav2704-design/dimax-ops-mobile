@@ -1793,6 +1793,22 @@ describe("mobile sync service", () => {
     expect(setStateMock).not.toHaveBeenCalled();
   });
 
+  it("retries an event the server could not apply because of its own fault", async () => {
+    // Backend block 2: SERVER_ERROR is retryable, the optimistic door state stays.
+    dbRef.current.getAllAsync.mockResolvedValueOnce([pendingEvent("event-a", "door-a")]);
+    dbRef.current.getFirstAsync.mockResolvedValue({ ...pendingEvent("event-a", "door-a"), attempts: 1 });
+    apiFetchMock.mockResolvedValue({ server_time: "2026-04-26T08:02:00Z", next_cursor: 8, reset_required: false,
+      snapshot: null, changes: [], acks: [{ client_event_id: "event-a", ok: false, applied: false, error: "SERVER_ERROR" }] });
+
+    await runSync();
+
+    const calls = dbRef.current.runAsync.mock.calls;
+    const failed = calls.find(([sql]: [string]) => sql.includes("SET status = 'FAILED'"));
+    expect(failed?.[1]?.[0]).toBe("SERVER_ERROR");
+    expect(calls.some(([sql]: [string]) => sql.includes("SET status = 'BLOCKED'"))).toBe(false);
+    expect(calls.some(([sql]: [string]) => sql.includes("UPDATE doors"))).toBe(false);
+  });
+
   it("releases AUTH_REQUIRED work once a session is active again", async () => {
     // Regression (audit A3): such items had neither retry nor drop after re-login.
     dbRef.current.getFirstAsync.mockResolvedValueOnce({ total: 2 });
