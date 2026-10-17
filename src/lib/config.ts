@@ -21,11 +21,15 @@ export const AUTH_STORAGE_KEYS = {
 
 export const LOCALE_STORAGE_KEY = "dimax_mobile_locale";
 export const DEVICE_ID_STORAGE_KEY = "dimax_mobile_device_id";
-const E2E_LOGIN = {
-  companyId: process.env.EXPO_PUBLIC_E2E_COMPANY_ID?.trim() || "",
-  email: process.env.EXPO_PUBLIC_E2E_EMAIL?.trim() || "",
-  password: process.env.EXPO_PUBLIC_E2E_PASSWORD || "",
-} as const;
+// Only a development bundle may carry test credentials; a production bundle must
+// not inline them even when the variables are present at build time.
+const E2E_LOGIN: { companyId: string; email: string; password: string } = IS_DEV
+  ? {
+      companyId: process.env.EXPO_PUBLIC_E2E_COMPANY_ID?.trim() || "",
+      email: process.env.EXPO_PUBLIC_E2E_EMAIL?.trim() || "",
+      password: process.env.EXPO_PUBLIC_E2E_PASSWORD || "",
+    }
+  : { companyId: "", email: "", password: "" };
 
 export const DEV_AUTO_LOGIN = {
   // Test login must never choose a company or API through development defaults.

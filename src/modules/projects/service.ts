@@ -23,7 +23,7 @@ export function isProjectAccessRevoked(error: unknown): boolean {
 export async function refreshProjectDetails(projectId: string): Promise<void> {
   const context = captureWorkspaceContext();
   assertWorkspaceContext(context);
-  const details = await apiFetch<ProjectDetailsResponse>(`/api/v1/installer/projects/${projectId}`, {
+  const details = await apiFetch<ProjectDetailsResponse>(`/api/v1/installer/projects/${encodeURIComponent(projectId)}`, {
     expectedAuthGeneration: context.authGeneration,
   });
   await withWorkspaceDatabase(context, async () => {

@@ -1,3 +1,4 @@
+import { localizeWorkflowMessage } from "@/modules/sync/messages";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { DirectionalChevron } from "@/components/directional-chevron";
 import { SkeletonList } from "@/components/skeleton";
@@ -38,6 +39,7 @@ import {
   resolveIssueRouteParams,
   type IssueRouteParams,
 } from "@/modules/issues/presentation";
+import { createIssue } from "@/modules/issues/actions";
 import { buildDoorProjectRoute, buildProjectRoute } from "@/modules/projects/navigation";
 import {
   listProjectDoors,
@@ -47,7 +49,6 @@ import {
 import type { InstallerDoor, ProjectIssue, ProjectListItem } from "@/modules/projects/types";
 import {
   getSyncQueueSummary,
-  queueIssueCreateEvent,
   runSync,
 } from "@/modules/sync/service";
 import { useAuth, useI18n } from "@/providers/AppProviders";
@@ -130,7 +131,7 @@ function IssuesWorkspace({ routeParams, syncVersion }: { routeParams: IssueRoute
       setSnapshot({ projects: projectRows, doors: data.flatMap((item) => item.doors), issues: data.flatMap((item) => item.issues), queueCount: queue.total });
       setLoadError(null);
     } catch (reason) {
-      if (focused.current && revision.current === request) setLoadError(reason instanceof Error ? reason.message : lt("Unable to load issues", "Не удалось загрузить проблемы", "לא ניתן לטעון תקלות"));
+      if (focused.current && revision.current === request) setLoadError(reason instanceof Error ? localizeWorkflowMessage(reason.message, locale) : lt("Unable to load issues", "Не удалось загрузить проблемы", "לא ניתן לטעון תקלות"));
     } finally {
       if (focused.current && revision.current === request) setLoading(false);
     }
@@ -202,13 +203,13 @@ function IssuesWorkspace({ routeParams, syncVersion }: { routeParams: IssueRoute
     setError(null);
     setIssueSaved(false);
     try {
-      await queueIssueCreateEvent({
+      await createIssue({
         projectId: selectedProject.id, doorId: selectedDoor.id,
         title: selectedCategory.title, details: details.trim(),
       });
     } catch (reason) {
       if (alive.current) {
-        setError(reason instanceof Error ? reason.message : lt("Unable to save issue", "Не удалось сохранить проблему", "לא ניתן לשמור את התקלה"));
+        setError(reason instanceof Error ? localizeWorkflowMessage(reason.message, locale) : lt("Unable to save issue", "Не удалось сохранить проблему", "לא ניתן לשמור את התקלה"));
         setBusy(false);
       }
       saveLock.current = false;

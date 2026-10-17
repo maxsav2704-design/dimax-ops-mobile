@@ -1,3 +1,4 @@
+import { localizeWorkflowMessage } from "@/modules/sync/messages";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -248,7 +249,7 @@ export default function ProjectDetailsScreen() {
     focused.current = true;
     setError(null);
     void reload({ refreshRemote: !actionInFlight.current }).catch((reason) => {
-      if (active) setError(reason instanceof Error ? reason.message : lt("Unable to load project", "Не удалось загрузить проект", "לא ניתן לטעון את הפרויקט"));
+      if (active) setError(reason instanceof Error ? localizeWorkflowMessage(reason.message, locale) : lt("Unable to load project", "Не удалось загрузить проект", "לא ניתן לטעון את הפרויקט"));
     });
     return () => {
       active = false;
@@ -468,7 +469,7 @@ export default function ProjectDetailsScreen() {
       void triggerHaptic("error");
       if (isCurrent()) setActionFeedback({
         projectId, target, doorId, tone: "danger",
-        message: reason instanceof Error ? reason.message : lt("Action failed. Please try again.", "Действие не выполнено. Попробуйте ещё раз.", "הפעולה נכשלה. נסו שוב."),
+        message: reason instanceof Error ? localizeWorkflowMessage(reason.message, locale) : lt("Action failed. Please try again.", "Действие не выполнено. Попробуйте ещё раз.", "הפעולה נכשלה. נסו שוב."),
       });
     } finally {
       actionInFlight.current = false;
@@ -553,7 +554,7 @@ export default function ProjectDetailsScreen() {
     try {
       await openProjectExternalAction(action);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : lt("Unable to open action", "Не удалось открыть действие", "לא ניתן לפתוח את הפעולה"));
+      setError(reason instanceof Error ? localizeWorkflowMessage(reason.message, locale) : lt("Unable to open action", "Не удалось открыть действие", "לא ניתן לפתוח את הפעולה"));
     }
   };
 

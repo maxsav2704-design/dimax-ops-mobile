@@ -1,3 +1,4 @@
+import { localizeWorkflowMessage } from "@/modules/sync/messages";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -100,7 +101,7 @@ export default function ProfileScreen() {
     } catch (reason) {
       try { assertWorkspaceContext(context); } catch { return; }
       if (reason instanceof SessionChangedError) return;
-      setError(reason instanceof Error ? reason.message : lt("Sync failed", "Ошибка синхронизации", "הסנכרון נכשל"));
+      setError(reason instanceof Error ? localizeWorkflowMessage(reason.message, locale) : lt("Sync failed", "Ошибка синхронизации", "הסנכרון נכשל"));
     } finally {
       try {
         assertWorkspaceContext(context);

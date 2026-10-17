@@ -22,6 +22,7 @@ vi.mock("expo-router", async () => {
 vi.mock("@/providers/AppProviders", () => ({ useI18n: () => ({ locale: mocks.locale }), useAuth: () => ({ user: mocks.user, syncVersion: mocks.syncVersion }) }));
 vi.mock("@/modules/projects/repository", () => ({ listProjects: mocks.projects, listProjectDoors: mocks.doors, listProjectIssues: mocks.issues }));
 vi.mock("@/modules/sync/service", () => ({ getSyncQueueSummary: mocks.queue, queueIssueCreateEvent: mocks.save, runSync: mocks.sync }));
+vi.mock("@/modules/issues/actions", () => ({ createIssue: mocks.save }));
 
 import IssuesScreen from "../../../app/issues";
 

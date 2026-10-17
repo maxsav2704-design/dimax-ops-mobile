@@ -21,13 +21,14 @@ Implemented in this step:
 - installer auth client in `src/lib/api.ts`
 - online bootstrap from:
   - `GET /api/v1/auth/me`
-  - `GET /api/v1/installer/projects`
-  - `GET /api/v1/installer/projects/{project_id}`
+  - `POST /api/v1/installer/sync` (cold snapshot when the cursor is behind)
+  - `GET /api/v1/installer/projects/{project_id}` (project detail refresh)
 - incremental sync/outbox via:
   - `POST /api/v1/installer/sync`
 - offline actions:
   - `DOOR_SET_STATUS`
   - `ADDON_FACT_CREATE`
+  - `ISSUE_CREATE`
 - auto sync on foreground + periodic interval
 - local pending sync queue view
 - retry backoff for transient sync failures

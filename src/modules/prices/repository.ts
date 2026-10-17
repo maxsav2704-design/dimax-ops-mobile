@@ -6,7 +6,15 @@ export const FACTORY_PRICES_KEY = "factory_prices_v1";
 // Call under the workspace database guard, just like other local repositories.
 export async function readFactoryPrices(): Promise<FactoryPriceSnapshot | null> {
   const value = await getState(FACTORY_PRICES_KEY);
-  return value === null ? null : parseFactoryPrices(JSON.parse(value));
+  if (value === null) return null;
+  try {
+    return parseFactoryPrices(JSON.parse(value));
+  } catch {
+    // A damaged cache is treated as "no confirmed list on this device": the work is
+    // queued without a price claim and the server prices it by execution time. The
+    // next sync replaces the cache.
+    return null;
+  }
 }
 
 export async function storeFactoryPrices(value: FactoryPriceSnapshot | null): Promise<void> {

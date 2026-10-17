@@ -164,6 +164,18 @@ function validateAndroidManifest(projectRoot = process.cwd()) {
   return errors;
 }
 
+const E2E_VARIABLES = [
+  "EXPO_PUBLIC_E2E_AUTO_LOGIN",
+  "EXPO_PUBLIC_E2E_COMPANY_ID",
+  "EXPO_PUBLIC_E2E_EMAIL",
+  "EXPO_PUBLIC_E2E_PASSWORD",
+];
+
+function validateNoE2ECredentials(values) {
+  return E2E_VARIABLES.filter((name) => String(values[name] ?? "").trim() !== "")
+    .map((name) => `${name} must not be set for a production build`);
+}
+
 function parseArgs(args) {
   const result = { envFile: "", selfTest: false };
   for (let index = 0; index < args.length; index += 1) {
@@ -200,6 +212,10 @@ function runSelfTest() {
     if (valid !== testCase.valid) {
       throw new Error(`Production API validator self-test failed for: ${testCase.value || "<empty>"}`);
     }
+  }
+  if (validateNoE2ECredentials({ EXPO_PUBLIC_E2E_PASSWORD: "secret" }).length !== 1
+    || validateNoE2ECredentials({ EXPO_PUBLIC_API_BASE_URL: "https://api.dimax.co.il" }).length !== 0) {
+    throw new Error("Production E2E credential guard self-test failed");
   }
   const networkErrors = validateAndroidNetworkSecurity();
   const manifestErrors = validateAndroidManifest();
@@ -239,7 +255,7 @@ function runSelfTest() {
     fs.rmSync(sandbox, { recursive: true, force: true });
   }
   console.log(
-    `Mobile production contract passed (${cases.length} API cases + Android network/manifest policy, VIBRATE negative case).`,
+    `Mobile production contract passed (${cases.length} API cases + Android network/manifest policy, VIBRATE negative case, E2E credential guard).`,
   );
 }
 
@@ -263,6 +279,7 @@ function main() {
     ...(values.EXPO_PUBLIC_BUILD_PROFILE && values.EXPO_PUBLIC_BUILD_PROFILE !== "production"
       ? ["Production config cannot use a test build profile"] : []),
     ...validateApiBaseUrl(values.EXPO_PUBLIC_API_BASE_URL),
+    ...validateNoE2ECredentials(values),
     ...validateAndroidNetworkSecurity(),
     ...validateAndroidManifest(),
   ];

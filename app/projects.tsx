@@ -1,3 +1,4 @@
+import { localizeWorkflowMessage } from "@/modules/sync/messages";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -160,7 +161,7 @@ export default function ProjectsScreen() {
   const loadScreen = useCallback(async () => {
     try { await reload(); }
     catch (reason) {
-      if (activeIdentity.current === identity && focused.current) setNotice({ identity, offline: null, error: reason instanceof Error ? reason.message : lt("Unable to load projects", "Не удалось загрузить проекты", "לא ניתן לטעון פרויקטים") });
+      if (activeIdentity.current === identity && focused.current) setNotice({ identity, offline: null, error: reason instanceof Error ? localizeWorkflowMessage(reason.message, locale) : lt("Unable to load projects", "Не удалось загрузить проекты", "לא ניתן לטעון פרויקטים") });
     }
   }, [identity, lt, reload]);
 
@@ -214,7 +215,7 @@ export default function ProjectsScreen() {
       return;
     }
 
-    setNotice({ identity, offline: null, error: reason instanceof Error ? reason.message : lt("Sync failed", "Ошибка синхронизации", "הסנכרון נכשל") });
+    setNotice({ identity, offline: null, error: reason instanceof Error ? localizeWorkflowMessage(reason.message, locale) : lt("Sync failed", "Ошибка синхронизации", "הסנכרון נכשל") });
   };
 
   useEffect(() => {
@@ -470,7 +471,7 @@ export default function ProjectsScreen() {
                   </Pressable>
                   {project.waze_url || summary.issues ? <View style={styles.projectActions}>
                     {project.waze_url ? <ActionButton label={lt("Waze", "Waze", "Waze")} icon="navigate-outline" variant="secondary" style={styles.flexButton} onPress={() => void openProjectExternalAction({ kind: "waze", url: project.waze_url as string }).catch((reason) => {
-                      if (activeIdentity.current === identity) setNotice({ identity, offline: null, error: reason instanceof Error ? reason.message : lt("Unable to open Waze", "Не удалось открыть Waze", "לא ניתן לפתוח את Waze") });
+                      if (activeIdentity.current === identity) setNotice({ identity, offline: null, error: reason instanceof Error ? localizeWorkflowMessage(reason.message, locale) : lt("Unable to open Waze", "Не удалось открыть Waze", "לא ניתן לפתוח את Waze") });
                     })} /> : null}
                     {summary.issues ? <ActionButton label={lt("Issues", "Проблемы", "תקלות")} icon="alert-circle-outline" variant="secondary" style={styles.flexButton} onPress={() => router.push(`/issues?projectId=${encodeURIComponent(project.id)}` as never)} /> : null}
                   </View> : null}
