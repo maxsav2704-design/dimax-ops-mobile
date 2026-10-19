@@ -4,6 +4,7 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, KeyboardAvoidingView, Modal, Platform, ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
+import { buildAiRoute } from "@/modules/ai/navigation";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { InstallerBottomNav } from "@/components/installer-ui";
 import { AnimatedFill, Pop, Reveal, useReducedMotion } from "@/components/motion";
@@ -752,6 +753,14 @@ export default function ProjectDetailsScreen() {
               </Reveal> : null}
             </SectionCard>
           ) : null}
+
+          <ActionButton
+            testID="project-ai-assist"
+            label={lt("Ask DIMAX AI about this project", "Спросить DIMAX AI об этом объекте", "לשאול את DIMAX AI על הפרויקט")}
+            icon="sparkles-outline"
+            variant="secondary"
+            onPress={() => router.push(buildAiRoute({ projectId }) as never)}
+          />
 
           <View>
             <View style={styles.searchRow}>

@@ -70,6 +70,7 @@ function AppStack() {
       <Stack.Screen name="sync-queue" />
       <Stack.Screen name="profile" />
       <Stack.Screen name="project/[id]" />
+      <Stack.Screen name="ai" />
     </Stack>
   );
 }
