@@ -61,7 +61,7 @@ export function rejectAiProposal(proposalId: string): Promise<AiProposal> {
   return apiFetch(`${AI_API}/proposals/${proposalId}/reject`, { method: "POST" });
 }
 
-export type AiFailure = "offline" | "access" | "limit" | "notConfigured" | "timeout" | "unavailable";
+export type AiFailure = "offline" | "access" | "limit" | "notConfigured" | "timeout" | "contextMissing" | "unavailable";
 
 /** A stable reason for the user; never the provider's body. */
 export function classifyAiFailure(error: unknown): AiFailure {
@@ -78,7 +78,7 @@ export function classifyAiFailure(error: unknown): AiFailure {
 export function taskFailure(task: AiTask): AiFailure {
   const code = task.error_code ?? "";
   return code === "AI_PROVIDER_LIMIT" ? "limit" : code === "AI_PROVIDER_TIMEOUT" || code === "AI_DEADLINE" ? "timeout" :
-    code === "AI_ACCESS_CHANGED" ? "access" : "unavailable";
+    code === "AI_ACCESS_CHANGED" ? "access" : code === "AI_CONTEXT_NOT_FOUND" ? "contextMissing" : "unavailable";
 }
 
 /** Rows of the before/after preview; identical values are marked unchanged. */
@@ -140,6 +140,8 @@ export const AI_COPY = {
     limit: tri("Request limit reached. Try later.", "Достигнут лимит запросов. Попробуйте позже.", "הגעת למגבלת הבקשות. נסה מאוחר יותר."),
     notConfigured: tri("DIMAX AI is not connected yet.", "DIMAX AI пока не подключён.", "DIMAX AI עדיין לא מחובר."),
     timeout: tri("The request took too long.", "Запрос занял слишком много времени.", "הבקשה ארכה זמן רב מדי."),
+    contextMissing: tri("The selected object is no longer available to you. Clear it and ask again.",
+      "Выбранный объект вам больше недоступен. Сбросьте его и спросите снова.", "האובייקט שנבחר אינו זמין לך יותר. נקה אותו ושאל שוב."),
     unavailable: tri("DIMAX AI could not answer.", "DIMAX AI не смог ответить.", "DIMAX AI לא הצליח לענות."),
   },
   disabled: tri("DIMAX AI is switched off.", "DIMAX AI выключен.", "DIMAX AI כבוי."),

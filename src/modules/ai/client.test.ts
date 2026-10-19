@@ -37,6 +37,7 @@ describe("DIMAX AI client helpers", () => {
     expect(classifyAiFailure(new Error("boom"))).toBe("unavailable");
     expect(taskFailure({ error_code: "AI_PROVIDER_LIMIT" } as never)).toBe("limit");
     expect(taskFailure({ error_code: "AI_ACCESS_CHANGED" } as never)).toBe("access");
+    expect(taskFailure({ error_code: "AI_CONTEXT_NOT_FOUND" } as never)).toBe("contextMissing");
   });
 
   it("renders preview rows with changed flags and localized values", () => {
