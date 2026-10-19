@@ -598,6 +598,8 @@ export default function ProjectDetailsScreen() {
               <Text style={styles.projectTitle} accessibilityRole="header">{project?.name || lt("Project", "Объект", "פרויקט")}</Text>
               <Text style={styles.projectAddress}>{project?.address || lt("No address", "Адрес не указан", "לא הוגדרה כתובת")}</Text>
             </View>
+            <IconButton icon="sparkles-outline" label={lt("Ask DIMAX AI", "Спросить DIMAX AI", "לשאול את DIMAX AI")} tone="dark" testID="project-ai-header"
+              onPress={() => router.push(buildAiRoute({ projectId }) as never)} />
             <IconButton icon="sync" label={lt("Sync now", "Синхронизировать", "סנכרון")} tone="dark" disabled={busy} onPress={() => void handleSync()} />
           </View>
           <View style={styles.heroBadges}>

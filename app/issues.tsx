@@ -40,6 +40,7 @@ import {
   type IssueRouteParams,
 } from "@/modules/issues/presentation";
 import { createIssue } from "@/modules/issues/actions";
+import { buildAiRoute } from "@/modules/ai/navigation";
 import { buildDoorProjectRoute, buildProjectRoute } from "@/modules/projects/navigation";
 import {
   listProjectDoors,
@@ -242,6 +243,8 @@ function IssuesWorkspace({ routeParams, syncVersion }: { routeParams: IssueRoute
               <Text style={styles.composerEyebrow}>{lt("FIELD WORK", "РАБОТА НА ОБЪЕКТЕ", "עבודה בשטח")}</Text>
               <Text style={styles.heading} accessibilityRole="header">{lt("Issues", "Проблемы", "תקלות")}</Text>
             </View>
+            <IconButton icon="sparkles-outline" label={lt("Ask DIMAX AI", "Спросить DIMAX AI", "לשאול את DIMAX AI")} tone="dark" testID="issues-ai-header"
+              onPress={() => router.push(buildAiRoute() as never)} />
             <IconButton icon="cloud-upload-outline" label={lt("Open sync queue", "Открыть очередь работ", "פתיחת תור הסנכרון")} tone="dark" onPress={() => router.push("/sync-queue" as never)} />
           </View>
           {loaded ? <View style={styles.summaryRow}>

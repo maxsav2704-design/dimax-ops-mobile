@@ -5,6 +5,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, ScrollView, StatusBar, StyleSheet, TextInput, View } from "react-native";
 import { DirectionalChevron } from "@/components/directional-chevron";
+import { buildAiRoute } from "@/modules/ai/navigation";
 import { SkeletonList } from "@/components/skeleton";
 import { FeedbackPressable as Pressable } from "@/components/feedback-pressable";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -313,6 +314,8 @@ export default function ProjectsScreen() {
               <Text style={styles.eyebrow}>{lt("MY WORK", "МОЯ РАБОТА", "העבודה שלי")}</Text>
               <Text style={styles.welcomeName} accessibilityRole="header">{user?.full_name || lt("Installer", "Монтажник", "מתקין")}</Text>
             </View>
+            <IconButton icon="sparkles-outline" label={lt("Ask DIMAX AI", "Спросить DIMAX AI", "לשאול את DIMAX AI")} tone="dark" testID="home-ai-header"
+              onPress={() => router.push(buildAiRoute() as never)} />
             <IconButton icon="sync" label={lt("Sync now", "Синхронизировать", "סנכרן")} tone="dark" onPress={() => void syncNow()} disabled={busy || loading} />
           </View>
           <Pressable
