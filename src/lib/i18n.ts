@@ -612,6 +612,8 @@ const enumLabels: Record<string, Record<MobileLocale, string>> = {
   addon_fact_create: { en: "Add-on fact", ru: "Допработа", he: "עבודה נוספת" },
   issue_create: { en: "Issue", ru: "Проблема", he: "תקלה" },
   door_stage_complete: { en: "Door stage", ru: "Этап двери", he: "שלב דלת" },
+  issue_fix_report: { en: "Issue fixed", ru: "Исправление замечания", he: "תיקון תקלה" },
+  resolved: { en: "Fixed, awaiting check", ru: "Исправлено, ждёт проверки", he: "תוקן, ממתין לבדיקה" },
 };
 
 export function translateEnum(locale: MobileLocale, value: string | null | undefined): string {

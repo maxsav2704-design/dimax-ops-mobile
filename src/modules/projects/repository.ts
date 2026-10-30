@@ -149,10 +149,12 @@ export async function hydrateProjectDetails(payload: ProjectDetailsResponse): Pr
 
     for (const issue of payload.issues_open) {
       await db.runAsync(
-        `INSERT INTO issues(id, door_id, project_id, status, title, details)
-         VALUES(?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET status = excluded.status, title = excluded.title, details = excluded.details`,
-        [issue.id, issue.door_id, payload.id, issue.status, issue.title, issue.details]
+        `INSERT INTO issues(id, door_id, project_id, status, title, details, workflow_state, source, stage_code)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET status = excluded.status, title = excluded.title, details = excluded.details,
+           workflow_state = excluded.workflow_state, source = excluded.source, stage_code = excluded.stage_code`,
+        [issue.id, issue.door_id, payload.id, issue.status, issue.title, issue.details,
+          issue.workflow_state ?? null, issue.source ?? "INTERNAL", issue.stage_code ?? null]
       );
     }
 
@@ -262,7 +264,7 @@ export async function listProjectDoorStages(projectId: string): Promise<DoorStag
 export async function listProjectIssues(projectId: string): Promise<ProjectIssue[]> {
   const db = await getDb();
   return db.getAllAsync<ProjectIssue>(
-    "SELECT id, door_id, project_id, status, title, details FROM issues WHERE project_id = ? ORDER BY title ASC",
+    "SELECT id, door_id, project_id, status, title, details, workflow_state, source, stage_code FROM issues WHERE project_id = ? ORDER BY title ASC",
     [projectId]
   );
 }

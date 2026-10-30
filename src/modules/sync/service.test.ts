@@ -49,6 +49,7 @@ import {
   queueDoorStageCompleteEvent,
   queueDoorStatusEvent,
   queueIssueCreateEvent,
+  queueIssueFixReportEvent,
   releaseAuthBlockedEvents,
   retryPendingEventNow,
   runSync,
@@ -306,6 +307,9 @@ describe("mobile sync service", () => {
       "OPEN",
       "Opening is blocked",
       "Concrete work is incomplete",
+      null,
+      "INTERNAL",
+      null,
     ]);
     expect(setStateMock).toHaveBeenCalledWith("sync_cursor", "42");
   });
@@ -372,6 +376,28 @@ describe("mobile sync service", () => {
     });
     await expect(queueDoorStageCompleteEvent({ projectId: "project-1", doorId: "door-1", stageCode: "FRAME" }))
       .rejects.toThrow("This stage is already recorded as done.");
+  });
+
+  it("queues an issue fix report with the issue and door only, keeps undo data on the phone, and refuses done or local issues", async () => {
+    dbRef.current.getFirstAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes("FROM issues")) return { project_id: "project-1", door_id: "door-1", status: "OPEN", workflow_state: "IN_PROGRESS" };
+      if (sql.includes("COUNT(*)")) return { total: 0 };
+      return null;
+    });
+    await queueIssueFixReportEvent({ projectId: "project-1", issueId: "issue-1", doorId: "door-1" });
+    const insert = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("INSERT INTO pending_events"));
+    expect(insert?.[0]).toContain("'ISSUE_FIX_REPORT'");
+    const payload = JSON.parse(insert?.[1]?.[3] as string);
+    expect(payload).toEqual({ issue_id: "issue-1", door_id: "door-1", previous_workflow_state: "IN_PROGRESS" });
+    expect(commandPayload({ type: "ISSUE_FIX_REPORT", payload })).toEqual({ issue_id: "issue-1", door_id: "door-1" });
+    const mark = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("UPDATE issues SET workflow_state = 'RESOLVED'"));
+    expect(mark?.[1]).toEqual(["issue-1"]);
+    await expect(queueIssueFixReportEvent({ projectId: "project-1", issueId: "local:evt-1", doorId: "door-1" }))
+      .rejects.toThrow("Sync the issue first; a fix can be reported once the office has it.");
+    dbRef.current.getFirstAsync.mockImplementation(async (sql: string) =>
+      sql.includes("FROM issues") ? { project_id: "project-1", door_id: "door-1", status: "OPEN", workflow_state: "RESOLVED" } : null);
+    await expect(queueIssueFixReportEvent({ projectId: "project-1", issueId: "issue-1", doorId: "door-1" }))
+      .rejects.toThrow("The fix is already reported and awaits confirmation.");
   });
 
   it("force cold resync resets the cursor before requesting a snapshot", async () => {
@@ -1002,7 +1028,7 @@ describe("mobile sync service", () => {
     });
     await runSync();
     const write = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("INSERT INTO issues"));
-    expect(write?.[1]).toEqual(["issue-1", "door-1", "project-1", status, "Access", "Office update"]);
+    expect(write?.[1]).toEqual(["issue-1", "door-1", "project-1", status, "Access", "Office update", null, "INTERNAL", null]);
     expect(write?.[0]).toContain("ON CONFLICT(id) DO UPDATE SET");
     const cleanup = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("id LIKE 'local:%'"));
     expect(cleanup?.[0]).toContain("NOT EXISTS");
@@ -1693,7 +1719,7 @@ describe("mobile sync service", () => {
     expect(dbRef.current.runAsync).toHaveBeenCalledWith("DELETE FROM issues WHERE id = ?", ["local:event-issue"]);
     expect(dbRef.current.runAsync).toHaveBeenCalledWith("DELETE FROM pending_events WHERE client_event_id = ?", ["event-issue"]);
     expect(dbRef.current.runAsync).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO issues"),
-      ["server-issue", "door-1", "project-1", "OPEN", "Access blocked", null]);
+      ["server-issue", "door-1", "project-1", "OPEN", "Access blocked", null, null, "INTERNAL", null]);
     expect(dbRef.current.runAsync).not.toHaveBeenCalledWith("DELETE FROM pending_events");
   });
 

@@ -303,6 +303,8 @@ async function markAckResult(
       await deleteLocalIssue(db, clientEventId);
     } else if (eventRow?.type === "DOOR_STAGE_COMPLETE") {
       await revertLocalDoorStage(db, payload);
+    } else if (eventRow?.type === "ISSUE_FIX_REPORT") {
+      await revertLocalIssueFix(db, payload);
     }
     await db.runAsync(
       `UPDATE pending_events
@@ -539,6 +541,24 @@ async function revertLocalDoorStage(
   );
 }
 
+function issueFixKey(payload: Record<string, unknown>): string | null {
+  return typeof payload.issue_id === "string" ? payload.issue_id : null;
+}
+
+/** Optimistic view of a queued "fixed" report: awaiting check until the server answers. */
+async function applyLocalIssueFix(db: Awaited<ReturnType<typeof getDb>>, payload: Record<string, unknown>): Promise<void> {
+  const issueId = issueFixKey(payload);
+  if (!issueId) return;
+  await db.runAsync("UPDATE issues SET workflow_state = 'RESOLVED' WHERE id = ? AND status <> 'CLOSED'", [issueId]);
+}
+
+async function revertLocalIssueFix(db: Awaited<ReturnType<typeof getDb>>, payload: Record<string, unknown>): Promise<void> {
+  const issueId = issueFixKey(payload);
+  if (!issueId) return;
+  const previous = typeof payload.previous_workflow_state === "string" ? payload.previous_workflow_state : null;
+  await db.runAsync("UPDATE issues SET workflow_state = ? WHERE id = ? AND workflow_state = 'RESOLVED'", [previous, issueId]);
+}
+
 /** Replaces the stages of one door with the server's view; a completion still in the outbox stays visible as mine. */
 async function upsertDoorStages(
   db: Awaited<ReturnType<typeof getDb>>,
@@ -747,16 +767,30 @@ async function upsertServerIssue(
   issue: NonNullable<SyncSnapshot["issues"]>[number],
 ): Promise<void> {
   await db.runAsync(
-    `INSERT INTO issues(id, door_id, project_id, status, title, details)
-     VALUES(?, ?, ?, ?, ?, ?)
+    `INSERT INTO issues(id, door_id, project_id, status, title, details, workflow_state, source, stage_code)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        door_id = excluded.door_id,
        project_id = excluded.project_id,
        status = excluded.status,
        title = excluded.title,
-       details = excluded.details`,
-    [issue.id, issue.door_id, issue.project_id, issue.status, issue.title ?? null, issue.details ?? null],
+       details = excluded.details,
+       workflow_state = excluded.workflow_state,
+       source = excluded.source,
+       stage_code = excluded.stage_code`,
+    [issue.id, issue.door_id, issue.project_id, issue.status, issue.title ?? null, issue.details ?? null,
+      issue.workflow_state ?? null, issue.source ?? "INTERNAL", issue.stage_code ?? null],
   );
+  // A "fixed" report still waiting in the outbox stays visible as awaiting check.
+  const queuedFix = await db.getAllAsync<{ client_event_id: string }>(
+    `SELECT client_event_id FROM pending_events
+     WHERE type = 'ISSUE_FIX_REPORT' AND status IN ('PENDING', 'FAILED')
+       AND json_valid(payload_json) AND json_extract(payload_json, '$.issue_id') = ?`,
+    [issue.id],
+  );
+  if (queuedFix.length > 0 && issue.status !== "CLOSED") {
+    await db.runAsync("UPDATE issues SET workflow_state = 'RESOLVED' WHERE id = ?", [issue.id]);
+  }
   // Remove copies left by older clients only after the server issue is stored.
   await db.runAsync(
     `DELETE FROM issues WHERE door_id = ? AND id LIKE 'local:%'
@@ -798,7 +832,7 @@ async function blockPendingEventsForRemovedAssignment(
   for (const row of rows) {
     const payload = parsePendingPayload(row.payload_json);
     const doorId = typeof payload.door_id === "string" ? payload.door_id : null;
-    const shouldBlockDoorEvent = (row.type === "DOOR_SET_STATUS" || row.type === "DOOR_STAGE_COMPLETE")
+    const shouldBlockDoorEvent = (row.type === "DOOR_SET_STATUS" || row.type === "DOOR_STAGE_COMPLETE" || row.type === "ISSUE_FIX_REPORT")
       && Boolean(doorId && input.affectedDoorIds.has(doorId));
     const shouldBlockProjectEvent = input.projectFullyRemoved;
     if (!shouldBlockDoorEvent && !shouldBlockProjectEvent) {
@@ -903,6 +937,8 @@ export async function retryPendingEventNow(clientEventId: string): Promise<void>
       });
     } else if (eventRow.type === "DOOR_STAGE_COMPLETE") {
       await applyLocalDoorStage(db, payload, eventRow.happened_at);
+    } else if (eventRow.type === "ISSUE_FIX_REPORT") {
+      await applyLocalIssueFix(db, payload);
     }
 
     await db.runAsync(
@@ -935,6 +971,8 @@ export async function dropPendingEvent(clientEventId: string): Promise<void> {
       await deleteLocalIssue(db, clientEventId);
     } else if (eventRow.type === "DOOR_STAGE_COMPLETE") {
       await revertLocalDoorStage(db, payload);
+    } else if (eventRow.type === "ISSUE_FIX_REPORT") {
+      await revertLocalIssueFix(db, payload);
     }
     await db.runAsync("DELETE FROM pending_events WHERE client_event_id = ?", [clientEventId]);
   });
@@ -957,7 +995,7 @@ async function reapplyPendingOptimisticChanges(snapshot: SyncSnapshot): Promise<
     for (const event of events) {
       const doorId = typeof event.payload.door_id === "string" ? event.payload.door_id : null;
       const door = doorId ? doors.get(doorId) : undefined;
-      const doorScoped = event.type === "DOOR_SET_STATUS" || event.type === "ISSUE_CREATE" || event.type === "DOOR_STAGE_COMPLETE";
+      const doorScoped = event.type === "DOOR_SET_STATUS" || event.type === "ISSUE_CREATE" || event.type === "DOOR_STAGE_COMPLETE" || event.type === "ISSUE_FIX_REPORT";
       if (!projectIds.has(event.project_id) || (doorScoped && door?.project_id !== event.project_id)) {
         await markEventsBlocked([event.client_event_id], ASSIGNMENT_CHANGED_ERROR);
         continue;
@@ -996,6 +1034,8 @@ async function reapplyPendingOptimisticChanges(snapshot: SyncSnapshot): Promise<
         });
       } else if (event.type === "DOOR_STAGE_COMPLETE") {
         await applyLocalDoorStage(db, event.payload, event.happened_at);
+      } else if (event.type === "ISSUE_FIX_REPORT") {
+        await applyLocalIssueFix(db, event.payload);
       }
     }
   });
@@ -1159,6 +1199,7 @@ async function applyChange(change: SyncChange): Promise<void> {
       await upsertServerIssue(db, {
         id: payload.id, door_id: payload.door_id, project_id: payload.project_id,
         status: payload.status, title: payload.title, details: payload.details,
+        workflow_state: payload.workflow_state ?? null, source: payload.source ?? null, stage_code: payload.stage_code ?? null,
       });
       break;
     case "DOOR":
@@ -1700,6 +1741,62 @@ export async function queueDoorStageCompleteEvent(input: {
     );
 
     await applyLocalDoorStage(db, payload, happenedAt);
+  });
+  notifySyncQueueChanged();
+}
+
+/**
+ * Offline "fixed" report on an issue of a door this installer works on. The payload names the issue and
+ * the door only: the office or the site representative confirms, and the fix is never an earning.
+ */
+export async function queueIssueFixReportEvent(input: {
+  projectId: string;
+  issueId: string;
+  doorId: string;
+}): Promise<void> {
+  const projectId = input.projectId.trim();
+  const issueId = input.issueId.trim();
+  const doorId = input.doorId.trim();
+  if (!projectId || !issueId || !doorId) {
+    throw new Error("project_id, issue_id and door_id are required");
+  }
+  if (issueId.startsWith("local:")) {
+    throw new Error("Sync the issue first; a fix can be reported once the office has it.");
+  }
+  const db = await getDb();
+  const issue = await db.getFirstAsync<{ project_id: string; door_id: string; status: string; workflow_state: string | null }>(
+    "SELECT project_id, door_id, status, workflow_state FROM issues WHERE id = ?",
+    [issueId]
+  );
+  if (!issue || issue.project_id !== projectId || issue.door_id !== doorId) {
+    throw new Error("Issue is no longer assigned to you. Refresh data before continuing.");
+  }
+  if (issue.status === "CLOSED") {
+    throw new Error("This issue is already closed.");
+  }
+  if (issue.workflow_state === "RESOLVED") {
+    throw new Error("The fix is already reported and awaits confirmation.");
+  }
+
+  const clientEventId = createClientEventId();
+  const happenedAt = new Date().toISOString();
+  // previous_workflow_state stays on the phone for undo; commandPayload strips it before sending.
+  const payload = { issue_id: issueId, door_id: doorId, previous_workflow_state: issue.workflow_state ?? null };
+  await db.withTransactionAsync(async () => {
+    const existing = await db.getFirstAsync<{ total: number }>(
+      `SELECT COUNT(*) as total FROM pending_events
+       WHERE type = 'ISSUE_FIX_REPORT' AND json_extract(payload_json, '$.issue_id') = ?`,
+      [issueId]
+    );
+    if (Number(existing?.total || 0) > 0) {
+      throw new Error("A fix report for this issue is already waiting in the sync queue.");
+    }
+    await db.runAsync(
+      `INSERT INTO pending_events(client_event_id, type, project_id, happened_at, payload_json, status, error, attempts, next_retry_at, last_attempt_at, created_at)
+       VALUES(?, 'ISSUE_FIX_REPORT', ?, ?, ?, 'PENDING', NULL, 0, NULL, NULL, ?)`,
+      [clientEventId, projectId, happenedAt, JSON.stringify(payload), happenedAt]
+    );
+    await applyLocalIssueFix(db, payload);
   });
   notifySyncQueueChanged();
 }

@@ -75,6 +75,26 @@ const MESSAGES: Record<string, { ru: string; he: string }> = {
     ru: "Этот этап уже ждёт в очереди синхронизации.",
     he: "השלב הזה כבר ממתין בתור הסנכרון.",
   },
+  "Sync the issue first; a fix can be reported once the office has it.": {
+    ru: "Сначала отправьте замечание; об исправлении можно сообщить, когда офис его получил.",
+    he: "יש לסנכרן קודם את התקלה; ניתן לדווח על תיקון לאחר שהמשרד קיבל אותה.",
+  },
+  "Issue is no longer assigned to you. Refresh data before continuing.": {
+    ru: "Замечание больше не относится к вам. Обновите данные, прежде чем продолжить.",
+    he: "התקלה כבר אינה משויכת אליך. רעננו נתונים לפני שתמשיכו.",
+  },
+  "This issue is already closed.": {
+    ru: "Это замечание уже закрыто.",
+    he: "התקלה הזו כבר סגורה.",
+  },
+  "The fix is already reported and awaits confirmation.": {
+    ru: "Об исправлении уже сообщено, ждём подтверждения.",
+    he: "התיקון כבר דווח וממתין לאישור.",
+  },
+  "A fix report for this issue is already waiting in the sync queue.": {
+    ru: "Сообщение об исправлении уже ждёт в очереди синхронизации.",
+    he: "דיווח התיקון כבר ממתין בתור הסנכרון.",
+  },
 };
 
 export function localizeWorkflowMessage(message: string, locale: MobileLocale): string {

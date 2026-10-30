@@ -100,6 +100,11 @@ describe("sync queue presentation", () => {
     expect(buildEventSummary(event, "ru", { doorLabel: "A-201" })).toBe("Дверь A-201 · этап FRAME выполнен");
   });
 
+  it("renders an issue fix report summary", () => {
+    const event = makeEvent({ type: "ISSUE_FIX_REPORT", payload: { issue_id: "issue-1", door_id: "door-12" } });
+    expect(buildEventSummary(event)).toBe("Door door-12 · issue fixed");
+  });
+
   it("renders a useful add-on summary", () => {
     const event = makeEvent({
       type: "ADDON_FACT_CREATE",

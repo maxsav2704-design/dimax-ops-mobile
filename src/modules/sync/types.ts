@@ -1,6 +1,6 @@
 import type { FactoryPriceSnapshot } from "@/modules/prices/contract";
 
-export type SyncEventType = "DOOR_SET_STATUS" | "ADDON_FACT_CREATE" | "ISSUE_CREATE" | "DOOR_STAGE_COMPLETE";
+export type SyncEventType = "DOOR_SET_STATUS" | "ADDON_FACT_CREATE" | "ISSUE_CREATE" | "DOOR_STAGE_COMPLETE" | "ISSUE_FIX_REPORT";
 
 /** Stages of one door as the server shows them to this installer (snapshot row and DOOR_STAGES change payload). */
 export type DoorStagesSnapshot = {
@@ -103,6 +103,9 @@ export type SyncSnapshot = {
     status: string;
     title: string | null;
     details: string | null;
+    workflow_state?: string | null;
+    source?: string | null;
+    stage_code?: string | null;
   }>;
   /** Only sent while work stages are switched on at the server; never carries a price. */
   door_stages?: DoorStagesSnapshot[];

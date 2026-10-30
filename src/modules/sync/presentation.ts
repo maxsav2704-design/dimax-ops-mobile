@@ -173,6 +173,14 @@ export function buildEventSummary(
     return text(locale, `Issue: ${title}`, `Проблема: ${title}`, `תקלה: ${title}`);
   }
 
+  if (event.type === "ISSUE_FIX_REPORT") {
+    const doorId =
+      labels.doorLabel || (typeof event.payload.door_id === "string"
+        ? event.payload.door_id
+        : text(locale, "door", "дверь", "דלת"));
+    return text(locale, `Door ${doorId} · issue fixed`, `Дверь ${doorId} · замечание исправлено`, `דלת ${doorId} · התקלה תוקנה`);
+  }
+
   if (event.type === "DOOR_STAGE_COMPLETE") {
     const doorId =
       labels.doorLabel || (typeof event.payload.door_id === "string"

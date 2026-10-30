@@ -65,6 +65,11 @@ export type ProjectIssue = {
   status: string;
   title: string | null;
   details: string | null;
+  /** NEW / TRIAGED / IN_PROGRESS / BLOCKED / RESOLVED (fixed, awaiting check) / CLOSED */
+  workflow_state?: string | null;
+  /** INTERNAL (closed by the office) or SITE (closed only by the site representative) */
+  source?: string | null;
+  stage_code?: string | null;
 };
 
 export type ProjectAddonTypeOption = {
@@ -132,6 +137,9 @@ export type ProjectDetailsResponse = {
     status: string;
     title: string | null;
     details: string | null;
+    workflow_state?: string | null;
+    source?: string | null;
+    stage_code?: string | null;
   }>;
   door_types_catalog: Array<{ id: string; code: string; name: string }>;
   reasons_catalog: Array<{ id: string; code: string; name: string }>;

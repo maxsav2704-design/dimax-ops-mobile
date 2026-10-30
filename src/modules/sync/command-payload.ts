@@ -9,5 +9,8 @@ export function commandPayload(event: Pick<PendingSyncEvent, "type" | "payload">
     delete payload.previous_comment;
     delete payload.previous_is_locked;
   }
+  if (event.type === "ISSUE_FIX_REPORT") {
+    delete payload.previous_workflow_state;
+  }
   return payload;
 }

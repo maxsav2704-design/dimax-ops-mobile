@@ -39,7 +39,7 @@ import {
   resolveIssueRouteParams,
   type IssueRouteParams,
 } from "@/modules/issues/presentation";
-import { createIssue } from "@/modules/issues/actions";
+import { createIssue, reportIssueFixed } from "@/modules/issues/actions";
 import { buildAiRoute } from "@/modules/ai/navigation";
 import { buildDoorProjectRoute, buildProjectRoute } from "@/modules/projects/navigation";
 import {
@@ -532,6 +532,26 @@ function IssuesWorkspace({ routeParams, syncVersion }: { routeParams: IssueRoute
         <Text style={styles.fieldLabel}>{lt("Description", "Описание", "תיאור")}</Text>
         <Text style={styles.detailBody}>{selectedIssue.issue.details || lt("No additional description.", "Без дополнительного описания.", "ללא תיאור נוסף.")}</Text>
         {selectedIssue.issue.id.startsWith("local:") ? <StatusPill label={lt("Saved on this phone", "Сохранено на телефоне", "נשמר בטלפון")} tone="warning" icon="cloud-upload-outline" /> : null}
+        <View style={styles.summaryRow}>
+          {selectedIssue.issue.source === "SITE" ? <StatusPill label={lt("Raised by the site", "От представителя объекта", "מטעם האתר")} tone="danger" icon="business-outline" /> : null}
+          {selectedIssue.issue.stage_code ? <StatusPill label={`${lt("Stage", "Этап", "שלב")} ${selectedIssue.issue.stage_code}`} tone="warning" /> : null}
+          {selectedIssue.issue.status !== "CLOSED" && selectedIssue.issue.workflow_state === "RESOLVED" ? <StatusPill label={translateEnum(locale, "RESOLVED")} tone="success" icon="checkmark-done-outline" /> : null}
+        </View>
+        {selectedIssue.issue.status !== "CLOSED" && selectedIssue.issue.workflow_state !== "RESOLVED" && !selectedIssue.issue.id.startsWith("local:") && selectedIssue.door ? (
+          <ActionButton testID="issue-report-fixed" label={lt("Fixed, please check", "Исправлено, проверьте", "תוקן, נא לבדוק")} icon="checkmark-done-outline" loading={busy} disabled={busy}
+            onPress={() => void (async () => {
+              setBusy(true); setError(null);
+              try {
+                await reportIssueFixed({ projectId: selectedIssue.project.id, issueId: selectedIssue.issue.id, doorId: selectedIssue.door!.id });
+                await reload();
+              } catch (reason) {
+                setError(reason instanceof Error ? localizeWorkflowMessage(reason.message, locale) : lt("Action failed. Please try again.", "Действие не выполнено. Попробуйте ещё раз.", "הפעולה נכשלה. נסו שוב."));
+              } finally { setBusy(false); }
+            })()} />
+        ) : null}
+        {selectedIssue.issue.source === "SITE" ? <Text style={styles.issueMeta}>{lt("The site representative confirms the fix.", "Исправление подтверждает представитель объекта.", "נציג האתר מאשר את התיקון.")}</Text>
+          : selectedIssue.issue.status !== "CLOSED" ? <Text style={styles.issueMeta}>{lt("The office confirms the fix.", "Исправление подтверждает офис.", "המשרד מאשר את התיקון.")}</Text> : null}
+        {error ? <Text style={styles.issueMeta}>{error}</Text> : null}
         <ActionButton label={selectedIssue.door ? lt("Open linked door", "Открыть эту дверь", "פתיחת הדלת המקושרת") : lt("Open project", "Открыть объект", "פתיחת הפרויקט")} icon="business-outline" variant="secondary" onPress={() => {
           const route = selectedIssue.door ? buildDoorProjectRoute(selectedIssue.project.id, selectedIssue.door.id) : buildProjectRoute(selectedIssue.project.id);
           setSelectedIssueId(null); router.push(route as never);

@@ -10,7 +10,7 @@ vi.mock("@/lib/db", () => ({
     return operation();
   },
 }));
-vi.mock("@/modules/sync/service", () => ({ queueIssueCreateEvent: mocks.queue }));
+vi.mock("@/modules/sync/service", () => ({ queueIssueCreateEvent: mocks.queue, queueIssueFixReportEvent: mocks.queue }));
 
 import { createIssue } from "./actions";
 

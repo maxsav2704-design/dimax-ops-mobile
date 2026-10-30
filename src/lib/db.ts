@@ -3,7 +3,7 @@ import { SessionChangedError } from "@/lib/errors";
 
 const LEGACY_DB_NAME = "dimax_mobile.db";
 const DB_OWNER_STATE_KEY = "database_owner";
-const DB_SCHEMA_VERSION = 12;
+const DB_SCHEMA_VERSION = 13;
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 let activeOwnerKey: string | null = null;
@@ -128,7 +128,10 @@ async function createBaseSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       project_id TEXT NOT NULL,
       status TEXT NOT NULL,
       title TEXT,
-      details TEXT
+      details TEXT,
+      workflow_state TEXT,
+      source TEXT NOT NULL DEFAULT 'INTERNAL',
+      stage_code TEXT
     );
 
     CREATE TABLE IF NOT EXISTS door_stages (
@@ -365,6 +368,16 @@ async function migrateDb(db: SQLite.SQLiteDatabase): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_door_stages_project_id ON door_stages(project_id);
     `);
     if (currentVersion > 0) {
+      await db.runAsync("DELETE FROM sync_state WHERE key = 'sync_cursor'");
+    }
+  }
+
+  if (currentVersion < 13) {
+    // Issues (server 0091): who raised the defect, its stage and "fixed, awaiting check".
+    await ensureColumn(db, "issues", "workflow_state", "workflow_state TEXT");
+    await ensureColumn(db, "issues", "source", "source TEXT NOT NULL DEFAULT 'INTERNAL'");
+    await ensureColumn(db, "issues", "stage_code", "stage_code TEXT");
+    if (currentVersion > 0 && currentVersion >= 12) {
       await db.runAsync("DELETE FROM sync_state WHERE key = 'sync_cursor'");
     }
   }
