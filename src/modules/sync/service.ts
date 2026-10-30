@@ -20,7 +20,7 @@ import {
   getSyncErrorMessage,
   isRetryableSyncError,
 } from "@/modules/sync/policy";
-import type { PendingSyncEvent, SyncChange, SyncQueueSummary, SyncResponse, SyncSnapshot } from "@/modules/sync/types";
+import type { DoorStagesSnapshot, PendingSyncEvent, SyncChange, SyncQueueSummary, SyncResponse, SyncSnapshot } from "@/modules/sync/types";
 
 const CURSOR_KEY = "sync_cursor";
 const LAST_SYNC_AT_KEY = "last_sync_at";
@@ -301,6 +301,8 @@ async function markAckResult(
       await deleteLocalAddonFact(db, clientEventId);
     } else if (eventRow?.type === "ISSUE_CREATE") {
       await deleteLocalIssue(db, clientEventId);
+    } else if (eventRow?.type === "DOOR_STAGE_COMPLETE") {
+      await revertLocalDoorStage(db, payload);
     }
     await db.runAsync(
       `UPDATE pending_events
@@ -495,6 +497,96 @@ async function applyLocalDoorStatus(
      WHERE id = ?`,
     [status, reasonId, comment, optimisticIsLocked, previousVersion + 1, new Date().toISOString(), doorId]
   );
+}
+
+function stageKey(payload: Record<string, unknown>): { doorId: string; stageCode: string } | null {
+  const doorId = typeof payload.door_id === "string" ? payload.door_id : null;
+  const stageCode = typeof payload.stage_code === "string" ? payload.stage_code : null;
+  return doorId && stageCode ? { doorId, stageCode } : null;
+}
+
+/** Optimistic view of a queued stage completion: done by me at the queued time, until the server answers. */
+async function applyLocalDoorStage(
+  db: Awaited<ReturnType<typeof getDb>>,
+  payload: Record<string, unknown>,
+  happenedAt: string | null,
+): Promise<void> {
+  const key = stageKey(payload);
+  if (!key) {
+    return;
+  }
+  await db.runAsync(
+    `UPDATE door_stages
+     SET completed_at = COALESCE(completed_at, ?), completed_by_me = 1
+     WHERE door_id = ? AND stage_code = ?`,
+    [happenedAt || new Date().toISOString(), key.doorId, key.stageCode],
+  );
+}
+
+async function revertLocalDoorStage(
+  db: Awaited<ReturnType<typeof getDb>>,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const key = stageKey(payload);
+  if (!key) {
+    return;
+  }
+  await db.runAsync(
+    `UPDATE door_stages
+     SET completed_at = NULL, completed_by_me = 0
+     WHERE door_id = ? AND stage_code = ? AND completed_by_me = 1`,
+    [key.doorId, key.stageCode],
+  );
+}
+
+/** Replaces the stages of one door with the server's view; a completion still in the outbox stays visible as mine. */
+async function upsertDoorStages(
+  db: Awaited<ReturnType<typeof getDb>>,
+  entry: DoorStagesSnapshot,
+): Promise<void> {
+  if (typeof entry?.door_id !== "string" || typeof entry.project_id !== "string") {
+    return;
+  }
+  await db.runAsync("DELETE FROM door_stages WHERE door_id = ?", [entry.door_id]);
+  for (const stage of Array.isArray(entry.stages) ? entry.stages : []) {
+    if (typeof stage?.stage_code !== "string") continue;
+    await db.runAsync(
+      `INSERT INTO door_stages(door_id, stage_code, project_id, name, required, sequence, assigned_to_me, completed_at, completed_by_me, plan_version)
+       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(door_id, stage_code) DO UPDATE SET
+         project_id = excluded.project_id,
+         name = excluded.name,
+         required = excluded.required,
+         sequence = excluded.sequence,
+         assigned_to_me = excluded.assigned_to_me,
+         completed_at = excluded.completed_at,
+         completed_by_me = excluded.completed_by_me,
+         plan_version = excluded.plan_version`,
+      [
+        entry.door_id,
+        stage.stage_code,
+        entry.project_id,
+        typeof stage.name === "string" && stage.name ? stage.name : stage.stage_code,
+        stage.required === false ? 0 : 1,
+        Number(stage.sequence ?? 0),
+        stage.assigned_to_me ? 1 : 0,
+        typeof stage.completed_at === "string" ? stage.completed_at : null,
+        stage.completed_by_me ? 1 : 0,
+        Number(entry.plan_version ?? 0),
+      ],
+    );
+  }
+  const queued = await db.getAllAsync<{ happened_at: string | null; payload_json: string }>(
+    `SELECT happened_at, payload_json FROM pending_events
+     WHERE type = 'DOOR_STAGE_COMPLETE'
+       AND status IN ('PENDING', 'FAILED')
+       AND json_valid(payload_json)
+       AND json_extract(payload_json, '$.door_id') = ?`,
+    [entry.door_id],
+  );
+  for (const row of queued) {
+    await applyLocalDoorStage(db, parsePendingPayload(row.payload_json), row.happened_at);
+  }
 }
 
 async function upsertLocalAddonFact(
@@ -706,7 +798,8 @@ async function blockPendingEventsForRemovedAssignment(
   for (const row of rows) {
     const payload = parsePendingPayload(row.payload_json);
     const doorId = typeof payload.door_id === "string" ? payload.door_id : null;
-    const shouldBlockDoorEvent = row.type === "DOOR_SET_STATUS" && Boolean(doorId && input.affectedDoorIds.has(doorId));
+    const shouldBlockDoorEvent = (row.type === "DOOR_SET_STATUS" || row.type === "DOOR_STAGE_COMPLETE")
+      && Boolean(doorId && input.affectedDoorIds.has(doorId));
     const shouldBlockProjectEvent = input.projectFullyRemoved;
     if (!shouldBlockDoorEvent && !shouldBlockProjectEvent) {
       continue;
@@ -808,6 +901,8 @@ export async function retryPendingEventNow(clientEventId: string): Promise<void>
         projectId: eventRow.project_id,
         payload,
       });
+    } else if (eventRow.type === "DOOR_STAGE_COMPLETE") {
+      await applyLocalDoorStage(db, payload, eventRow.happened_at);
     }
 
     await db.runAsync(
@@ -838,6 +933,8 @@ export async function dropPendingEvent(clientEventId: string): Promise<void> {
       await deleteLocalAddonFact(db, clientEventId);
     } else if (eventRow.type === "ISSUE_CREATE") {
       await deleteLocalIssue(db, clientEventId);
+    } else if (eventRow.type === "DOOR_STAGE_COMPLETE") {
+      await revertLocalDoorStage(db, payload);
     }
     await db.runAsync("DELETE FROM pending_events WHERE client_event_id = ?", [clientEventId]);
   });
@@ -860,7 +957,7 @@ async function reapplyPendingOptimisticChanges(snapshot: SyncSnapshot): Promise<
     for (const event of events) {
       const doorId = typeof event.payload.door_id === "string" ? event.payload.door_id : null;
       const door = doorId ? doors.get(doorId) : undefined;
-      const doorScoped = event.type === "DOOR_SET_STATUS" || event.type === "ISSUE_CREATE";
+      const doorScoped = event.type === "DOOR_SET_STATUS" || event.type === "ISSUE_CREATE" || event.type === "DOOR_STAGE_COMPLETE";
       if (!projectIds.has(event.project_id) || (doorScoped && door?.project_id !== event.project_id)) {
         await markEventsBlocked([event.client_event_id], ASSIGNMENT_CHANGED_ERROR);
         continue;
@@ -897,6 +994,8 @@ async function reapplyPendingOptimisticChanges(snapshot: SyncSnapshot): Promise<
           projectId: event.project_id,
           payload: event.payload,
         });
+      } else if (event.type === "DOOR_STAGE_COMPLETE") {
+        await applyLocalDoorStage(db, event.payload, event.happened_at);
       }
     }
   });
@@ -917,6 +1016,7 @@ async function upsertSnapshot(snapshot: SyncSnapshot): Promise<void> {
     await db.runAsync("DELETE FROM addon_plans");
     await db.runAsync("DELETE FROM addon_facts");
     await db.runAsync("DELETE FROM issues");
+    await db.runAsync("DELETE FROM door_stages");
 
     for (const project of snapshot.projects) {
       await db.runAsync(
@@ -1038,6 +1138,10 @@ async function upsertSnapshot(snapshot: SyncSnapshot): Promise<void> {
         ]
       );
     }
+
+    for (const entry of snapshot.door_stages || []) {
+      await upsertDoorStages(db, entry);
+    }
   });
 }
 
@@ -1046,6 +1150,11 @@ async function applyChange(change: SyncChange): Promise<void> {
   const payload = change.payload;
 
   switch (change.change_type) {
+    case "DOOR_STAGES":
+      await db.withTransactionAsync(async () => {
+        await upsertDoorStages(db, payload as DoorStagesSnapshot);
+      });
+      break;
     case "ISSUE":
       await upsertServerIssue(db, {
         id: payload.id, door_id: payload.door_id, project_id: payload.project_id,
@@ -1138,6 +1247,7 @@ async function applyChange(change: SyncChange): Promise<void> {
         for (const doorId of affectedDoorIds) {
           await db.runAsync("DELETE FROM doors WHERE id = ?", [doorId]);
           await db.runAsync("DELETE FROM issues WHERE door_id = ?", [doorId]);
+          await db.runAsync("DELETE FROM door_stages WHERE door_id = ?", [doorId]);
         }
 
         const projectId = typeof payload.project_id === "string" ? payload.project_id : null;
@@ -1149,6 +1259,7 @@ async function applyChange(change: SyncChange): Promise<void> {
           const projectFullyRemoved = Number(remaining?.total || 0) === 0;
           if (projectFullyRemoved) {
             await db.runAsync("DELETE FROM issues WHERE project_id = ?", [projectId]);
+            await db.runAsync("DELETE FROM door_stages WHERE project_id = ?", [projectId]);
             await db.runAsync("DELETE FROM addon_plans WHERE project_id = ?", [projectId]);
             await db.runAsync("DELETE FROM addon_facts WHERE project_id = ?", [projectId]);
             await db.runAsync("DELETE FROM projects WHERE id = ?", [projectId]);
@@ -1515,6 +1626,80 @@ export async function queueDoorStatusEvent(input: {
     );
 
     await applyLocalDoorStatus(db, payload);
+  });
+  notifySyncQueueChanged();
+}
+
+/**
+ * Offline completion of one stage of a door installed in stages. The payload carries only the door,
+ * the stage and the door version seen on the device; the server checks the assignment and values the
+ * stage at the factory rate confirmed for the execution time. No price ever leaves the phone.
+ */
+export async function queueDoorStageCompleteEvent(input: {
+  projectId: string;
+  doorId: string;
+  stageCode: string;
+}): Promise<void> {
+  const stageCode = input.stageCode.trim().toUpperCase();
+  if (!stageCode) {
+    throw new Error("stage_code is required");
+  }
+
+  const db = await getDb();
+  const clientEventId = createClientEventId();
+  const happenedAt = new Date().toISOString();
+  const door = await db.getFirstAsync<{
+    project_id: string;
+    is_locked: number | boolean | string | null;
+    status: string | null;
+    version?: number | string | null;
+  }>(
+    "SELECT status, project_id, is_locked, version FROM doors WHERE id = ?",
+    [input.doorId]
+  );
+  if (!door || door.project_id !== input.projectId) {
+    throw new Error("Door is no longer assigned to you. Refresh data before continuing.");
+  }
+  if (isLocalDoorLocked(door)) {
+    throw new Error("Door is locked. Refresh data or contact the office before continuing.");
+  }
+  const stage = await db.getFirstAsync<{ assigned_to_me: number | boolean | null; completed_at: string | null }>(
+    "SELECT assigned_to_me, completed_at FROM door_stages WHERE door_id = ? AND stage_code = ?",
+    [input.doorId, stageCode]
+  );
+  if (!stage || !stage.assigned_to_me) {
+    throw new Error("This stage is not assigned to you. Refresh data before continuing.");
+  }
+  if (stage.completed_at) {
+    throw new Error("This stage is already recorded as done.");
+  }
+
+  const payload = {
+    door_id: input.doorId,
+    stage_code: stageCode,
+    previous_version: Number(door.version ?? 0),
+  };
+
+  await db.withTransactionAsync(async () => {
+    const existingEvent = await db.getFirstAsync<{ total: number }>(
+      `SELECT COUNT(*) as total
+       FROM pending_events
+       WHERE type = 'DOOR_STAGE_COMPLETE'
+         AND json_extract(payload_json, '$.door_id') = ?
+         AND json_extract(payload_json, '$.stage_code') = ?`,
+      [input.doorId, stageCode]
+    );
+    if (Number(existingEvent?.total || 0) > 0) {
+      throw new Error("This stage is already waiting in the sync queue.");
+    }
+
+    await db.runAsync(
+      `INSERT INTO pending_events(client_event_id, type, project_id, happened_at, payload_json, status, error, attempts, next_retry_at, last_attempt_at, created_at)
+       VALUES(?, 'DOOR_STAGE_COMPLETE', ?, ?, ?, 'PENDING', NULL, 0, NULL, NULL, ?)`,
+      [clientEventId, input.projectId, happenedAt, JSON.stringify(payload), happenedAt]
+    );
+
+    await applyLocalDoorStage(db, payload, happenedAt);
   });
   notifySyncQueueChanged();
 }

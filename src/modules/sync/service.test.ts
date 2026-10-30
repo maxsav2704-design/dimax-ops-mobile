@@ -46,6 +46,7 @@ import {
   forceColdResync,
   getSyncQueueSummary,
   queueAddonFactEvent,
+  queueDoorStageCompleteEvent,
   queueDoorStatusEvent,
   queueIssueCreateEvent,
   releaseAuthBlockedEvents,
@@ -307,6 +308,70 @@ describe("mobile sync service", () => {
       "Concrete work is incomplete",
     ]);
     expect(setStateMock).toHaveBeenCalledWith("sync_cursor", "42");
+  });
+
+  it("stores door stages from the snapshot and from DOOR_STAGES changes, keeping a queued completion visible", async () => {
+    const entry = {
+      door_id: "door-1", project_id: "project-1", plan_version: 2,
+      stages: [
+        { stage_code: "FRAME", name: "Frame", required: true, sequence: 1, assigned_to_me: true, completed_at: null, completed_by_me: false },
+        { stage_code: "LEAF", name: "Leaf", required: true, sequence: 2, assigned_to_me: false, completed_at: "2026-10-20T08:00:00Z", completed_by_me: false },
+      ],
+    };
+    apiFetchMock.mockResolvedValue({
+      server_time: "2026-10-26T08:00:00Z", next_cursor: 7, reset_required: true,
+      snapshot: { projects: [], doors: [], door_types: [], reasons: [], addon_types: [], addon_plans: [], addon_facts: [], issues: [], door_stages: [entry] },
+      acks: [], changes: [{ cursor_id: 7, change_type: "DOOR_STAGES", payload: { ...entry, stages: [{ ...entry.stages[0], completed_at: "2026-10-26T07:00:00Z", completed_by_me: true }] } }],
+    });
+    // One FRAME completion is still waiting in the outbox: the local view keeps it as done by me.
+    dbRef.current.getAllAsync.mockImplementation(async (sql: string) => sql.includes("type = 'DOOR_STAGE_COMPLETE'")
+      ? [{ happened_at: "2026-10-26T06:30:00Z", payload_json: JSON.stringify({ door_id: "door-1", stage_code: "FRAME", previous_version: 1 }) }] : []);
+
+    await runSync();
+
+    const calls = dbRef.current.runAsync.mock.calls as Array<[string, unknown[]?]>;
+    expect(calls.some(([sql]) => sql === "DELETE FROM door_stages")).toBe(true);
+    const inserts = calls.filter(([sql]) => sql.includes("INSERT INTO door_stages"));
+    expect(inserts).toHaveLength(3);
+    expect(inserts[0][1]).toEqual(["door-1", "FRAME", "project-1", "Frame", 1, 1, 1, null, 0, 2]);
+    expect(inserts[1][1]).toEqual(["door-1", "LEAF", "project-1", "Leaf", 1, 2, 0, "2026-10-20T08:00:00Z", 0, 2]);
+    expect(inserts[2][1]).toEqual(["door-1", "FRAME", "project-1", "Frame", 1, 1, 1, "2026-10-26T07:00:00Z", 1, 2]);
+    const marks = calls.filter(([sql]) => sql.includes("UPDATE door_stages") && sql.includes("COALESCE(completed_at, ?)"));
+    expect(marks.length).toBeGreaterThanOrEqual(2);
+    expect(marks[0][1]).toEqual(["2026-10-26T06:30:00Z", "door-1", "FRAME"]);
+    expect(JSON.stringify(calls)).not.toMatch(/price|rate|amount/i);
+  });
+
+  it("queues a stage completion with door, stage and version only, and refuses stages that are not mine", async () => {
+    dbRef.current.getFirstAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes("FROM doors")) return { status: "NOT_INSTALLED", project_id: "project-1", is_locked: 0, version: 3 };
+      if (sql.includes("FROM door_stages")) return { assigned_to_me: 1, completed_at: null };
+      if (sql.includes("COUNT(*)")) return { total: 0 };
+      return null;
+    });
+    await queueDoorStageCompleteEvent({ projectId: "project-1", doorId: "door-1", stageCode: "frame" });
+    const insert = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("INSERT INTO pending_events"));
+    expect(insert?.[0]).toContain("'DOOR_STAGE_COMPLETE'");
+    expect(JSON.parse(insert?.[1]?.[3] as string)).toEqual({ door_id: "door-1", stage_code: "FRAME", previous_version: 3 });
+    expect(commandPayload({ type: "DOOR_STAGE_COMPLETE", payload: JSON.parse(insert?.[1]?.[3] as string) }))
+      .toEqual({ door_id: "door-1", stage_code: "FRAME", previous_version: 3 });
+    const mark = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("UPDATE door_stages"));
+    expect(mark?.[1]?.slice(1)).toEqual(["door-1", "FRAME"]);
+
+    dbRef.current.getFirstAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes("FROM doors")) return { status: "NOT_INSTALLED", project_id: "project-1", is_locked: 0, version: 3 };
+      if (sql.includes("FROM door_stages")) return { assigned_to_me: 0, completed_at: null };
+      return null;
+    });
+    await expect(queueDoorStageCompleteEvent({ projectId: "project-1", doorId: "door-1", stageCode: "LEAF" }))
+      .rejects.toThrow("This stage is not assigned to you. Refresh data before continuing.");
+    dbRef.current.getFirstAsync.mockImplementation(async (sql: string) => {
+      if (sql.includes("FROM doors")) return { status: "NOT_INSTALLED", project_id: "project-1", is_locked: 0, version: 3 };
+      if (sql.includes("FROM door_stages")) return { assigned_to_me: 1, completed_at: "2026-10-20T08:00:00Z" };
+      return null;
+    });
+    await expect(queueDoorStageCompleteEvent({ projectId: "project-1", doorId: "door-1", stageCode: "FRAME" }))
+      .rejects.toThrow("This stage is already recorded as done.");
   });
 
   it("force cold resync resets the cursor before requesting a snapshot", async () => {

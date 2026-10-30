@@ -44,6 +44,20 @@ export type DoorTypeOption = {
   name: string;
 };
 
+/** One stage of a door installed in stages, as this installer sees it. Never carries a price. */
+export type DoorStage = {
+  door_id: string;
+  project_id: string;
+  stage_code: string;
+  name: string;
+  required: boolean;
+  sequence: number;
+  assigned_to_me: boolean;
+  completed_at: string | null;
+  completed_by_me: boolean;
+  plan_version: number;
+};
+
 export type ProjectIssue = {
   id: string;
   door_id: string;

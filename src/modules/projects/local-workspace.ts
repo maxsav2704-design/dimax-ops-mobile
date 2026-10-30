@@ -3,11 +3,13 @@ import {
   listDoorTypes,
   listProjectAddonFacts,
   listProjectAddonTypes,
+  listProjectDoorStages,
   listProjectDoors,
   listProjectIssues,
   listReasons,
 } from "@/modules/projects/repository";
 import type {
+  DoorStage,
   DoorTypeOption,
   InstallerDoor,
   ProjectAddonFact,
@@ -26,6 +28,7 @@ export type LocalProjectWorkspace = {
   projectId: string;
   project: ProjectListItem | null;
   doors: InstallerDoor[];
+  doorStages: DoorStage[];
   doorTypes: DoorTypeOption[];
   issues: ProjectIssue[];
   reasons: Array<{ id: string; code: string; name: string }>;
@@ -41,6 +44,7 @@ export function createEmptyLocalProjectWorkspace(projectId = ""): LocalProjectWo
     projectId,
     project: null,
     doors: [],
+    doorStages: [],
     doorTypes: [],
     issues: [],
     reasons: [],
@@ -65,6 +69,7 @@ async function readLocalProjectWorkspace(projectId: string): Promise<LocalProjec
   const [
     project,
     doors,
+    doorStages,
     doorTypes,
     issues,
     reasons,
@@ -76,6 +81,7 @@ async function readLocalProjectWorkspace(projectId: string): Promise<LocalProjec
   ] = await Promise.all([
     getProject(projectId),
     listProjectDoors(projectId),
+    listProjectDoorStages(projectId),
     listDoorTypes(),
     listProjectIssues(projectId),
     listReasons(),
@@ -96,6 +102,7 @@ async function readLocalProjectWorkspace(projectId: string): Promise<LocalProjec
     projectId,
     project,
     doors,
+    doorStages,
     doorTypes,
     issues,
     reasons,

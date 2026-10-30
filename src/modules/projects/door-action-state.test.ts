@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildAddonFactActionState, buildDoorActionState, normalizeAddonQty } from "@/modules/projects/door-action-state";
+import { buildAddonFactActionState, buildDoorActionState, buildStageActionState, normalizeAddonQty } from "@/modules/projects/door-action-state";
 
 describe("door action state", () => {
   it("allows installer actions for an unlocked assigned door when a reason is selected", () => {
@@ -12,6 +12,7 @@ describe("door action state", () => {
       })
     ).toEqual({
       isLocked: false,
+      installedByStages: false,
       hasPendingStatusEvent: false,
       needsNotInstalledReason: false,
       canMarkInstalled: true,
@@ -134,5 +135,21 @@ describe("door action state", () => {
     expect(state.canOpenNotInstalled).toBe(true);
     expect(state.canMarkNotInstalled).toBe(false);
     expect(buildDoorActionState({ door: { is_locked: true, status: "NOT_INSTALLED" } as never, busy: false, selectedReasonId: "" }).canOpenNotInstalled).toBe(false);
+  });
+});
+
+describe("stage action state", () => {
+  const door = { status: "NOT_INSTALLED", is_locked: false };
+
+  it("hides whole-door actions on a staged door and offers only the installer's own open stage", () => {
+    expect(buildDoorActionState({ door, busy: false, selectedReasonId: "reason-1", installedByStages: true })).toMatchObject({
+      installedByStages: true, canMarkInstalled: false, canOpenNotInstalled: false, canMarkNotInstalled: false,
+    });
+    expect(buildStageActionState({ stage: { assigned_to_me: true, completed_at: null }, door, busy: false }))
+      .toEqual({ isMine: true, isDone: false, hasPendingStageEvent: false, canComplete: true });
+    expect(buildStageActionState({ stage: { assigned_to_me: false, completed_at: null }, door, busy: false }).canComplete).toBe(false);
+    expect(buildStageActionState({ stage: { assigned_to_me: true, completed_at: "2026-10-20T08:00:00Z" }, door, busy: false }).canComplete).toBe(false);
+    expect(buildStageActionState({ stage: { assigned_to_me: true, completed_at: null }, door, busy: false, hasPendingStageEvent: true }).canComplete).toBe(false);
+    expect(buildStageActionState({ stage: { assigned_to_me: true, completed_at: null }, door: { ...door, is_locked: true }, busy: false }).canComplete).toBe(false);
   });
 });

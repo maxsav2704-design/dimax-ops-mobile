@@ -90,6 +90,16 @@ describe("sync queue presentation", () => {
     expect(buildEventSummary(event)).toBe("Door door-12 -> Not installed");
   });
 
+  it("renders a door stage summary without any price", () => {
+    const event = makeEvent({
+      type: "DOOR_STAGE_COMPLETE",
+      payload: { door_id: "door-12", stage_code: "FRAME", previous_version: 1 },
+    });
+
+    expect(buildEventSummary(event)).toBe("Door door-12 · stage FRAME done");
+    expect(buildEventSummary(event, "ru", { doorLabel: "A-201" })).toBe("Дверь A-201 · этап FRAME выполнен");
+  });
+
   it("renders a useful add-on summary", () => {
     const event = makeEvent({
       type: "ADDON_FACT_CREATE",

@@ -11,9 +11,9 @@ import { isRtlLocale, translateEnum } from "@/lib/i18n";
 import { installerTheme } from "@/lib/theme";
 import type { WorkPricePresentation } from "@/modules/prices/presentation";
 import { WorkPriceReadout } from "@/modules/prices/WorkPriceReadout";
-import type { DoorActionState } from "@/modules/projects/door-action-state";
+import { buildStageActionState, type DoorActionState } from "@/modules/projects/door-action-state";
 import type { LocalProjectWorkspace } from "@/modules/projects/local-workspace";
-import type { DoorTypeOption, InstallerDoor, ProjectIssue } from "@/modules/projects/types";
+import type { DoorStage, DoorTypeOption, InstallerDoor, ProjectIssue } from "@/modules/projects/types";
 import { FilterChip } from "@/modules/projects/ui/filter-chip";
 import { breakableUnitLabel, doorStatusColors, doorStatusIcon, doorStatusTone, formatIssueCount } from "@/modules/projects/ui/door-presentation";
 import type { PendingSyncEvent } from "@/modules/sync/types";
@@ -26,12 +26,15 @@ export function DoorDetailCard({
   door, doorType, issues, pendingEvents, doorPrice, doorActionState, lt, locale, projectId, busy, activeAction,
   showNotInstalledForm, setShowNotInstalledForm, reasons, selectedReasonId, setSelectedReasonId, selectedReason,
   doorComment, setDoorComment, onInstall, onNotInstalled, onBackToList, onOpenDoor, nextDoor, doorsLeftInView,
-  feedback, formatDateTime,
+  feedback, formatDateTime, doorStages = [], onCompleteStage,
 }: {
   door: InstallerDoor;
   doorType: DoorTypeOption | null;
   issues: ProjectIssue[];
   pendingEvents: PendingSyncEvent[];
+  /** Stages of a door installed in stages (empty for a whole door). The device never sees a stage price. */
+  doorStages?: DoorStage[];
+  onCompleteStage?: (stageCode: string) => void;
   doorPrice: WorkPricePresentation | null;
   doorActionState: DoorActionState | null;
   lt: (en: string, ru: string, he: string) => string;
@@ -137,6 +140,56 @@ export function DoorDetailCard({
         </View>
       ))}
 
+      {doorStages.length ? (
+        <View testID="door-stages" style={styles.stageDeck}>
+          <View style={styles.actionDeckHeader}>
+            <View style={styles.actionDeckIcon}>
+              <Ionicons name="layers-outline" size={18} color={installerTheme.info} />
+            </View>
+            <View style={styles.actionDeckHeading}>
+              <Text style={styles.actionDeckEyebrow}>{lt("INSTALLATION STAGES", "ЭТАПЫ МОНТАЖА", "שלבי התקנה")}</Text>
+              <Text style={styles.actionDeckTitle}>
+                {lt("This door is installed in stages. Record only your stage.", "Дверь устанавливается по этапам. Отмечайте только свой этап.", "הדלת מותקנת בשלבים. סמנו רק את השלב שלכם.")}
+              </Text>
+            </View>
+          </View>
+          {doorStages.map((stage) => {
+            const pending = pendingEvents.some((event) => event.type === "DOOR_STAGE_COMPLETE" && event.payload.stage_code === stage.stage_code);
+            const state = buildStageActionState({ stage, door, busy, hasPendingStageEvent: pending });
+            const who = state.isDone
+              ? `${stage.completed_by_me ? lt("Done by you", "Выполнен вами", "בוצע על ידך") : lt("Done", "Выполнен", "בוצע")} · ${formatDateTime(stage.completed_at)}`
+              : state.isMine ? lt("Your stage", "Ваш этап", "השלב שלך") : lt("Another installer", "Другой монтажник", "מתקין אחר");
+            return (
+              <View key={stage.stage_code} testID={`door-stage-${stage.stage_code}`} style={styles.stageRow}>
+                <View style={styles.stageBody}>
+                  <Text style={styles.stageName}>{stage.sequence}. {stage.name}</Text>
+                  <Text style={styles.stageMeta}>
+                    {stage.required ? lt("Required", "Обязательный", "חובה") : lt("Optional", "Необязательный", "רשות")} · {who}
+                  </Text>
+                </View>
+                {state.isDone ? (
+                  <Ionicons name="checkmark-circle" size={22} color={installerTheme.success} />
+                ) : pending ? (
+                  <StatusPill label={lt("queued", "в очереди", "בתור")} tone="warning" icon="cloud-upload-outline" />
+                ) : state.isMine ? (
+                  <ActionButton
+                    testID={`door-stage-complete-${stage.stage_code}`}
+                    label={lt("Done", "Выполнен", "בוצע")}
+                    icon="checkmark"
+                    loading={activeAction === "door"}
+                    disabled={!state.canComplete}
+                    onPress={() => onCompleteStage?.(stage.stage_code)}
+                  />
+                ) : null}
+              </View>
+            );
+          })}
+          <Text style={styles.stageHint}>
+            {lt("Each stage is paid at the factory rate for that stage; see Earnings after sync.", "Каждый этап оплачивается по ставке завода за этот этап; см. «Заработок» после синхронизации.", "כל שלב משולם לפי תעריף המפעל לשלב זה; ראו \"הכנסות\" לאחר הסנכרון.")}
+          </Text>
+        </View>
+      ) : null}
+
       {doorActionState?.isLocked ? (
         <View style={styles.lockedBox}>
           <Ionicons name="lock-closed-outline" size={18} color={installerTheme.textMuted} />
@@ -144,7 +197,7 @@ export function DoorDetailCard({
             {lt("This door is locked after completion.", "Дверь заблокирована после завершения.", "הדלת נעולה לאחר השלמה.")}
           </Text>
         </View>
-      ) : (
+      ) : doorActionState?.installedByStages ? null : (
         <>
           <View style={styles.doorActionDeck}>
             <View style={styles.actionDeckHeader}>
@@ -321,6 +374,12 @@ const styles = StyleSheet.create({
   selectedIssueTitle: { color: installerTheme.danger, fontSize: installerTheme.type.caption, fontWeight: "800" },
   selectedIssueText: { color: installerTheme.text, fontSize: installerTheme.type.caption, lineHeight: 15, marginTop: 3 },
   lockedBox: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: installerTheme.radius.card, borderWidth: 1, borderColor: installerTheme.border, backgroundColor: installerTheme.card, padding: 11, marginTop: 12 },
+  stageDeck: { borderTopWidth: 1, borderTopColor: installerTheme.shellBorderSoft, marginTop: 13, paddingTop: 12 },
+  stageRow: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: installerTheme.radius.card, borderWidth: 1, borderColor: installerTheme.border, backgroundColor: installerTheme.card, padding: 10, marginTop: 8 },
+  stageBody: { flex: 1, minWidth: 0 },
+  stageName: { color: installerTheme.text, fontSize: 12, fontWeight: "800" },
+  stageMeta: { color: installerTheme.textMuted, fontSize: installerTheme.type.caption, lineHeight: 15, marginTop: 3 },
+  stageHint: { color: installerTheme.textFaint, fontSize: installerTheme.type.caption, lineHeight: 15, marginTop: 9 },
   lockedText: { flex: 1, color: installerTheme.textMuted, fontSize: installerTheme.type.caption, lineHeight: 15 },
   doorActionDeck: {
     borderTopWidth: 1,

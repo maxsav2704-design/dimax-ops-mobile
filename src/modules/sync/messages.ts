@@ -63,6 +63,18 @@ const MESSAGES: Record<string, { ru: string; he: string }> = {
     ru: "Укажите название или описание проблемы",
     he: "יש להזין כותרת או תיאור לתקלה",
   },
+  "This stage is not assigned to you. Refresh data before continuing.": {
+    ru: "Этот этап не назначен вам. Обновите данные, прежде чем продолжить.",
+    he: "השלב הזה אינו משויך אליך. רעננו נתונים לפני שתמשיכו.",
+  },
+  "This stage is already recorded as done.": {
+    ru: "Этот этап уже записан как выполненный.",
+    he: "השלב הזה כבר נרשם כבוצע.",
+  },
+  "This stage is already waiting in the sync queue.": {
+    ru: "Этот этап уже ждёт в очереди синхронизации.",
+    he: "השלב הזה כבר ממתין בתור הסנכרון.",
+  },
 };
 
 export function localizeWorkflowMessage(message: string, locale: MobileLocale): string {

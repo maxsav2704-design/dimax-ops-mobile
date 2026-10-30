@@ -102,7 +102,8 @@ describe("mobile SQLite schema and account isolation", () => {
     expect(executedSql).toContain(
       "CREATE TABLE IF NOT EXISTS installer_journal_snapshots",
     );
-    expect(executedSql).toContain("PRAGMA user_version = 11");
+    expect(executedSql).toContain("PRAGMA user_version = 12");
+    expect(executedSql).toContain("CREATE TABLE IF NOT EXISTS door_stages");
     expect(executedSql).toContain("server_state_received INTEGER NOT NULL DEFAULT 0");
     expect(executedSql).toContain("lifecycle_status TEXT NOT NULL");
     expect(executedSql).toContain("health_status TEXT NOT NULL");
@@ -135,7 +136,7 @@ describe("mobile SQLite schema and account isolation", () => {
     expect(statements.filter((sql: string) => sql.includes("ALTER TABLE pending_events"))).toEqual([
       "ALTER TABLE pending_events ADD COLUMN server_state_received INTEGER NOT NULL DEFAULT 0;",
     ]);
-    expect(database.userVersion).toBe(11);
+    expect(database.userVersion).toBe(12);
     expect(database.pendingEvents).toEqual(new Set(["retained-offline-work"]));
     expect(statements.join("\n")).not.toMatch(/(?:DELETE FROM|DROP TABLE) pending_events/);
     expect(database.runAsync.mock.calls.some(([sql]: [string]) => /UPDATE pending_events/.test(sql))).toBe(false);

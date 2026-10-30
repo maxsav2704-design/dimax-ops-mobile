@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   getProjectMock,
   listProjectDoorsMock,
+  listProjectDoorStagesMock,
   listDoorTypesMock,
   listProjectIssuesMock,
   listReasonsMock,
@@ -16,6 +17,7 @@ const {
 } = vi.hoisted(() => ({
   getProjectMock: vi.fn(),
   listProjectDoorsMock: vi.fn(),
+  listProjectDoorStagesMock: vi.fn(),
   listDoorTypesMock: vi.fn(),
   listProjectIssuesMock: vi.fn(),
   listReasonsMock: vi.fn(),
@@ -38,6 +40,7 @@ vi.mock("@/lib/workspace-context", () => ({
 vi.mock("@/modules/projects/repository", () => ({
   getProject: getProjectMock,
   listProjectDoors: listProjectDoorsMock,
+  listProjectDoorStages: listProjectDoorStagesMock,
   listDoorTypes: listDoorTypesMock,
   listProjectIssues: listProjectIssuesMock,
   listReasons: listReasonsMock,
@@ -66,6 +69,7 @@ describe("local project workspace", () => {
       { id: "door-1", project_id: "project-1" },
       { id: "door-2", project_id: "project-1" },
     ]);
+    listProjectDoorStagesMock.mockResolvedValue([]);
     listDoorTypesMock.mockResolvedValue([{ id: "type-1", code: "entrance", name: "Entrance" }]);
     listProjectIssuesMock.mockResolvedValue([]);
     listReasonsMock.mockResolvedValue([]);
@@ -155,6 +159,7 @@ describe("local project workspace", () => {
       projectId: "project-2",
       project: null,
       doors: [],
+      doorStages: [],
       doorTypes: [],
       issues: [],
       reasons: [],

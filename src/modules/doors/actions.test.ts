@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   context: { ownerKey: "company-a:installer-a" },
   generation: 1,
-  queueDoor: vi.fn(), queueAddon: vi.fn(),
+  queueDoor: vi.fn(), queueAddon: vi.fn(), queueStage: vi.fn(),
   localTask: null as null | (() => Promise<unknown>),
 }));
 vi.mock("@/lib/api", () => ({ getAuthSessionGeneration: () => mocks.generation }));
@@ -18,9 +18,9 @@ vi.mock("@/lib/db", () => ({
     });
   },
 }));
-vi.mock("@/modules/sync/service", () => ({ queueDoorStatusEvent: mocks.queueDoor, queueAddonFactEvent: mocks.queueAddon }));
+vi.mock("@/modules/sync/service", () => ({ queueDoorStatusEvent: mocks.queueDoor, queueAddonFactEvent: mocks.queueAddon, queueDoorStageCompleteEvent: mocks.queueStage }));
 
-import { addAddonFact, markDoorInstalled, markDoorNotInstalled } from "./actions";
+import { addAddonFact, completeDoorStage, markDoorInstalled, markDoorNotInstalled } from "./actions";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -34,6 +34,7 @@ describe("field work serialization", () => {
     { name: "installed", run: () => markDoorInstalled("project-a", "door-a"), queue: mocks.queueDoor, payload: { projectId: "project-a", doorId: "door-a", status: "INSTALLED" } },
     { name: "not installed", run: () => markDoorNotInstalled("project-a", "door-a", "reason-a", "No access"), queue: mocks.queueDoor, payload: { projectId: "project-a", doorId: "door-a", status: "NOT_INSTALLED", reasonId: "reason-a", comment: "No access" } },
     { name: "add-on", run: () => addAddonFact("project-a", "addon-a", "2", "Adjustment"), queue: mocks.queueAddon, payload: { projectId: "project-a", addonTypeId: "addon-a", qtyDone: "2", comment: "Adjustment" } },
+    { name: "stage", run: () => completeDoorStage("project-a", "door-a", "FRAME"), queue: mocks.queueStage, payload: { projectId: "project-a", doorId: "door-a", stageCode: "FRAME" } },
   ];
 
   it.each(actions)("serializes $name with sync and account activation", async ({ run, queue, payload }) => {

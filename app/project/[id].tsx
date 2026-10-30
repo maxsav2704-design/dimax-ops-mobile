@@ -24,7 +24,7 @@ import { NetworkError } from "@/lib/errors";
 import { triggerHaptic, type HapticSignal } from "@/lib/haptics";
 import { translateEnum } from "@/lib/i18n";
 import { installerTheme, toneColors, type InstallerTone } from "@/lib/theme";
-import { addAddonFact, markDoorInstalled, markDoorNotInstalled } from "@/modules/doors/actions";
+import { addAddonFact, completeDoorStage, markDoorInstalled, markDoorNotInstalled } from "@/modules/doors/actions";
 import { buildProjectEarningsContext } from "@/modules/earnings/presentation";
 import { loadInstallerEarnings } from "@/modules/earnings/service";
 import type { InstallerEarningsViewModel } from "@/modules/earnings/types";
@@ -114,6 +114,7 @@ export default function ProjectDetailsScreen() {
   const {
     project,
     doors,
+    doorStages,
     doorTypes,
     issues,
     reasons,
@@ -301,7 +302,12 @@ export default function ProjectDetailsScreen() {
   const hasPendingDoorStatus = selectedDoorPendingEvents.some(
     (event) => event.type === "DOOR_SET_STATUS"
   );
-  const doorPrice = selectedDoor ? buildWorkPrice({
+  const selectedDoorStages = useMemo(
+    () => doorStages.filter((stage) => stage.door_id === selectedDoorId),
+    [doorStages, selectedDoorId]
+  );
+  // A staged door is paid per stage at the stage rate: the whole-door price is not this installer's earning.
+  const doorPrice = selectedDoor && !selectedDoorStages.length ? buildWorkPrice({
     prices: factoryPrices,
     kind: "DOOR",
     targetId: selectedDoor.door_type_id,
@@ -316,6 +322,7 @@ export default function ProjectDetailsScreen() {
         busy,
         selectedReasonId,
         hasPendingStatusEvent: hasPendingDoorStatus,
+        installedByStages: selectedDoorStages.length > 0,
       })
     : null;
 
@@ -513,6 +520,12 @@ export default function ProjectDetailsScreen() {
     const first = groupedDoors.find(([floor]) => floor === celebrationNextFloor)?.[1].find(isDoorOpenForWork);
     if (first) setSelectedDoorId(first.id);
     setCelebration(null);
+  };
+
+  const handleCompleteStage = async (stageCode: string) => {
+    if (!selectedDoor || !doorActionState || doorActionState.isLocked) return;
+    celebrationArmed.current = true;
+    await performAction("door", () => completeDoorStage(projectId, selectedDoor.id, stageCode), undefined, selectedDoor.id);
   };
 
   const handleNotInstalled = async () => {
@@ -1052,6 +1065,8 @@ export default function ProjectDetailsScreen() {
                     setDoorComment={setDoorComment}
                     onInstall={() => void handleInstall()}
                     onNotInstalled={() => void handleNotInstalled()}
+                    doorStages={selectedDoorStages}
+                    onCompleteStage={(stageCode) => void handleCompleteStage(stageCode)}
                     onBackToList={closeDoorSheet}
                     onOpenDoor={openDoor}
                     nextDoor={nextDoor}

@@ -3,7 +3,7 @@ import { SessionChangedError } from "@/lib/errors";
 
 const LEGACY_DB_NAME = "dimax_mobile.db";
 const DB_OWNER_STATE_KEY = "database_owner";
-const DB_SCHEMA_VERSION = 11;
+const DB_SCHEMA_VERSION = 12;
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 let activeOwnerKey: string | null = null;
@@ -130,6 +130,22 @@ async function createBaseSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       title TEXT,
       details TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS door_stages (
+      door_id TEXT NOT NULL,
+      stage_code TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      required INTEGER NOT NULL DEFAULT 1,
+      sequence INTEGER NOT NULL DEFAULT 0,
+      assigned_to_me INTEGER NOT NULL DEFAULT 0,
+      completed_at TEXT,
+      completed_by_me INTEGER NOT NULL DEFAULT 0,
+      plan_version INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (door_id, stage_code)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_door_stages_project_id ON door_stages(project_id);
 
     CREATE TABLE IF NOT EXISTS pending_events (
       client_event_id TEXT PRIMARY KEY NOT NULL,
@@ -326,6 +342,31 @@ async function migrateDb(db: SQLite.SQLiteDatabase): Promise<void> {
       "server_state_received",
       "server_state_received INTEGER NOT NULL DEFAULT 0",
     );
+  }
+
+  if (currentVersion < 12) {
+    // Work stages (server 0090): the table is created by the base schema; a device upgraded from an
+    // older schema drops its change cursor so the next sync brings a snapshot with door_stages.
+    // Queued work is untouched.
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS door_stages (
+        door_id TEXT NOT NULL,
+        stage_code TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        required INTEGER NOT NULL DEFAULT 1,
+        sequence INTEGER NOT NULL DEFAULT 0,
+        assigned_to_me INTEGER NOT NULL DEFAULT 0,
+        completed_at TEXT,
+        completed_by_me INTEGER NOT NULL DEFAULT 0,
+        plan_version INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (door_id, stage_code)
+      );
+      CREATE INDEX IF NOT EXISTS idx_door_stages_project_id ON door_stages(project_id);
+    `);
+    if (currentVersion > 0) {
+      await db.runAsync("DELETE FROM sync_state WHERE key = 'sync_cursor'");
+    }
   }
 
   if (currentVersion !== DB_SCHEMA_VERSION) {

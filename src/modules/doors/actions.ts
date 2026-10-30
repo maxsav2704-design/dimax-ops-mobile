@@ -1,4 +1,4 @@
-import { queueAddonFactEvent, queueDoorStatusEvent } from "@/modules/sync/service";
+import { queueAddonFactEvent, queueDoorStageCompleteEvent, queueDoorStatusEvent } from "@/modules/sync/service";
 import { captureWorkspaceContext, withWorkspaceDatabase } from "@/lib/workspace-context";
 
 export async function markDoorInstalled(projectId: string, doorId: string) {
@@ -20,6 +20,13 @@ export async function markDoorNotInstalled(
     reasonId,
     comment,
   }));
+}
+
+/** Records one stage of a door installed in stages. The server values it; the device sends no price. */
+export async function completeDoorStage(projectId: string, doorId: string, stageCode: string) {
+  return withWorkspaceDatabase(captureWorkspaceContext(), () =>
+    queueDoorStageCompleteEvent({ projectId, doorId, stageCode })
+  );
 }
 
 export async function addAddonFact(

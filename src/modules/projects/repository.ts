@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/db";
 import { deriveProjectExternalLinks } from "@/modules/projects/external-actions";
 import type {
+  DoorStage,
   DoorTypeOption,
   ProjectAddonFact,
   InstallerDoor,
@@ -233,6 +234,28 @@ export async function listProjectDoors(projectId: string): Promise<InstallerDoor
     ...row,
     is_locked: Boolean(row.is_locked),
     version: Number(row.version ?? 0),
+  }));
+}
+
+type DoorStageRow = Omit<DoorStage, "required" | "assigned_to_me" | "completed_by_me" | "sequence" | "plan_version"> & {
+  required: unknown; assigned_to_me: unknown; completed_by_me: unknown; sequence: unknown; plan_version: unknown;
+};
+
+export async function listProjectDoorStages(projectId: string): Promise<DoorStage[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<DoorStageRow>(
+    `SELECT door_id, project_id, stage_code, name, required, sequence, assigned_to_me, completed_at, completed_by_me, plan_version
+     FROM door_stages WHERE project_id = ?
+     ORDER BY door_id ASC, sequence ASC`,
+    [projectId]
+  );
+  return rows.map((row): DoorStage => ({
+    ...row,
+    required: Boolean(row.required),
+    assigned_to_me: Boolean(row.assigned_to_me),
+    completed_by_me: Boolean(row.completed_by_me),
+    sequence: Number(row.sequence ?? 0),
+    plan_version: Number(row.plan_version ?? 0),
   }));
 }
 

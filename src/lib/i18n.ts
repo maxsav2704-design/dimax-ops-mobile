@@ -611,6 +611,7 @@ const enumLabels: Record<string, Record<MobileLocale, string>> = {
   door_set_status: { en: "Door status", ru: "Статус двери", he: "סטטוס דלת" },
   addon_fact_create: { en: "Add-on fact", ru: "Допработа", he: "עבודה נוספת" },
   issue_create: { en: "Issue", ru: "Проблема", he: "תקלה" },
+  door_stage_complete: { en: "Door stage", ru: "Этап двери", he: "שלב דלת" },
 };
 
 export function translateEnum(locale: MobileLocale, value: string | null | undefined): string {

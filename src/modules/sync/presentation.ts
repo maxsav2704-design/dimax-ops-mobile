@@ -173,6 +173,15 @@ export function buildEventSummary(
     return text(locale, `Issue: ${title}`, `Проблема: ${title}`, `תקלה: ${title}`);
   }
 
+  if (event.type === "DOOR_STAGE_COMPLETE") {
+    const doorId =
+      labels.doorLabel || (typeof event.payload.door_id === "string"
+        ? event.payload.door_id
+        : text(locale, "door", "дверь", "דלת"));
+    const stage = typeof event.payload.stage_code === "string" ? event.payload.stage_code : "-";
+    return text(locale, `Door ${doorId} · stage ${stage} done`, `Дверь ${doorId} · этап ${stage} выполнен`, `דלת ${doorId} · שלב ${stage} בוצע`);
+  }
+
   return translateEnum(locale, event.type);
 }
 

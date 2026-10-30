@@ -1,6 +1,22 @@
 import type { FactoryPriceSnapshot } from "@/modules/prices/contract";
 
-export type SyncEventType = "DOOR_SET_STATUS" | "ADDON_FACT_CREATE" | "ISSUE_CREATE";
+export type SyncEventType = "DOOR_SET_STATUS" | "ADDON_FACT_CREATE" | "ISSUE_CREATE" | "DOOR_STAGE_COMPLETE";
+
+/** Stages of one door as the server shows them to this installer (snapshot row and DOOR_STAGES change payload). */
+export type DoorStagesSnapshot = {
+  door_id: string;
+  project_id: string;
+  plan_version: number;
+  stages: Array<{
+    stage_code: string;
+    name: string;
+    required: boolean;
+    sequence: number;
+    assigned_to_me: boolean;
+    completed_at: string | null;
+    completed_by_me: boolean;
+  }>;
+};
 export type PendingSyncStatus = "PENDING" | "FAILED" | "BLOCKED";
 
 export type PendingSyncEvent = {
@@ -88,6 +104,8 @@ export type SyncSnapshot = {
     title: string | null;
     details: string | null;
   }>;
+  /** Only sent while work stages are switched on at the server; never carries a price. */
+  door_stages?: DoorStagesSnapshot[];
 };
 
 export type SyncResponse = {
