@@ -125,7 +125,7 @@ describe("mobile sync service", () => {
       });
       await queueDoorStatusEvent({ projectId: "project-1", doorId: "door-1", status: "INSTALLED" });
     } else {
-      dbRef.current.getFirstAsync.mockResolvedValueOnce({ total: 1 }).mockResolvedValueOnce({ total: 1 }).mockResolvedValueOnce({ total: 1 });
+      dbRef.current.getFirstAsync.mockResolvedValueOnce({ total: 1 }).mockResolvedValueOnce({ total: 1 }).mockResolvedValueOnce({ qty_planned: "10.00", qty_done: 0 });
       await queueAddonFactEvent({ projectId: "project-1", addonTypeId: "addon-1", qtyDone: "1,50" });
     }
     const insert = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("INSERT INTO pending_events"));
@@ -1446,7 +1446,7 @@ describe("mobile sync service", () => {
     dbRef.current.getFirstAsync
       .mockResolvedValueOnce({ total: 1 })
       .mockResolvedValueOnce({ total: 1 })
-      .mockResolvedValueOnce({ total: 1 });
+      .mockResolvedValueOnce({ qty_planned: "10.00", qty_done: 0 });
 
     await queueAddonFactEvent({
       projectId: "project-1",
@@ -1540,6 +1540,25 @@ describe("mobile sync service", () => {
     ).rejects.toThrow("planned by the office");
 
     expect(dbRef.current.runAsync).not.toHaveBeenCalled();
+  });
+
+  it("rejects add-on facts above the quantity the office planned", async () => {
+    dbRef.current.getFirstAsync
+      .mockResolvedValueOnce({ total: 1 })
+      .mockResolvedValueOnce({ total: 1 })
+      .mockResolvedValueOnce({ qty_planned: "3.00", qty_done: 2.5 });
+
+    await expect(
+      queueAddonFactEvent({ projectId: "project-1", addonTypeId: "addon-1", qtyDone: "0.51" })
+    ).rejects.toThrow("more than the office planned");
+    expect(dbRef.current.runAsync).not.toHaveBeenCalled();
+
+    dbRef.current.getFirstAsync
+      .mockResolvedValueOnce({ total: 1 })
+      .mockResolvedValueOnce({ total: 1 })
+      .mockResolvedValueOnce({ qty_planned: "3.00", qty_done: 2.5 });
+    await queueAddonFactEvent({ projectId: "project-1", addonTypeId: "addon-1", qtyDone: "0.50" });
+    expect(dbRef.current.runAsync).toHaveBeenCalled();
   });
 
   it("retrying an add-on event restores the optimistic offline local row", async () => {

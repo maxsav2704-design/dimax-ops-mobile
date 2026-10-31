@@ -1832,13 +1832,21 @@ export async function queueAddonFactEvent(input: {
   if (Number(addonTypeRow?.total || 0) <= 0) {
     throw new Error("Add-on type is no longer available. Refresh data before continuing.");
   }
-  // Product rule: the office plans extra work, the installer records the fact.
-  const planRow = await db.getFirstAsync<{ total: number }>(
-    "SELECT COUNT(*) as total FROM addon_plans WHERE project_id = ? AND addon_type_id = ?",
+  // Product rule: the office plans extra work and its quantity, the installer records the fact.
+  // The server checks the total of every installer; this catches what this phone already knows.
+  const planRow = await db.getFirstAsync<{ qty_planned: string | null; qty_done: number | null }>(
+    `SELECT p.qty_planned AS qty_planned,
+            (SELECT COALESCE(SUM(CAST(f.qty_done AS REAL)), 0) FROM addon_facts f
+              WHERE f.project_id = p.project_id AND f.addon_type_id = p.addon_type_id) AS qty_done
+       FROM addon_plans p WHERE p.project_id = ? AND p.addon_type_id = ?`,
     [input.projectId, addonTypeId]
   );
-  if (Number(planRow?.total || 0) <= 0) {
+  if (planRow?.qty_planned == null) {
     throw new Error("Extra work must be planned by the office before you record it.");
+  }
+  const cents = (value: string | number | null) => Math.round(Number(value || 0) * 100);
+  if (cents(planRow.qty_done) + cents(qtyDone) > cents(planRow.qty_planned)) {
+    throw new Error("The quantity is more than the office planned. Ask the office to update the plan.");
   }
 
   const payload = {
