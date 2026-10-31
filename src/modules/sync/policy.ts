@@ -1,6 +1,17 @@
-import { ApiError, NetworkError } from "@/lib/errors";
+import { ApiError, NetworkError, RequestTimeoutError } from "@/lib/errors";
 
 export const MAX_AUTO_RETRY_ATTEMPTS = 8;
+export const AUTO_RETRY_LIMIT_SUFFIX = "(auto retry limit reached)";
+
+/** No connection at all: the request never reached the server, so it is not a failed delivery. */
+export function isOfflineSyncError(error: unknown): boolean {
+  return error instanceof NetworkError && !(error instanceof RequestTimeoutError);
+}
+
+/** The server refused the person (switched off, role changed), not the work: the work waits for a fresh sign-in. */
+export function isAccountRefusal(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 403;
+}
 
 export function computeRetryDelayMinutes(attempts: number): number {
   if (attempts <= 1) return 1;

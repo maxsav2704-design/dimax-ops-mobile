@@ -26,6 +26,7 @@ vi.mock("@/modules/auth/session", () => ({
 }));
 
 import { apiFetch, authMe, getAuthSessionGeneration, login, logout, refreshSession } from "@/lib/api";
+import { NetworkError, RequestTimeoutError } from "@/lib/errors";
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
@@ -220,7 +221,9 @@ describe("mobile api auth payloads", () => {
     await vi.advanceTimersByTimeAsync(10001);
     expect(settled).toBe(false);
 
-    const rejection = expect(request).rejects.toThrow("Request timed out");
+    // A timeout is still a network failure, but one the server may have received (it uses a sync retry).
+    const rejection = expect(request).rejects.toSatisfy((error: unknown) =>
+      error instanceof RequestTimeoutError && error instanceof NetworkError && error.message === "Request timed out");
     await vi.advanceTimersByTimeAsync(20000);
 
     await rejection;

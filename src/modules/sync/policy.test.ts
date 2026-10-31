@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { ApiError, NetworkError } from "@/lib/errors";
+import { ApiError, NetworkError, RequestTimeoutError } from "@/lib/errors";
 import {
   MAX_AUTO_RETRY_ATTEMPTS,
   computeRetryDelayMinutes,
   getSyncErrorMessage,
+  isAccountRefusal,
+  isOfflineSyncError,
   isRetryableSyncError,
 } from "@/modules/sync/policy";
 
@@ -25,6 +27,20 @@ describe("sync retry policy", () => {
     expect(isRetryableSyncError(new ApiError("slow down", 429, "slow down"))).toBe(true);
     expect(isRetryableSyncError(new ApiError("validation", 422, "validation"))).toBe(false);
     expect(isRetryableSyncError(new Error("boom"))).toBe(false);
+  });
+
+  it("tells a missing connection from a server that did not answer in time", () => {
+    expect(isOfflineSyncError(new NetworkError("Network request failed"))).toBe(true);
+    // A timed-out request may have reached the server, so it still uses a retry.
+    expect(isOfflineSyncError(new RequestTimeoutError())).toBe(false);
+    expect(isRetryableSyncError(new RequestTimeoutError())).toBe(true);
+    expect(isOfflineSyncError(new ApiError("server", 503, "server"))).toBe(false);
+  });
+
+  it("treats a 403 on the whole request as a refusal of the account, not of the work", () => {
+    expect(isAccountRefusal(new ApiError("User is inactive or unavailable", 403, ""))).toBe(true);
+    expect(isAccountRefusal(new ApiError("validation", 422, ""))).toBe(false);
+    expect(isAccountRefusal(new NetworkError("offline"))).toBe(false);
   });
 
   it("returns readable sync error messages", () => {

@@ -15,9 +15,12 @@ import { parseFactoryPrices } from "@/modules/prices/contract";
 import { commandPayload } from "@/modules/sync/command-payload";
 import { markSyncFinished, markSyncStarted, notifySyncQueueChanged } from "@/modules/sync/status";
 import {
+  AUTO_RETRY_LIMIT_SUFFIX,
   MAX_AUTO_RETRY_ATTEMPTS,
   computeRetryDelayMinutes,
   getSyncErrorMessage,
+  isAccountRefusal,
+  isOfflineSyncError,
   isRetryableSyncError,
 } from "@/modules/sync/policy";
 import type { DoorStagesSnapshot, PendingSyncEvent, SyncChange, SyncQueueSummary, SyncResponse, SyncSnapshot } from "@/modules/sync/types";
@@ -292,6 +295,11 @@ async function markAckResult(
     await scheduleRetry([clientEventId], error);
     return;
   }
+  if (error === "AUTH_REQUIRED") {
+    // The session was refused, not the work: keep the local state and send it again after the next sign-in.
+    await markEventsAuthRequired([clientEventId]);
+    return;
+  }
 
   const payload = eventRow ? parsePendingPayload(eventRow.payload_json) : {};
   await db.withTransactionAsync(async () => {
@@ -355,7 +363,7 @@ async function scheduleRetry(clientEventIds: string[], error: string): Promise<v
                error = ?,
                next_retry_at = NULL
            WHERE client_event_id = ?`,
-          [`${error} (auto retry limit reached)`, clientEventId]
+          [`${error} ${AUTO_RETRY_LIMIT_SUFFIX}`, clientEventId]
         );
         continue;
       }
@@ -370,6 +378,67 @@ async function scheduleRetry(clientEventIds: string[], error: string): Promise<v
       );
     }
   });
+}
+
+// No connection: the request never reached the server, so the attempt is given back and the work goes with the next
+// sync (every minute), however long the phone stays offline.
+async function scheduleOfflineRetry(clientEventIds: string[], error: string): Promise<void> {
+  if (!clientEventIds.length) {
+    return;
+  }
+
+  const db = await getDb();
+  const placeholders = clientEventIds.map(() => "?").join(", ");
+  await db.runAsync(
+    `UPDATE pending_events
+     SET status = 'FAILED',
+         attempts = MAX(attempts - 1, 0),
+         error = ?,
+         next_retry_at = ?
+     WHERE client_event_id IN (${placeholders})`,
+    [error, toIsoAfterMinutes(1), ...clientEventIds]
+  );
+}
+
+// The account was refused, not the work: nothing is rolled back, and the work goes again after the next sign-in.
+async function markEventsAuthRequired(clientEventIds: string[]): Promise<void> {
+  if (!clientEventIds.length) {
+    return;
+  }
+
+  const db = await getDb();
+  const placeholders = clientEventIds.map(() => "?").join(", ");
+  await db.runAsync(
+    `UPDATE pending_events
+     SET status = 'BLOCKED',
+         error = 'AUTH_REQUIRED',
+         next_retry_at = NULL
+     WHERE client_event_id IN (${placeholders})`,
+    clientEventIds
+  );
+}
+
+// The server answers again: work the retry limit stopped in an earlier sync goes with the next one.
+async function releaseRetryLimitRows(): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `UPDATE pending_events
+     SET status = 'PENDING',
+         attempts = 0,
+         error = NULL,
+         next_retry_at = NULL
+     WHERE status = 'BLOCKED' AND error LIKE ?`,
+    [`%${AUTO_RETRY_LIMIT_SUFFIX}`]
+  );
+}
+
+/** Records why sent work did not get through; only a verdict on the batch itself blocks it. */
+async function recordSendFailure(clientEventIds: string[], failure: unknown): Promise<void> {
+  const message = getSyncErrorMessage(failure);
+  if (isOfflineSyncError(failure)) return scheduleOfflineRetry(clientEventIds, message);
+  if (isAccountRefusal(failure)) return markEventsAuthRequired(clientEventIds);
+  if (isRetryableSyncError(failure)) return scheduleRetry(clientEventIds, message);
+  return markEventsBlocked(clientEventIds, message);
 }
 
 async function markEventsBlocked(clientEventIds: string[], error: string): Promise<void> {
@@ -1458,19 +1527,17 @@ async function executeSync(context: SyncContext, options?: {
     // Keep catch bindings out of deferred native async/generator callbacks.
     const failure = error;
     if (pendingEventIds.length && !(failure instanceof SessionChangedError)) {
-      const retryable = isRetryableSyncError(failure);
-      const message = getSyncErrorMessage(failure);
-      if (!retryable && pendingEvents.length > 1) {
+      if (!isRetryableSyncError(failure) && !isAccountRefusal(failure) && pendingEvents.length > 1) {
         // The server rejected the batch as a whole (for example one malformed event
         // failed request validation). Find the offender by halving the batch so the
         // other events are still delivered instead of all of them being blocked.
-        const isolated = await syncInHalves(context, postSync, applyResponse, sinceCursor, pendingEvents, message);
+        // A refused account is not about any event, so it is never halved.
+        const isolated = await syncInHalves(context, postSync, applyResponse, sinceCursor, pendingEvents,
+          getSyncErrorMessage(failure));
         if (isolated) return isolated;
         throw failure;
       }
-      await withSyncDatabase(context, () => retryable
-        ? scheduleRetry(pendingEventIds, message)
-        : markEventsBlocked(pendingEventIds, message));
+      await withSyncDatabase(context, () => recordSendFailure(pendingEventIds, failure));
     }
     throw failure;
   }
@@ -1502,12 +1569,11 @@ async function syncInHalves(
     } catch (error) {
       const failure = error;
       if (failure instanceof SessionChangedError) throw failure;
-      const message = getSyncErrorMessage(failure);
-      if (isRetryableSyncError(failure)) {
-        await withSyncDatabase(context, () => scheduleRetry(halfIds, message));
+      if (isRetryableSyncError(failure) || isAccountRefusal(failure)) {
+        await withSyncDatabase(context, () => recordSendFailure(halfIds, failure));
         throw failure;
       }
-      const deeper = await syncInHalves(context, postSync, apply, nextCursor, half, message);
+      const deeper = await syncInHalves(context, postSync, apply, nextCursor, half, getSyncErrorMessage(failure));
       if (deeper) {
         last = deeper;
         nextCursor = deeper.next_cursor;
@@ -1526,6 +1592,8 @@ async function applyResponse(context: SyncContext, response: SyncResponse, pendi
     return await withSyncDatabase(context, async () => {
       // Reject malformed prices before changing the cursor, queue or snapshot.
       const prices = response.factory_prices === undefined ? undefined : parseFactoryPrices(response.factory_prices);
+      // Released before this answer's acks, so work it stops again waits for a later answer.
+      await releaseRetryLimitRows();
       if (response.reset_required) {
         if (!response.snapshot) {
           throw new Error("Sync reset requested without snapshot");

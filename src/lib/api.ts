@@ -1,6 +1,6 @@
 import { API_BASE_URL } from "@/lib/config";
 import { getOrCreateDeviceId } from "@/lib/device-id";
-import { ApiError, NetworkError, SessionChangedError, SessionStorageError } from "@/lib/errors";
+import { ApiError, NetworkError, RequestTimeoutError, SessionChangedError, SessionStorageError } from "@/lib/errors";
 import {
   clearSession,
   getStoredSession,
@@ -201,7 +201,7 @@ async function rawFetch<T>(path: string, init?: ApiRequestInit): Promise<T> {
     });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new NetworkError("Request timed out");
+      throw new RequestTimeoutError();
     }
     throw new NetworkError(error instanceof Error ? error.message : "Network request failed");
   } finally {

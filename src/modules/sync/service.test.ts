@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, NetworkError } from "@/lib/errors";
+import { ApiError, NetworkError, RequestTimeoutError } from "@/lib/errors";
 
 const {
   apiFetchMock,
@@ -104,7 +104,7 @@ describe("mobile sync service", () => {
     expect(request.price_resolution_checks).toEqual([original.client_event_id]);
     const commands = dbRef.current.runAsync.mock.calls;
     expect(commands.some(([sql]: [string]) => sql.includes("DELETE FROM pending_events"))).toBe(resolved);
-    expect(commands.some(([sql]: [string]) => sql.includes("UPDATE pending_events"))).toBe(false);
+    expect(commands.some(([sql]: [string]) => sql.includes("UPDATE pending_events") && !sql.includes("error LIKE ?"))).toBe(false);
     expect(commands.some(([sql]: [string]) => sql.includes("SET payload_json"))).toBe(false);
   });
 
@@ -865,8 +865,10 @@ describe("mobile sync service", () => {
 
   it.each([
     { failure: new NetworkError("Offline"), attempts: 1, status: "FAILED", message: "Offline" },
-    { failure: new NetworkError("Offline"), attempts: MAX_AUTO_RETRY_ATTEMPTS, status: "BLOCKED", message: "Offline (auto retry limit reached)" },
-    { failure: new ApiError("Forbidden", 403, ""), attempts: 1, status: "BLOCKED", message: "Forbidden" },
+    // Offline time never uses up the retries: even the last attempt is given back.
+    { failure: new NetworkError("Offline"), attempts: MAX_AUTO_RETRY_ATTEMPTS, status: "FAILED", message: "Offline" },
+    { failure: new RequestTimeoutError(), attempts: MAX_AUTO_RETRY_ATTEMPTS, status: "BLOCKED", message: "Request timed out (auto retry limit reached)" },
+    { failure: new ApiError("Unprocessable", 422, ""), attempts: 1, status: "BLOCKED", message: "Unprocessable" },
   ])("preserves the original $failure and records $status after deferred failure handling", async ({ failure, attempts, status, message }) => {
     const event = {
       client_event_id: "retained-work", type: "DOOR_SET_STATUS", project_id: "project-1",
@@ -889,6 +891,61 @@ describe("mobile sync service", () => {
     expect(updates.some(([sql]: [string]) => sql.includes("DELETE FROM pending_events"))).toBe(false);
     expect(updates.some(([sql]: [string]) => sql.includes("UPDATE doors"))).toBe(false);
     expect(setStateMock).not.toHaveBeenCalled();
+  });
+
+  it("gives the attempt back when the phone has no connection, so hours offline never block the work", async () => {
+    dbRef.current.getAllAsync.mockResolvedValueOnce([{
+      client_event_id: "offline-work", type: "DOOR_SET_STATUS", project_id: "project-1",
+      happened_at: "2026-10-31T10:00:00Z", created_at: "2026-10-31T10:00:00Z",
+      payload_json: JSON.stringify({ door_id: "door-1", status: "INSTALLED" }),
+      status: "FAILED", error: "Offline", attempts: 7, next_retry_at: null, last_attempt_at: null,
+    }]);
+    apiFetchMock.mockRejectedValueOnce(new NetworkError("Network request failed"));
+
+    await expect(runSync()).rejects.toThrow("Network request failed");
+
+    const calls = dbRef.current.runAsync.mock.calls;
+    const offline = calls.find(([sql]: [string]) => sql.includes("attempts = MAX(attempts - 1, 0)"));
+    expect(offline?.[0]).toContain("SET status = 'FAILED'");
+    expect(offline?.[1]).toEqual(["Network request failed", expect.any(String), "offline-work"]);
+    expect(calls.some(([sql]: [string]) => sql.includes("SET status = 'BLOCKED'"))).toBe(false);
+  });
+
+  it("keeps the whole queue as it is when the server refuses the account: no halving, no rollback", async () => {
+    const work = (id: string, door: string) => ({
+      client_event_id: id, type: "DOOR_SET_STATUS", project_id: "project-1",
+      happened_at: "2026-10-31T10:00:00Z", created_at: "2026-10-31T10:00:00Z",
+      payload_json: JSON.stringify({ door_id: door, status: "INSTALLED", previous_status: "NOT_INSTALLED" }),
+      status: "PENDING", error: null, attempts: 0, next_retry_at: null, last_attempt_at: null,
+    });
+    dbRef.current.getAllAsync.mockResolvedValueOnce([work("work-a", "door-a"), work("work-b", "door-b")]);
+    const refusal = new ApiError("User is inactive or unavailable", 403, "");
+    apiFetchMock.mockRejectedValueOnce(refusal);
+
+    await expect(runSync()).rejects.toBe(refusal);
+
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    const calls = dbRef.current.runAsync.mock.calls;
+    const parked = calls.find(([sql]: [string]) => sql.includes("error = 'AUTH_REQUIRED'"));
+    expect(parked?.[0]).toContain("SET status = 'BLOCKED'");
+    expect(parked?.[1]).toEqual(["work-a", "work-b"]);
+    expect(calls.some(([sql]: [string]) => sql.includes("UPDATE doors"))).toBe(false);
+  });
+
+  it("sends work stopped by the retry limit again once the server answers", async () => {
+    await runSync();
+
+    const release = dbRef.current.runAsync.mock.calls.find(([sql]: [string]) => sql.includes("error LIKE ?"));
+    expect(release?.[0]).toContain("SET status = 'PENDING'");
+    expect(release?.[0]).toContain("attempts = 0");
+    expect(release?.[0]).toContain("WHERE status = 'BLOCKED'");
+    expect(release?.[1]).toEqual(["%(auto retry limit reached)"]);
+  });
+
+  it("does not release retry-limit stops when the server did not answer", async () => {
+    apiFetchMock.mockRejectedValueOnce(new ApiError("Bad gateway", 502, ""));
+    await expect(runSync()).rejects.toThrow("Bad gateway");
+    expect(dbRef.current.runAsync.mock.calls.some(([sql]: [string]) => sql.includes("error LIKE ?"))).toBe(false);
   });
 
   it.each(["CONFLICT_ASSIGNMENT_CHANGED", "CONFLICT_INVALID_TRANSITION", "CONFLICT_FACTORY_PRICE"])(
@@ -1948,6 +2005,20 @@ describe("mobile sync service", () => {
     const failed = calls.find(([sql]: [string]) => sql.includes("SET status = 'FAILED'"));
     expect(failed?.[1]?.[0]).toBe("SERVER_ERROR");
     expect(calls.some(([sql]: [string]) => sql.includes("SET status = 'BLOCKED'"))).toBe(false);
+    expect(calls.some(([sql]: [string]) => sql.includes("UPDATE doors"))).toBe(false);
+  });
+
+  it("keeps the local state when the server answers AUTH_REQUIRED for one event", async () => {
+    dbRef.current.getAllAsync.mockResolvedValueOnce([pendingEvent("event-a", "door-a")]);
+    dbRef.current.getFirstAsync.mockResolvedValue({ ...pendingEvent("event-a", "door-a"), attempts: 1 });
+    apiFetchMock.mockResolvedValue({ server_time: "2026-10-31T08:02:00Z", next_cursor: 8, reset_required: false,
+      snapshot: null, changes: [], acks: [{ client_event_id: "event-a", ok: false, applied: false, error: "AUTH_REQUIRED" }] });
+
+    await runSync();
+
+    const calls = dbRef.current.runAsync.mock.calls;
+    const parked = calls.find(([sql]: [string]) => sql.includes("error = 'AUTH_REQUIRED'") && sql.includes("SET status = 'BLOCKED'"));
+    expect(parked?.[1]).toEqual(["event-a"]);
     expect(calls.some(([sql]: [string]) => sql.includes("UPDATE doors"))).toBe(false);
   });
 

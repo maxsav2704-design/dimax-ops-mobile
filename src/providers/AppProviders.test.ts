@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   activate: vi.fn(), me: vi.fn(), session: vi.fn(), cachedUser: vi.fn(),
-  valid: vi.fn(), clear: vi.fn(), sync: vi.fn(), mounted: vi.fn(),
+  valid: vi.fn(), clear: vi.fn(), sync: vi.fn(), release: vi.fn(), mounted: vi.fn(),
 }));
 vi.mock("react-native", async () => (await vi.importActual<typeof import("@/test/native-ui")>("@/test/native-ui")).createNativeUiMock());
 vi.mock("expo-secure-store", () => ({ getItemAsync: async () => "en", setItemAsync: vi.fn() }));
@@ -18,7 +18,7 @@ vi.mock("@/modules/auth/session", () => ({
   getStoredSession: mocks.session, getStoredUser: mocks.cachedUser, isValidCachedInstaller: mocks.valid,
 }));
 vi.mock("@/modules/auth/workspace", () => ({ clearAuthWorkspace: mocks.clear }));
-vi.mock("@/modules/sync/service", () => ({ runSync: mocks.sync }));
+vi.mock("@/modules/sync/service", () => ({ runSync: mocks.sync, releaseAuthBlockedEvents: mocks.release }));
 
 import { AppProviders, useAuth } from "./AppProviders";
 
@@ -51,6 +51,21 @@ beforeEach(() => {
 afterEach(() => { if (tree) act(() => tree.unmount()); });
 
 describe("native route bootstrap", () => {
+  it("releases work waiting for a fresh sign-in once per sign-in, not with every minute's sync", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.activate.mockResolvedValue(undefined);
+      mocks.release.mockResolvedValue(0);
+      mocks.sync.mockResolvedValue(undefined);
+      await mount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+      expect(mocks.sync.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(mocks.release).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not mount a deep-linked screen before its offline database is activated", async () => {
     const activation = deferred();
     mocks.activate.mockReturnValue(activation.promise);

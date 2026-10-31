@@ -167,13 +167,18 @@ export function AppProviders({ children }: { children: ReactNode }) {
     }
 
     let active = true;
+    let authReleased = false;
     const expectedEpoch = authEpoch.current;
     const isCurrent = () => active && authEpoch.current === expectedEpoch;
     const syncSafe = async () => {
       if (!isCurrent()) return;
       try {
-        // A session is active again: queued work blocked by AUTH_REQUIRED may go out.
-        await releaseAuthBlockedEvents();
+        // A session is active again: queued work blocked by AUTH_REQUIRED goes out once per sign-in, not every
+        // minute (a refused account would otherwise resend the whole queue each minute).
+        if (!authReleased) {
+          await releaseAuthBlockedEvents();
+          authReleased = true;
+        }
         await runSync();
         if (isCurrent()) {
           setSyncVersion((version) => version + 1);

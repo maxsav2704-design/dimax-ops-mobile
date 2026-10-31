@@ -322,15 +322,15 @@ export function buildQueueResolution(
       title: text(locale, "Retry limit reached", "Лимит повторов исчерпан", "הגעתם למגבלת הניסיונות"),
       detail: text(
         locale,
-        "Sync failed several times and stopped automatic retries.",
-        "Синхронизация несколько раз не прошла, автоматические повторы остановлены.",
-        "הסנכרון נכשל מספר פעמים והניסיונות האוטומטיים הופסקו."
+        "The server did not accept it several times, so automatic retries stopped. It is sent again by itself once the server answers.",
+        "Сервер несколько раз не принял действие, автоматические повторы остановлены. Оно уйдёт само, как только сервер снова ответит.",
+        "השרת לא קיבל את הפעולה מספר פעמים, והניסיונות האוטומטיים הופסקו. היא תישלח מעצמה ברגע שהשרת יענה שוב."
       ),
       action: text(
         locale,
-        "Check internet and retry manually. If it fails again, contact the office.",
-        "Проверьте интернет и повторите вручную. При повторной ошибке свяжитесь с офисом.",
-        "בדקו את החיבור ונסו ידנית. אם השגיאה חוזרת, פנו למשרד."
+        "You can retry now. If it fails again, contact the office.",
+        "Можно повторить сейчас. При повторной ошибке свяжитесь с офисом.",
+        "אפשר לנסות עכשיו. אם השגיאה חוזרת, פנו למשרד."
       ),
       retryAllowed: true,
       dropAllowed: event.status === "BLOCKED",

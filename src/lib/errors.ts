@@ -17,6 +17,14 @@ export class NetworkError extends Error {
   }
 }
 
+// The server did not answer in time: unlike a missing connection, the request may have reached it.
+export class RequestTimeoutError extends NetworkError {
+  constructor() {
+    super("Request timed out");
+    this.name = "RequestTimeoutError";
+  }
+}
+
 export class SessionChangedError extends Error {
   constructor() {
     super("Mobile session changed while the request was in progress");

@@ -66,7 +66,8 @@ describe("sync queue presentation", () => {
     const resolution = buildQueueResolution(event);
 
     expect(resolution.title).toBe("Retry limit reached");
-    expect(resolution.detail).toContain("stopped automatic retries");
+    expect(resolution.detail).toContain("automatic retries stopped");
+    expect(resolution.detail).toContain("sent again by itself once the server answers");
     expect(resolution.retryAllowed).toBe(true);
     expect(resolution.dropAllowed).toBe(false);
     expect(buildQueueResolution(event, "ru").title).toBe("Лимит повторов исчерпан");
